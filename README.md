@@ -1,159 +1,446 @@
-# Turborepo starter
+# Polo
 
-This Turborepo starter is maintained by the Turborepo core team.
+**Govern what your AI is allowed to see.**
 
-## Using this example
+Polo lets you define a context contract for a task, resolve it at runtime, and get a trace that explains exactly what was included, excluded, or dropped.
 
-Run the following command:
+---
 
-```sh
-npx create-turbo@latest
+Most AI apps still build context like this:
+
+```ts
+const prompt = `
+Transcript:
+${transcript}
+
+Customer account:
+${accountSummary}
+
+Recent tickets:
+${recentTickets.slice(0, 5).join("\n\n")}
+
+Write a support reply.
+`;
 ```
 
-## What's inside?
+It works until it doesn't.
 
-This Turborepo includes the following packages/apps:
+When an output is wrong, most teams cannot answer a simple question:
 
-### Apps and Packages
+> **What was the model allowed to see?**
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+And if you cannot answer that, neither can your compliance team.
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+---
 
-### Utilities
+With Polo:
 
-This Turborepo has some additional tools already setup for you:
+```ts
+import { polo } from "usepolo";
 
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
+const supportReply = polo.define({
+  id: "support_reply",
 
-### Build
+  sources: {
+    transcript: polo.input("transcript", { sensitivity: "restricted" }),
+    account: polo.source(async (input) =>
+      db.account.findUniqueOrThrow({ where: { id: input.accountId } }),
+    ),
+    recentTickets: polo.source(async (input) =>
+      polo.chunks(
+        vectorDb.search({ query: input.transcript, topK: 10 }),
+        (item) => ({ content: item.pageContent, score: item.relevanceScore }),
+      ),
+    ),
+  },
 
-To build all apps and packages, run the following command:
+  derive: ({ context }) => ({
+    isEnterprise: context.account.plan === "enterprise",
+    replyStyle: context.account.tier === "priority" ? "concise" : "standard",
+  }),
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+  policies: {
+    require: ["transcript", "account"],
+    prefer: ["recentTickets"],
+    budget: 12_000,
+  },
+});
 
-```sh
-cd my-turborepo
-turbo build
+const { context, trace } = await polo.resolve(supportReply, {
+  accountId: "acc_123",
+  transcript: "...",
+});
+
+await generateText({
+  model,
+  system: buildSystemPrompt(context),
+  prompt: buildPrompt(context),
+});
 ```
 
-Without global `turbo`, use your package manager:
+Polo makes the contract explicit. The trace proves what happened.
 
-```sh
-cd my-turborepo
-npx turbo build
-yarn dlx turbo build
-pnpm exec turbo build
+```json
+{
+  "sources": [
+    { "key": "transcript", "type": "input", "sensitivity": "restricted" },
+    { "key": "account", "type": "single", "sensitivity": "internal" },
+    {
+      "key": "recentTickets",
+      "type": "chunks",
+      "chunks": [
+        { "included": true, "score": 0.91 },
+        { "included": true, "score": 0.87 },
+        { "included": false, "score": 0.42, "reason": "over_budget" }
+      ]
+    }
+  ],
+  "policies": [
+    {
+      "source": "transcript",
+      "action": "required",
+      "reason": "required by task"
+    },
+    { "source": "account", "action": "required", "reason": "required by task" },
+    {
+      "source": "recentTickets",
+      "action": "preferred",
+      "reason": "preferred for grounding"
+    }
+  ],
+  "budget": { "max": 12000, "used": 8430 }
+}
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+Polo used 8,430 of a 12,000 token budget and can tell you exactly what it left out and why.
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+---
 
-```sh
-turbo build --filter=docs
+## The API
+
+Polo has five primitives:
+
+| Primitive        |                                         |
+| ---------------- | --------------------------------------- |
+| `polo.define()`  | Declare the context contract for a task |
+| `polo.resolve()` | Resolve context at runtime              |
+| `polo.input()`   | Passthrough from call-time input        |
+| `polo.source()`  | Single async value from anywhere        |
+| `polo.chunks()`  | Ranked multi-block source wrapper       |
+
+That is the whole surface. Everything else — dependency ordering, packing, tracing, provenance, chunk dropping — stays internal.
+
+---
+
+## Authoritative by Default
+
+`resolve()` is authoritative.
+
+`context` only contains what policy allowed through. Excluded sources are absent — not nulled, not hidden behind a flag. Absent.
+
+```ts
+const { context } = await polo.resolve(generateAINote, {
+  encounterId,
+  transcript,
+});
+
+context.intake; // undefined — excluded by policy for follow-up visits
 ```
 
-Without global `turbo`:
+This is what makes Polo a control plane instead of a helper. You cannot accidentally leak an excluded source into a prompt because it is not there.
 
-```sh
-npx turbo build --filter=docs
-yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
+---
+
+## Quickstart
+
+```
+pnpm add usepolo
 ```
 
-### Develop
+### Define a task
 
-To develop all apps and packages, run the following command:
+```ts
+import { polo } from "usepolo";
+import { prisma } from "@/db";
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+const generateAINote = polo.define({
+  id: "generate_ai_note",
 
-```sh
-cd my-turborepo
-turbo dev
+  sources: {
+    transcript: polo.input("transcript", { sensitivity: "phi" }),
+
+    encounter: polo.source(async (input) =>
+      prisma.encounter.findUniqueOrThrow({
+        where: { id: input.encounterId },
+        include: {
+          patient: { include: { user: true } },
+          provider: { include: { user: true, specialties: true } },
+        },
+      }),
+    ),
+
+    intake: polo.source(async (_input, sources) =>
+      prisma.patientIntake.findFirst({
+        where: { patientId: sources.encounter.patientId },
+      }),
+    ),
+
+    priorNote: polo.source(async (_input, sources) =>
+      prisma.providerNote.findFirst({
+        where: {
+          encounter: {
+            patientId: sources.encounter.patientId,
+            providerId: sources.encounter.providerId,
+            cancelledAt: null,
+            startedAt: { lt: sources.encounter.startedAt },
+          },
+          signedAt: { not: null },
+        },
+        orderBy: { encounter: { startedAt: "desc" } },
+      }),
+    ),
+
+    noteSections: polo.source(async (_input, sources) =>
+      prisma.providerAiNoteSettings.findUnique({
+        where: { providerId: sources.encounter.providerId },
+        include: {
+          noteSections: {
+            where: { deletedAt: null },
+            orderBy: { sortOrder: "asc" },
+          },
+        },
+      }),
+    ),
+  },
+
+  derive: ({ context }) => ({
+    patientType: context.encounter.patient.isSeen ? "Follow-up" : "New",
+    includeIntake: !context.priorNote,
+    noteSchema: buildNoteSchema(
+      context.noteSections?.noteSections ?? DEFAULT_AI_NOTE_SECTIONS,
+    ),
+    styleMirror: !!context.priorNote,
+  }),
+
+  policies: {
+    require: ["transcript", "encounter", "noteSections"],
+    prefer: ["priorNote"],
+    exclude: [
+      ({ context }) =>
+        !context.includeIntake
+          ? {
+              source: "intake",
+              reason: "follow-up visits exclude patient intake",
+            }
+          : false,
+    ],
+    budget: 12_000,
+  },
+});
 ```
 
-Without global `turbo`, use your package manager:
+### Resolve at runtime
 
-```sh
-cd my-turborepo
-npx turbo dev
-yarn exec turbo dev
-pnpm exec turbo dev
+```ts
+const { context, trace } = await polo.resolve(generateAINote, {
+  encounterId: "enc_123",
+  transcript: "...",
+});
 ```
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+### Build your prompt normally
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
+```ts
+await generateObject({
+  model,
+  system: buildSystemPrompt(context),
+  prompt: buildPrompt(context),
+  schema: context.noteSchema,
+});
 ```
 
-Without global `turbo`:
+Polo does not own the prompt. It governs the data surface you use to build it.
 
-```sh
-npx turbo dev --filter=web
-yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
+---
+
+## Concepts
+
+### Sources
+
+Sources fetch data. `polo.input()` is for call-time values. `polo.source()` is for anything async — database reads, HTTP requests, file reads, internal services.
+
+Sources that depend on other sources reference them via the `sources` argument. Polo infers the dependency graph and runs independent sources in parallel automatically.
+
+```ts
+// wave 1 — no dependencies, runs immediately
+encounter: polo.source(async (input) =>
+  prisma.encounter.findUniqueOrThrow({ where: { id: input.encounterId } }),
+);
+
+// wave 2 — depends on encounter, runs once encounter resolves
+priorNote: polo.source(async (_input, sources) =>
+  prisma.providerNote.findFirst({
+    where: { encounter: { patientId: sources.encounter.patientId } },
+  }),
+);
 ```
 
-### Remote Caching
+No explicit sequencing. No overfetching.
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
+### Chunks
 
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
+Use `polo.chunks()` when a source returns multiple ranked blocks. Polo fits as many as the budget allows, drops the rest, and records each decision in the trace.
 
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
+```ts
+guidelines: polo.source(async (_input, sources) =>
+  polo.chunks(
+    vectorDb.search({ query: sources.encounter.reasonForVisit, topK: 10 }),
+    (item) => ({ content: item.pageContent, score: item.relevanceScore }),
+  ),
+);
 ```
 
-Without global `turbo`, use your package manager:
+The `normalize` function maps any vector DB response shape to `{ content, score }`.
 
-```sh
-cd my-turborepo
-npx turbo login
-yarn exec turbo login
-pnpm exec turbo login
+### Derive
+
+`derive()` computes plain values from resolved sources. Use it for task-specific values that belong in prompt construction but are not raw source data.
+
+```ts
+derive: ({ context }) => ({
+  patientType: context.encounter.patient.isSeen ? "Follow-up" : "New",
+  noteSchema: buildNoteSchema(
+    context.noteSections?.noteSections ?? DEFAULT_AI_NOTE_SECTIONS,
+  ),
+  styleMirror: !!context.priorNote,
+});
 ```
 
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
+Derived values are available on `context` after resolution, alongside source data.
 
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
+### Policies
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+Policies define the contract for a task.
 
-```sh
-turbo link
+```ts
+policies: {
+  require: ["transcript", "encounter"],
+  prefer:  ["priorNote", "guidelines"],
+  exclude: [
+    ({ context }) => !context.includeIntake
+      ? { source: "intake", reason: "follow-up visits exclude patient intake" }
+      : false,
+  ],
+  budget: 12_000,
+}
 ```
 
-Without global `turbo`:
+`require` — must resolve or `polo.resolve()` throws.  
+`prefer` — included if it fits in budget.  
+`exclude` — excludes a source key with a reason, recorded in the trace.  
+`budget` — token ceiling for the full context.
 
-```sh
-npx turbo link
-yarn exec turbo link
-pnpm exec turbo link
-```
+> **v0 note:** policies operate on top-level source keys only. If nested data needs separate treatment, promote it to its own source.
 
-## Useful Links
+---
 
-Learn more about the power of Turborepo:
+## Trace Philosophy
 
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+Traces are metadata-first by default.
+
+They record source resolution timing, sensitivity, policy decisions, chunk inclusion and dropping, budget usage, and derived values. They do not store raw resolved data unless you explicitly opt in.
+
+That keeps the default safe for sensitive workflows — and makes traces easy to log, store, and share with your compliance team.
+
+---
+
+## Fits Your Stack
+
+Polo sits between your data and your model call. Everything else stays yours.
+
+- **AI SDK** — model calls, streaming, tools, UI integration
+- **LlamaIndex / LangChain** — use them inside a `polo.source()` or alongside Polo
+- **LangSmith / Braintrust** — pass `trace` into your existing observability layer
+- **Prisma / Drizzle / any ORM** — `polo.source()` accepts any async function
+
+---
+
+## Open Source and Cloud
+
+### Open source (`usepolo`)
+
+- Task definitions
+- Local resolution
+- Authoritative context objects
+- Automatic dependency resolution
+- Chunk packing and dropping
+- Local traces
+- BYO model keys and infra
+
+### Polo Cloud
+
+- Hosted trace history
+- Compare runs over time
+- Shared task definitions across environments
+- Managed connectors and secrets
+- Regression and drift alerts
+- Governance workflows
+
+### Enterprise
+
+- SSO, RBAC, and SCIM
+- Audit logs
+- VPC / on-prem deployment
+- Data residency and retention controls
+- Compliance workflows
+- Support and SLA
+
+---
+
+## Who It Is For
+
+Polo is for teams shipping AI features in production who need:
+
+- explicit control over what context enters a model call
+- less prompt glue scattered through application code
+- auditability when outputs go wrong
+- policy controls around sensitive data
+- a better way to compare context strategies over time
+
+It is especially useful when context comes from multiple systems, mistakes are expensive, humans review outputs, or compliance matters.
+
+---
+
+## v0 Scope
+
+Polo v0 ships with:
+
+- TypeScript runtime
+- Five public primitives
+- Authoritative `resolve()`
+- Automatic dependency resolution
+- Chunk-aware budget packing
+- Local traces, metadata-first
+- AI SDK compatibility
+
+The goal is simple: make context contracts explicit, enforce them at runtime, and prove what happened after every call.
+
+---
+
+## Why Now
+
+Models are getting better. Context quality is still mostly managed as handwritten glue code.
+
+As teams add more workflows, more systems, and more compliance pressure, that glue becomes the bottleneck.
+
+The industry has tools for prompts, retrieval, and observability.
+
+What is still missing is the layer that governs what the model is allowed to see.
+
+Polo is that layer.
+
+---
+
+## License
+
+MIT
