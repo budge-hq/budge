@@ -1,8 +1,18 @@
 # Polo
 
-**Govern what your AI is allowed to see.**
+**Better context. Better outputs.**
 
-Polo lets you define a context contract for a task, resolve it at runtime, and get a trace that explains exactly what was included, excluded, or dropped.
+Most AI output problems are context problems.
+
+Too much irrelevant data. Stale sources mixed with fresh ones. No token budget. Sensitive fields that should never have been included. Logic for deciding what to include scattered across the codebase with no way to explain what happened later.
+
+[Anthropic's engineering team put it directly](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents): *"Good context engineering means finding the smallest possible set of high-signal tokens that maximize the likelihood of some desired outcome."* Not the most tokens. The right tokens.
+
+[Cursor found the same thing in production](https://cursor.com/blog/dynamic-context-discovery): dynamic context discovery reduced total agent tokens by **46.9%** in MCP-tool runs, and they argue it can improve response quality by reducing confusing or contradictory information in the context window.
+
+The industry has a name for this now: **context engineering**. And it turns out the hard part is not retrieval. It is deciding, for a specific task, what context belongs in the call at all.
+
+That logic usually lives as prompt glue scattered through application code. Polo turns it into an explicit contract.
 
 ---
 
@@ -25,49 +35,58 @@ Write a support reply.
 
 It works until it doesn't.
 
-When an output is wrong, most teams cannot answer a simple question:
+As your AI features grow, this approach breaks down:
 
-> **What was the model allowed to see?**
-
-And if you cannot answer that, neither can your compliance team.
+- more data sources mean more decisions buried in string templates
+- stale data mixed with fresh data degrades output quality
+- no token budget means inconsistent results as context balloons
+- sensitive fields get included accidentally
+- when outputs go wrong, you cannot answer the most important debugging question: what was the model allowed to see?
 
 ---
 
 With Polo:
 
 ```ts
-import { polo } from "usepolo";
+import { generateText, gateway } from "ai";
+import { polo } from "@polo/core";
+
+const model = gateway("anthropic/claude-sonnet-4.6");
 
 const supportReply = polo.define({
   id: "support_reply",
 
   sources: {
     transcript: polo.input("transcript", { sensitivity: "restricted" }),
-    account: polo.source(async (input) =>
-      db.account.findUniqueOrThrow({ where: { id: input.accountId } }),
+    account: polo.source(
+      async (input) =>
+        db.account.findUniqueOrThrow({ where: { id: input.accountId } }),
+      { sensitivity: "internal" },
     ),
-    recentTickets: polo.source(async (input) =>
-      polo.chunks(
-        vectorDb.search({ query: input.transcript, topK: 10 }),
-        (item) => ({ content: item.pageContent, score: item.relevanceScore }),
-      ),
+    recentTickets: polo.source(
+      async (input) =>
+        polo.chunks(
+          vectorDb.search({ query: input.transcript, topK: 10 }),
+          (item) => ({ content: item.pageContent, score: item.relevanceScore }),
+        ),
+      { sensitivity: "internal" },
     ),
   },
 
   derive: ({ context }) => ({
     isEnterprise: context.account.plan === "enterprise",
-    replyStyle: context.account.tier === "priority" ? "concise" : "standard",
+    replyStyle:   context.account.tier === "priority" ? "concise" : "standard",
   }),
 
   policies: {
     require: ["transcript", "account"],
-    prefer: ["recentTickets"],
-    budget: 12_000,
+    prefer:  ["recentTickets"],
+    budget:  12_000,
   },
 });
 
 const { context, trace } = await polo.resolve(supportReply, {
-  accountId: "acc_123",
+  accountId:  "acc_123",
   transcript: "...",
 });
 
@@ -78,35 +97,28 @@ await generateText({
 });
 ```
 
-Polo makes the contract explicit. The trace proves what happened.
+The contract is explicit. The trace proves what happened.
 
 ```json
 {
   "sources": [
-    { "key": "transcript", "type": "input", "sensitivity": "restricted" },
-    { "key": "account", "type": "single", "sensitivity": "internal" },
+    { "key": "transcript",     "type": "input",  "sensitivity": "restricted" },
+    { "key": "account",        "type": "single", "sensitivity": "internal"   },
     {
       "key": "recentTickets",
       "type": "chunks",
+      "sensitivity": "internal",
       "chunks": [
-        { "included": true, "score": 0.91 },
-        { "included": true, "score": 0.87 },
+        { "included": true,  "score": 0.91 },
+        { "included": true,  "score": 0.87 },
         { "included": false, "score": 0.42, "reason": "over_budget" }
       ]
     }
   ],
   "policies": [
-    {
-      "source": "transcript",
-      "action": "required",
-      "reason": "required by task"
-    },
-    { "source": "account", "action": "required", "reason": "required by task" },
-    {
-      "source": "recentTickets",
-      "action": "preferred",
-      "reason": "preferred for grounding"
-    }
+    { "source": "transcript",    "action": "required",  "reason": "required by task" },
+    { "source": "account",       "action": "required",  "reason": "required by task" },
+    { "source": "recentTickets", "action": "preferred", "reason": "preferred for grounding" }
   ],
   "budget": { "max": 12000, "used": 8430 }
 }
@@ -120,13 +132,13 @@ Polo used 8,430 of a 12,000 token budget and can tell you exactly what it left o
 
 Polo has five primitives:
 
-| Primitive        |                                         |
-| ---------------- | --------------------------------------- |
-| `polo.define()`  | Declare the context contract for a task |
-| `polo.resolve()` | Resolve context at runtime              |
-| `polo.input()`   | Passthrough from call-time input        |
-| `polo.source()`  | Single async value from anywhere        |
-| `polo.chunks()`  | Ranked multi-block source wrapper       |
+| Primitive | |
+|---|---|
+| `polo.define()` | Declare the context contract for a task |
+| `polo.resolve()` | Resolve context at runtime |
+| `polo.input()` | Passthrough from call-time input |
+| `polo.source()` | Single async value from anywhere |
+| `polo.chunks()` | Ranked multi-block source wrapper |
 
 That is the whole surface. Everything else — dependency ordering, packing, tracing, provenance, chunk dropping — stays internal.
 
@@ -136,7 +148,7 @@ That is the whole surface. Everything else — dependency ordering, packing, tra
 
 `resolve()` is authoritative.
 
-`context` only contains what policy allowed through. Excluded sources are absent — not nulled, not hidden behind a flag. Absent.
+`context` only contains source keys that policy allowed through. Excluded sources are absent — not nulled, not hidden behind a flag. Absent.
 
 ```ts
 const { context } = await polo.resolve(generateAINote, {
@@ -144,7 +156,7 @@ const { context } = await polo.resolve(generateAINote, {
   transcript,
 });
 
-context.intake; // undefined — excluded by policy for follow-up visits
+context.intake; // undefined at runtime when excluded by policy
 ```
 
 This is what makes Polo a control plane instead of a helper. You cannot accidentally leak an excluded source into a prompt because it is not there.
@@ -154,14 +166,15 @@ This is what makes Polo a control plane instead of a helper. You cannot accident
 ## Quickstart
 
 ```
-pnpm add usepolo
+pnpm add @polo/core ai
 ```
 
 ### Define a task
 
 ```ts
-import { polo } from "usepolo";
+import { polo } from "@polo/core";
 import { prisma } from "@/db";
+import { DEFAULT_AI_NOTE_SECTIONS } from "@/ai/defaultAiNoteSections";
 
 const generateAINote = polo.define({
   id: "generate_ai_note",
@@ -169,69 +182,74 @@ const generateAINote = polo.define({
   sources: {
     transcript: polo.input("transcript", { sensitivity: "phi" }),
 
-    encounter: polo.source(async (input) =>
-      prisma.encounter.findUniqueOrThrow({
-        where: { id: input.encounterId },
-        include: {
-          patient: { include: { user: true } },
-          provider: { include: { user: true, specialties: true } },
-        },
-      }),
-    ),
-
-    intake: polo.source(async (_input, sources) =>
-      prisma.patientIntake.findFirst({
-        where: { patientId: sources.encounter.patientId },
-      }),
-    ),
-
-    priorNote: polo.source(async (_input, sources) =>
-      prisma.providerNote.findFirst({
-        where: {
-          encounter: {
-            patientId: sources.encounter.patientId,
-            providerId: sources.encounter.providerId,
-            cancelledAt: null,
-            startedAt: { lt: sources.encounter.startedAt },
+    encounter: polo.source(
+      async (input) =>
+        prisma.encounter.findUniqueOrThrow({
+          where: { id: input.encounterId },
+          include: {
+            patient:  { include: { user: true } },
+            provider: { include: { user: true, specialties: true } },
           },
-          signedAt: { not: null },
-        },
-        orderBy: { encounter: { startedAt: "desc" } },
-      }),
+        }),
+      { sensitivity: "phi" },
     ),
 
-    noteSections: polo.source(async (_input, sources) =>
-      prisma.providerAiNoteSettings.findUnique({
-        where: { providerId: sources.encounter.providerId },
-        include: {
-          noteSections: {
-            where: { deletedAt: null },
-            orderBy: { sortOrder: "asc" },
+    intake: polo.source(
+      async (_input, sources) =>
+        prisma.patientIntake.findFirst({
+          where: { patientId: sources.encounter.patientId },
+        }),
+      { sensitivity: "phi" },
+    ),
+
+    priorNote: polo.source(
+      async (_input, sources) =>
+        prisma.providerNote.findFirst({
+          where: {
+            encounter: {
+              patientId:   sources.encounter.patientId,
+              providerId:  sources.encounter.providerId,
+              cancelledAt: null,
+              startedAt:   { lt: sources.encounter.startedAt },
+            },
+            signedAt: { not: null },
           },
-        },
-      }),
+          orderBy: { encounter: { startedAt: "desc" } },
+        }),
+      { sensitivity: "phi" },
+    ),
+
+    noteSections: polo.source(
+      async (_input, sources) => {
+        const settings = await prisma.providerAiNoteSettings.findUnique({
+          where: { providerId: sources.encounter.providerId },
+          include: {
+            noteSections: {
+              where:   { deletedAt: null },
+              orderBy: { sortOrder: "asc" },
+            },
+          },
+        });
+        return settings?.noteSections ?? DEFAULT_AI_NOTE_SECTIONS;
+      },
+      { sensitivity: "internal" },
     ),
   },
 
   derive: ({ context }) => ({
-    patientType: context.encounter.patient.isSeen ? "Follow-up" : "New",
+    patientType:   context.encounter.patient.isSeen ? "Follow-up" : "New",
     includeIntake: !context.priorNote,
-    noteSchema: buildNoteSchema(
-      context.noteSections?.noteSections ?? DEFAULT_AI_NOTE_SECTIONS,
-    ),
-    styleMirror: !!context.priorNote,
+    noteSchema:    buildNoteSchema(context.noteSections),
+    styleMirror:   !!context.priorNote,
   }),
 
   policies: {
     require: ["transcript", "encounter", "noteSections"],
-    prefer: ["priorNote"],
+    prefer:  ["priorNote"],
     exclude: [
       ({ context }) =>
         !context.includeIntake
-          ? {
-              source: "intake",
-              reason: "follow-up visits exclude patient intake",
-            }
+          ? { source: "intake", reason: "follow-up visits exclude patient intake" }
           : false,
     ],
     budget: 12_000,
@@ -244,18 +262,22 @@ const generateAINote = polo.define({
 ```ts
 const { context, trace } = await polo.resolve(generateAINote, {
   encounterId: "enc_123",
-  transcript: "...",
+  transcript:  "...",
 });
 ```
 
 ### Build your prompt normally
 
 ```ts
-await generateObject({
+import { generateText, Output, gateway } from "ai";
+
+const model = gateway("anthropic/claude-sonnet-4.6");
+
+await generateText({
   model,
   system: buildSystemPrompt(context),
   prompt: buildPrompt(context),
-  schema: context.noteSchema,
+  output: Output.object({ schema: context.noteSchema }),
 });
 ```
 
@@ -272,17 +294,17 @@ Sources fetch data. `polo.input()` is for call-time values. `polo.source()` is f
 Sources that depend on other sources reference them via the `sources` argument. Polo infers the dependency graph and runs independent sources in parallel automatically.
 
 ```ts
-// wave 1 — no dependencies, runs immediately
+// no dependencies, runs immediately
 encounter: polo.source(async (input) =>
-  prisma.encounter.findUniqueOrThrow({ where: { id: input.encounterId } }),
-);
+  prisma.encounter.findUniqueOrThrow({ where: { id: input.encounterId } })
+)
 
-// wave 2 — depends on encounter, runs once encounter resolves
+// depends on encounter, runs once encounter resolves
 priorNote: polo.source(async (_input, sources) =>
   prisma.providerNote.findFirst({
     where: { encounter: { patientId: sources.encounter.patientId } },
-  }),
-);
+  })
+)
 ```
 
 No explicit sequencing. No overfetching.
@@ -294,10 +316,10 @@ Use `polo.chunks()` when a source returns multiple ranked blocks. Polo fits as m
 ```ts
 guidelines: polo.source(async (_input, sources) =>
   polo.chunks(
-    vectorDb.search({ query: sources.encounter.reasonForVisit, topK: 10 }),
+    vectorDb.search({ query: sources.transcript, topK: 10 }),
     (item) => ({ content: item.pageContent, score: item.relevanceScore }),
-  ),
-);
+  )
+)
 ```
 
 The `normalize` function maps any vector DB response shape to `{ content, score }`.
@@ -308,12 +330,10 @@ The `normalize` function maps any vector DB response shape to `{ content, score 
 
 ```ts
 derive: ({ context }) => ({
-  patientType: context.encounter.patient.isSeen ? "Follow-up" : "New",
-  noteSchema: buildNoteSchema(
-    context.noteSections?.noteSections ?? DEFAULT_AI_NOTE_SECTIONS,
-  ),
-  styleMirror: !!context.priorNote,
-});
+  patientType:  context.encounter.patient.isSeen ? "Follow-up" : "New",
+  noteSchema:   buildNoteSchema(context.noteSections),
+  styleMirror:  !!context.priorNote,
+})
 ```
 
 Derived values are available on `context` after resolution, alongside source data.
@@ -327,9 +347,10 @@ policies: {
   require: ["transcript", "encounter"],
   prefer:  ["priorNote", "guidelines"],
   exclude: [
-    ({ context }) => !context.includeIntake
-      ? { source: "intake", reason: "follow-up visits exclude patient intake" }
-      : false,
+    ({ context }) =>
+      !context.includeIntake
+        ? { source: "intake", reason: "follow-up visits exclude patient intake" }
+        : false,
   ],
   budget: 12_000,
 }
@@ -350,7 +371,7 @@ Traces are metadata-first by default.
 
 They record source resolution timing, sensitivity, policy decisions, chunk inclusion and dropping, budget usage, and derived values. They do not store raw resolved data unless you explicitly opt in.
 
-That keeps the default safe for sensitive workflows — and makes traces easy to log, store, and share with your compliance team.
+That keeps the default safer for sensitive workflows — and makes traces easy to log, store, and inspect across your team.
 
 ---
 
@@ -367,7 +388,7 @@ Polo sits between your data and your model call. Everything else stays yours.
 
 ## Open Source and Cloud
 
-### Open source (`usepolo`)
+### Open source (`@polo/core`)
 
 - Task definitions
 - Local resolution
@@ -401,10 +422,10 @@ Polo sits between your data and your model call. Everything else stays yours.
 
 Polo is for teams shipping AI features in production who need:
 
-- explicit control over what context enters a model call
+- better output quality without changing models
 - less prompt glue scattered through application code
+- explicit control over what context enters a model call
 - auditability when outputs go wrong
-- policy controls around sensitive data
 - a better way to compare context strategies over time
 
 It is especially useful when context comes from multiple systems, mistakes are expensive, humans review outputs, or compliance matters.
@@ -429,15 +450,17 @@ The goal is simple: make context contracts explicit, enforce them at runtime, an
 
 ## Why Now
 
-Models are getting better. Context quality is still mostly managed as handwritten glue code.
+Context engineering is now the consensus bottleneck for production AI.
 
-As teams add more workflows, more systems, and more compliance pressure, that glue becomes the bottleneck.
+[Anthropic](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents): *"Good context engineering means finding the smallest possible set of high-signal tokens that maximize the likelihood of some desired outcome."*
 
-The industry has tools for prompts, retrieval, and observability.
+[Cursor](https://cursor.com/blog/dynamic-context-discovery): dynamic context discovery reduced total agent tokens by 46.9% in MCP-tool runs, and can improve response quality by reducing potentially confusing or contradictory information in the context window.
 
-What is still missing is the layer that governs what the model is allowed to see.
+[Claude Code best practices](https://code.claude.com/docs/en/best-practices): *"Claude's context window fills up fast, and performance degrades as it fills. The context window is the most important resource to manage."*
 
-Polo is that layer.
+The industry has tools for prompts, retrieval, and observability. What is still missing is a runtime that manages context assembly for production AI — with explicit rules, automatic resolution, and a trace that proves what happened.
+
+Polo is that runtime.
 
 ---
 
