@@ -17,5 +17,6 @@ export function createDefinition<
     _sources: config.sources,
     _derive: config.derive,
     _policies: config.policies ?? {},
+    _template: config.template,
   };
 }

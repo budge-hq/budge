@@ -12,6 +12,7 @@
   "scripts": {
     "build": "vp pack",
     "check": "vp check",
+    "fix": "vp check --fix",
     "demo": "node dist/index.mjs"
   },
   "dependencies": {

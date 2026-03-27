@@ -2,7 +2,7 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/polo-hq/polo)
 
-Polo is a typed context assembly runtime for production AI. Create a Polo instance, register reusable context sources, define tasks that aggregate those sources, and resolve a context object that is ready to use in your prompt.
+Polo is a typed context assembly runtime for production AI. It resolves context sources, enforces token budgets, and returns a fully typed `context` object ready to use in your prompt. Optionally, define a `template` to have Polo call your rendering function, measure the exact token cost against the budget, and report how much it compressed versus the raw data baseline — the foundation for measurable prompt experimentation.
 
 ## Installation
 
@@ -82,7 +82,7 @@ const supportReplySources = registerSources({
 
 Use `registerSources(...)` for shared resolver-style sources only. Input passthroughs like `transcript` stay local to each task definition.
 
-### Define tasks to aggregate sources
+### Define tasks with a template
 
 ```ts
 const supportReply = polo.define(supportReplyInputSchema, {
@@ -114,34 +114,46 @@ const supportReply = polo.define(supportReplyInputSchema, {
     ],
     budget: 110,
   },
+
+  template: ({ context }) => ({
+    system: `You are a support engineer drafting a customer reply. Use a ${context.replyStyle} tone. ${
+      context.isEnterprise
+        ? "Prioritize urgency and ownership."
+        : "Keep the reply practical and direct."
+    }`,
+    prompt: `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}${
+      context.recentTickets?.length
+        ? `\n\nRecent tickets:\n${context.recentTickets.map((ticket) => ticket.content).join("\n")}`
+        : ""
+    }\n\nBilling notes:\n${context.billingNotes ?? "N/A"}`,
+  }),
 });
 ```
 
-`polo.define(inputSchema, config)` declares the contract for one task: what inputs are accepted, what sources can be resolved, what derived fields should exist, and what policies govern the final context.
+The `template` function receives the fully resolved, policy-gated `context` and returns plain `{ system, prompt }` strings. When you interpolate objects or arrays like `${context.account}`, Polo intercepts that coercion under the hood, serializes the raw value with [TOON](https://github.com/toon-format/toon), and only then measures the final prompt. For chunk sources, direct interpolation serializes the full chunk objects; map to `chunk.content` when you only want the text. If you need the original value for custom formatting, use `context.raw`.
 
-### Resolve context
+### Resolve prompt and context
 
 ```ts
-const { context, trace } = await polo.resolve(supportReply, {
+const { context, prompt, trace } = await polo.resolve(supportReply, {
   accountId: "acc_123",
-  transcript:
-    "Our webhook deliveries have been timing out in production since yesterday's deploy. Can you help us figure out the safest next step?",
+  transcript: "Our webhook deliveries have been timing out in production since yesterday's deploy.",
 });
-```
 
-### Use context in your prompt
-
-```ts
-import { generateText } from "ai";
-
+// Pass directly to your model
 const { text } = await generateText({
   model: "openai/gpt-5.4",
-  system: buildSystemPrompt(context),
-  prompt: buildPrompt(context),
+  system: prompt.system,
+  prompt: prompt.prompt,
 });
+
+// Inspect the compression
+console.log(
+  `Compressed to ${(trace.prompt.includedCompressionRatio * 100).toFixed(1)}% fewer tokens than the final included context`,
+);
 ```
 
-`context` contains only what policy allowed through. Excluded sources are absent at runtime, not nulled out. Polo does not own the prompt layer. It governs the data surface you use to build it.
+`prompt` is absent when no `template` is defined — the resolved `context` object is still available for manual prompt construction.
 
 ---
 
@@ -152,12 +164,41 @@ const { text } = await generateText({
 | `createPolo(options?)`                    | Create an isolated Polo runtime                |
 | `registerSources(sources)`                | Compose reusable shared resolver/chunk sources |
 | `polo.define(inputSchema, config)`        | Declare the context contract for a task        |
-| `polo.resolve(definition, input)`         | Resolve context at runtime                     |
+| `polo.resolve(definition, input)`         | Resolve context and prompt at runtime          |
 | `polo.source.fromInput(key, options?)`    | Passthrough from call-time input               |
 | `polo.source(inputSchema, config)`        | Resolve a single async value                   |
 | `polo.source.chunks(inputSchema, config)` | Resolve ranked multi-block context             |
 
 ---
+
+## Templates
+
+Add a `template` function to any definition to have Polo construct the prompt:
+
+```ts
+template: ({ context }) => ({
+  system: `System instructions for ${context.account}`,
+  prompt: `User-facing content:\n${context.transcript}`,
+}),
+```
+
+`context` inside templates is render-aware:
+
+- interpolate objects and arrays directly: `${context.account}`, `${context.recentTickets}`
+- access fields normally for logic: `context.account.plan`, `context.recentTickets?.length`
+- use `context.raw` when you need the original JS value for custom formatting: `JSON.stringify(context.raw.account)`
+- for chunk sources, map to `chunk.content` when you only want text in the prompt
+
+### Budget fitting
+
+When a budget is set, Polo renders the template, counts exact tokens, and if over budget:
+
+1. **Drop default-included non-chunk sources** (lowest priority, dropped whole)
+2. **Drop preferred non-chunk sources** (dropped whole)
+3. **Trim chunks one-at-a-time** from chunk sources, lowest score first
+4. **Drop chunk sources whole** as a last resort
+
+Required sources are never dropped. Each dropped source is recorded in the trace.
 
 ## Sources
 
@@ -242,13 +283,13 @@ policies: {
 `require` — must resolve or `polo.resolve()` throws.  
 `prefer` — included if it fits in budget.  
 `exclude` — excludes a source with a reason, recorded in the trace.  
-`budget` — token ceiling for the full context. Token counts are estimated at 96% accuracy using [tokenx](https://github.com/johannschopplich/tokenx). Required sources always pass through; preferred and default-included sources are dropped when over budget and recorded in the trace.
+`budget` — token ceiling. Without a template, tokens are estimated per-source using TOON serialization at 96% accuracy via [tokenx](https://github.com/johannschopplich/tokenx). With a template, Polo measures the exact rendered token count.
 
 > **v0:** policies operate on top-level source keys only. If nested data needs separate treatment, promote it to its own source.
 
 ## Trace
 
-`polo.resolve()` returns a `trace` alongside `context`. The trace records source resolution timing, tags, policy decisions, chunk inclusion, and budget usage. Raw resolved values are not stored.
+`polo.resolve()` returns a `trace` alongside `context` and `prompt`. The trace records source resolution timing, tags, policy decisions, chunk inclusion, budget usage, and — when a template is used — exact prompt-level token metrics. Raw resolved values are not stored.
 
 ```json
 {
@@ -266,7 +307,7 @@ policies: {
       "type": "chunks",
       "tags": ["internal"],
       "chunks": [
-        { "included": true, "score": 0.36 },
+        { "included": true, "score": 0.91 },
         { "included": false, "score": 0.14, "reason": "over_budget" }
       ]
     }
@@ -279,15 +320,32 @@ policies: {
       "reason": "billing notes are excluded unless the transcript is billing-related"
     }
   ],
-  "budget": { "max": 110, "used": 102 }
+  "budget": { "max": 110, "used": 98 },
+  "prompt": {
+    "systemTokens": 22,
+    "promptTokens": 76,
+    "totalTokens": 98,
+    "rawContextTokens": 163,
+    "includedContextTokens": 121,
+    "compressionRatio": 0.399,
+    "includedCompressionRatio": 0.19
+  }
 }
 ```
+
+`prompt.rawContextTokens` measures the naive JSON baseline for all resolved sources before policy exclusions or budget fitting.
+
+`prompt.includedContextTokens` measures the naive JSON baseline for the final template context after policy exclusions and budget fitting.
+
+`prompt.compressionRatio` is `max(0, 1 - totalTokens / rawContextTokens)` — the clamped fraction of tokens saved versus all resolved sources.
+
+`prompt.includedCompressionRatio` is `max(0, 1 - totalTokens / includedContextTokens)` — the clamped fraction of tokens saved versus the final included context. This is usually the better metric for comparing prompt compaction strategies.
 
 ---
 
 ## Why Polo
 
-Context assembly is usually handwritten glue — sources fetched manually, included unconditionally, with no token budget and no record of what the model actually saw. This works fine until outputs go wrong and you can't tell why.
+Context assembly is usually handwritten glue — sources fetched manually, included unconditionally, with no token budget and no record of what the model actually saw. This works fine until outputs go wrong or costs spiral and you can't tell why.
 
 Polo gives you:
 
@@ -295,15 +353,20 @@ Polo gives you:
 - **explicit contracts** — input schemas, source schemas, and policies live next to the task
 - **typed context** — `context` is fully typed from your source definitions, no casting
 - **automatic dependency resolution** — sources run in parallel waves, no manual sequencing
+- **token-efficient serialization** — TOON encoding delivers ~40% fewer tokens than JSON on structured data, with equal or better model accuracy
+- **measurable optimization** — prompt traces include both full-resolution and final-included compression metrics for A/B testing prompt strategies
 - **debuggable** — when outputs go wrong, the trace tells you exactly what the model saw
 
 ---
 
 ## Fits Your Stack
 
-- **AI SDK** — use `context` directly with `generateText`, `generateObject`, or streaming APIs
-- **`Prisma` / Drizzle / any ORM** — `polo.source(inputSchema, { resolve })` takes any async resolver
-- **LangSmith / Braintrust** — pass `trace` to your existing observability layer
+Polo is the data layer that feeds your existing AI stack — not a replacement for it.
+
+- **AI SDK** — pass `context` (or `prompt.system` / `prompt.prompt` when using a template) directly to `generateText`, `generateObject`, or streaming APIs
+- **LangChain / LangGraph** — drop Polo's `polo.resolve()` inside a `dynamicSystemPromptMiddleware` or `wrapModelCall` hook; Polo handles the data surface, LangChain handles the agent loop
+- **Prisma / Drizzle / any ORM** — `polo.source(inputSchema, { resolve })` wraps any async resolver with no ceremony
+- **LangSmith / Braintrust** — forward `trace` to your existing observability layer; it contains source timings, policy decisions, chunk records, and prompt compression metrics
 
 ---
 

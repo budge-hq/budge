@@ -29,6 +29,9 @@ export type {
   PoloLogger,
   PoloOptions,
   PolicyRecord,
+  PromptOutput,
+  PromptTrace,
+  RenderableValue,
   ResolverSource,
   Resolution,
   SourceConfig,
@@ -39,6 +42,8 @@ export type {
   SourceOptions,
   SourceRecord,
   SourceRecordType,
+  TemplateFn,
+  TemplateContext,
   Trace,
   ValueSource,
 } from "./types.ts";

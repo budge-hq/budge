@@ -1,5 +1,5 @@
 import { polo } from "./polo.ts";
-import { buildPrompt, buildSystemPrompt, summarizeTrace, supportReply } from "./supportReply.ts";
+import { summarizeTrace, supportReply } from "./supportReply.ts";
 
 const input = {
   accountId: "acc_123",
@@ -7,16 +7,18 @@ const input = {
     "Our webhook deliveries have been timing out in production since yesterday's deploy. Can you help us figure out the safest next step?",
 };
 
-const { context, trace } = await polo.resolve(supportReply, input);
+const { context, prompt, trace } = await polo.resolve(supportReply, input);
 
 console.log("=== Context Keys ===");
 console.log(Object.keys(context));
 
-console.log("\n=== System Prompt ===");
-console.log(buildSystemPrompt(context));
+if (prompt) {
+  console.log("\n=== System Prompt ===");
+  console.log(prompt.system);
 
-console.log("\n=== User Prompt ===");
-console.log(buildPrompt(context));
+  console.log("\n=== User Prompt ===");
+  console.log(prompt.prompt);
+}
 
 console.log("\n=== Trace Summary ===");
 console.log(summarizeTrace(trace));

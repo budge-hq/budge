@@ -4,7 +4,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "check": "turbo run check"
+    "check": "turbo run check",
+    "fix": "turbo run fix"
   },
   "devDependencies": {
     "turbo": "^2.8.20",

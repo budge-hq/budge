@@ -28,10 +28,12 @@
     "dev": "vp pack --watch",
     "test": "vp test",
     "check": "vp check",
-    "prepublishOnly": "vp run build"
+    "prepublishOnly": "vp run build",
+    "fix": "vp check --fix"
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
+    "@toon-format/toon": "^2.1.0",
     "tokenx": "^1.3.0"
   },
   "devDependencies": {

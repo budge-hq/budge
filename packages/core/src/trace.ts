@@ -1,4 +1,11 @@
-import type { ChunkRecord, PolicyRecord, SourceRecord, SourceRecordType, Trace } from "./types.ts";
+import type {
+  ChunkRecord,
+  PolicyRecord,
+  PromptTrace,
+  SourceRecord,
+  SourceRecordType,
+  Trace,
+} from "./types.ts";
 import type { SourceTag } from "./types.ts";
 import { generateRunId } from "./utils.ts";
 
@@ -20,6 +27,7 @@ export function buildTrace(options: {
   derived: Record<string, unknown>;
   budgetMax: number;
   budgetUsed: number;
+  promptTrace?: PromptTrace;
 }): Trace {
   const {
     taskId,
@@ -30,6 +38,7 @@ export function buildTrace(options: {
     derived,
     budgetMax,
     budgetUsed,
+    promptTrace,
   } = options;
 
   const sources: SourceRecord[] = sourceTimings.map((t): SourceRecord => {
@@ -54,5 +63,6 @@ export function buildTrace(options: {
     policies: policyRecords,
     derived,
     budget: { max: budgetMax, used: budgetUsed },
+    ...(promptTrace !== undefined && { prompt: promptTrace }),
   };
 }

@@ -1,4 +1,4 @@
-import type { InferContext, Trace } from "@polo/core";
+import { type InferContext, type Trace } from "@polo/core";
 import { z } from "zod";
 import { polo } from "./polo.ts";
 import { supportReplySources } from "./sourceRegistry.ts";
@@ -37,55 +37,32 @@ export const supportReply = polo.define(supportReplyInputSchema, {
     ],
     budget: 110,
   },
+
+  template: ({ context }) => ({
+    system: `You are a support engineer drafting a customer reply. Use a ${context.replyStyle} tone. ${
+      context.isEnterprise
+        ? "Prioritize urgency and ownership."
+        : "Keep the reply practical and direct."
+    }`,
+    prompt: `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}${
+      context.recentTickets?.length
+        ? `\n\nRecent tickets:\n${context.recentTickets.map((ticket) => ticket.content).join("\n")}`
+        : ""
+    }\n\nBilling notes:\n${context.billingNotes ?? "N/A"}`,
+  }),
 });
 
-type SupportReplyContext = InferContext<typeof supportReply>;
+export type SupportReplyContext = InferContext<typeof supportReply>;
 
-export function buildSystemPrompt(context: SupportReplyContext): string {
-  return [
-    "You are a support engineer drafting a customer reply.",
-    `Use a ${context.replyStyle} tone.`,
-    context.isEnterprise
-      ? "Prioritize urgency and ownership."
-      : "Keep the reply practical and direct.",
-  ].join(" ");
-}
-
-export function buildPrompt(context: SupportReplyContext): string {
-  const sections: string[] = [];
-
-  sections.push(`Transcript:\n${context.transcript}`);
-
-  sections.push(
-    [
-      "Account:",
-      `- ${context.account.name}`,
-      `- plan: ${context.account.plan}`,
-      `- tier: ${context.account.tier}`,
-      `- region: ${context.account.region}`,
-    ].join("\n"),
-  );
-
-  if (context.recentTickets?.length) {
-    sections.push(
-      [
-        "Relevant recent tickets:",
-        ...context.recentTickets.map((ticket) => `- ${ticket.content}`),
-      ].join("\n"),
-    );
+function formatTraceReason(reason: string): string {
+  switch (reason) {
+    case "chunk_trimmed_over_budget":
+      return "chunk trimmed (over budget)";
+    case "source_dropped_over_budget":
+      return "source dropped (over budget)";
+    default:
+      return reason.replaceAll("_", " ");
   }
-
-  if (context.billingNotes) {
-    sections.push(
-      [
-        "Billing notes:",
-        `- invoice status: ${context.billingNotes.lastInvoiceStatus}`,
-        `- ${context.billingNotes.summary}`,
-      ].join("\n"),
-    );
-  }
-
-  return sections.join("\n\n");
 }
 
 export function summarizeTrace(trace: Trace): string {
@@ -93,9 +70,24 @@ export function summarizeTrace(trace: Trace): string {
     `run: ${trace.runId}`,
     `task: ${trace.taskId}`,
     `budget: ${trace.budget.used}/${trace.budget.max}`,
-    "policies:",
-    ...trace.policies.map((policy) => `  - ${policy.source}: ${policy.action} (${policy.reason})`),
   ];
+
+  if (trace.prompt) {
+    lines.push(
+      `prompt tokens: ${trace.prompt.totalTokens} (system: ${trace.prompt.systemTokens}, user: ${trace.prompt.promptTokens})`,
+      `raw context tokens: ${trace.prompt.rawContextTokens}`,
+      `included context tokens: ${trace.prompt.includedContextTokens}`,
+      `compression vs resolved context: ${(trace.prompt.compressionRatio * 100).toFixed(1)}% reduction`,
+      `compression vs included context: ${(trace.prompt.includedCompressionRatio * 100).toFixed(1)}% reduction`,
+    );
+  }
+
+  lines.push("policies:");
+  lines.push(
+    ...trace.policies.map(
+      (policy) => `  - ${policy.source}: ${policy.action} (${formatTraceReason(policy.reason)})`,
+    ),
+  );
 
   for (const source of trace.sources) {
     if (!source.chunks?.length) {
@@ -106,7 +98,10 @@ export function summarizeTrace(trace: Trace): string {
     if (dropped.length) {
       lines.push(`dropped chunks for ${source.key}:`);
       lines.push(
-        ...dropped.map((chunk) => `  - ${chunk.reason ?? "dropped"} (score=${chunk.score ?? 0})`),
+        ...dropped.map(
+          (chunk) =>
+            `  - ${formatTraceReason(chunk.reason ?? "dropped")} (score=${chunk.score ?? 0})`,
+        ),
       );
     }
   }

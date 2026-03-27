@@ -19,6 +19,7 @@ import type {
   ResolverSource,
   SourceConfig,
   SourceShape,
+  TemplateFn,
 } from "./types.ts";
 import { createDefinition } from "./define.ts";
 import { resolveDefinition } from "./resolve.ts";
@@ -65,6 +66,11 @@ export interface PoloInstance {
         NoInfer<TDerived>,
         TRequired,
         TPrefer
+      >;
+      template?: TemplateFn<
+        InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>,
+        NoInfer<TDerived>,
+        TRequired
       >;
     },
   ): Definition<
@@ -152,6 +158,11 @@ export function createPolo(options: PoloOptions = {}): PoloInstance {
           NoInfer<TDerived>,
           TRequired,
           TPrefer
+        >;
+        template?: TemplateFn<
+          InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>,
+          NoInfer<TDerived>,
+          TRequired
         >;
       },
     ) {
