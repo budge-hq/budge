@@ -122,13 +122,15 @@ const supportReply = polo.define(supportReplyInputSchema, {
         : "Keep the reply practical and direct."
     }`,
     prompt: `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}${
-      context.recentTickets?.length ? `\n\nRecent tickets:\n${context.recentTickets}` : ""
+      context.recentTickets?.length
+        ? `\n\nRecent tickets:\n${context.recentTickets.map((ticket) => ticket.content).join("\n")}`
+        : ""
     }\n\nBilling notes:\n${context.billingNotes ?? "N/A"}`,
   }),
 });
 ```
 
-The `template` function receives the fully resolved, policy-gated `context` and returns plain `{ system, prompt }` strings. When you interpolate objects or arrays like `${context.account}`, Polo intercepts that coercion under the hood, serializes the raw value with [TOON](https://github.com/toon-format/toon), and only then measures the final prompt. If you need the original value for custom formatting, use `context.raw`.
+The `template` function receives the fully resolved, policy-gated `context` and returns plain `{ system, prompt }` strings. When you interpolate objects or arrays like `${context.account}`, Polo intercepts that coercion under the hood, serializes the raw value with [TOON](https://github.com/toon-format/toon), and only then measures the final prompt. For chunk sources, direct interpolation serializes the full chunk objects; map to `chunk.content` when you only want the text. If you need the original value for custom formatting, use `context.raw`.
 
 ### Resolve prompt and context
 
@@ -185,6 +187,7 @@ template: ({ context }) => ({
 - interpolate objects and arrays directly: `${context.account}`, `${context.recentTickets}`
 - access fields normally for logic: `context.account.plan`, `context.recentTickets?.length`
 - use `context.raw` when you need the original JS value for custom formatting: `JSON.stringify(context.raw.account)`
+- for chunk sources, map to `chunk.content` when you only want text in the prompt
 
 ### Budget fitting
 

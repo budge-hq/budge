@@ -1093,6 +1093,11 @@ describe("template budget fitting", () => {
         docsRecord.chunks.every((chunk) => chunk.reason === "source_dropped_over_budget"),
       ).toBe(true);
     }
+
+    const droppedPolicy = trace.policies.find(
+      (policy) => policy.source === "docs" && policy.action === "dropped",
+    );
+    expect(droppedPolicy?.reason).toBe("over_budget");
   });
 });
 

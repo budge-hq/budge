@@ -45,7 +45,9 @@ export const supportReply = polo.define(supportReplyInputSchema, {
         : "Keep the reply practical and direct."
     }`,
     prompt: `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}${
-      context.recentTickets?.length ? `\n\nRecent tickets:\n${context.recentTickets}` : ""
+      context.recentTickets?.length
+        ? `\n\nRecent tickets:\n${context.recentTickets.map((ticket) => ticket.content).join("\n")}`
+        : ""
     }\n\nBilling notes:\n${context.billingNotes ?? "N/A"}`,
   }),
 });

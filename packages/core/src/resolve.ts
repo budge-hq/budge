@@ -545,7 +545,7 @@ function resolveWithTemplate(options: {
     policyRecords.push({
       source: keyToDrop,
       action: "dropped",
-      reason: "source_dropped_over_budget",
+      reason: "over_budget",
     });
     const timing = sourceTimings.find((t) => t.key === keyToDrop);
     if (timing?.chunkRecords) {
