@@ -519,14 +519,12 @@ function resolveWithTemplate(options: {
           (minIdx, c, i) => ((c.score ?? 0) < (chunks[minIdx]?.score ?? 0) ? i : minIdx),
           0,
         );
-        const dropped = chunks.splice(lowestIdx, 1)[0]!;
+        chunks.splice(lowestIdx, 1);
 
         // Update chunk records in timing
         const timing = sourceTimings.find((t) => t.key === key);
         if (timing?.chunkRecords) {
-          const record = timing.chunkRecords.find(
-            (r) => r.content === dropped.content && r.included,
-          );
+          const record = timing.chunkRecords.filter((record) => record.included)[lowestIdx];
           if (record) {
             record.included = false;
             record.reason = "chunk_trimmed_over_budget";

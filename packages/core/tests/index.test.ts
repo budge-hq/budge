@@ -1095,6 +1095,55 @@ describe("template budget fitting", () => {
     expect(contents.some((c) => c.includes("chunk-high"))).toBe(true);
   });
 
+  test("chunk trimming updates the matching trace record when content is duplicated", async () => {
+    const items = [
+      { content: "duplicate ".repeat(20), score: 0.9 },
+      { content: "duplicate ".repeat(20), score: 0.1 },
+    ];
+
+    const task = polo.define(emptyInputSchema, {
+      id: "test_template_chunk_trim_duplicate_content",
+      sources: {
+        docs: polo.source.chunks(emptyInputSchema, {
+          async resolve() {
+            return items;
+          },
+          normalize: (item) => ({ content: item.content, score: item.score }),
+        }),
+      },
+      policies: {
+        prefer: ["docs"],
+        budget: 30,
+      },
+      template: ({ context }) => ({
+        system: "",
+        prompt: (context.docs ?? []).map((chunk) => chunk.content).join("\n"),
+      }),
+    });
+
+    const { context, trace } = await polo.resolve(task, {});
+    expect(context.docs).toHaveLength(1);
+    expect(context.docs?.[0]?.score).toBe(0.9);
+
+    const docsRecord = trace.sources.find((source) => source.key === "docs");
+    expect(docsRecord?.type).toBe("chunks");
+    if (docsRecord?.type === "chunks") {
+      expect(docsRecord.chunks).toEqual([
+        {
+          content: "duplicate ".repeat(20),
+          score: 0.9,
+          included: true,
+        },
+        {
+          content: "duplicate ".repeat(20),
+          score: 0.1,
+          included: false,
+          reason: "chunk_trimmed_over_budget",
+        },
+      ]);
+    }
+  });
+
   test("dropping a chunk source whole clears all included chunk records", async () => {
     const items = [
       { content: "chunk-high ".repeat(10), score: 0.9 },
