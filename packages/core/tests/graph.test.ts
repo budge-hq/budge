@@ -1,7 +1,13 @@
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { z } from "zod";
 import { createPolo, registerSources } from "../src/index.ts";
-import { CircularSourceDependencyError, MissingSourceDependencyError } from "../src/errors.ts";
+import {
+  CircularSourceDependencyError,
+  MissingSourceDependencyError,
+  SourceResolutionError,
+} from "../src/errors.ts";
+import { buildWaves, executeWaves } from "../src/graph.ts";
+import { DepGraph } from "dependency-graph";
 import type { AnyResolverSource } from "../src/types.ts";
 
 const polo = createPolo();
@@ -280,6 +286,99 @@ describe("graph", () => {
         },
       }),
     ).toThrowError(CircularSourceDependencyError);
+  });
+
+  test("throws when selected source is missing an internal id", () => {
+    const account = polo.source(emptyInputSchema, {
+      async resolve() {
+        return { id: "p1" };
+      },
+    });
+    (account as AnyResolverSource)._internalId = undefined as unknown as string;
+
+    expect(() =>
+      polo.define(emptyInputSchema, {
+        id: "missing_internal_id",
+        sources: { account },
+      }),
+    ).toThrowError(/missing an internal id/);
+  });
+
+  test("throws when dependency source is missing an internal id", () => {
+    const account = polo.source(emptyInputSchema, {
+      async resolve() {
+        return { id: "p1" };
+      },
+    });
+    const child = polo.source(
+      emptyInputSchema,
+      { account },
+      {
+        async resolve({ account }) {
+          return { parentId: account.id };
+        },
+      },
+    );
+
+    (account as AnyResolverSource)._internalId = undefined as unknown as string;
+
+    expect(() =>
+      polo.define(emptyInputSchema, {
+        id: "missing_dependency_internal_id",
+        sources: { child } as never,
+      }),
+    ).toThrowError(/references an unresolved dependency/);
+  });
+
+  test("throws when two selected sources share the same internal id", () => {
+    const first = polo.source(emptyInputSchema, {
+      async resolve() {
+        return "first";
+      },
+    });
+    const second = polo.source(emptyInputSchema, {
+      async resolve() {
+        return "second";
+      },
+    });
+
+    (second as AnyResolverSource)._internalId = (first as AnyResolverSource)._internalId;
+
+    expect(() =>
+      polo.define(emptyInputSchema, {
+        id: "duplicate_internal_ids",
+        sources: { first, second },
+      }),
+    ).toThrowError(/selected multiple times/);
+  });
+
+  test("buildWaves rethrows non-cycle dependency-graph errors", () => {
+    const sourceMap = {
+      a: polo.source(emptyInputSchema, {
+        async resolve() {
+          return "a";
+        },
+      }),
+    };
+
+    const overallOrderSpy = vi
+      .spyOn(DepGraph.prototype, "overallOrder")
+      .mockImplementationOnce(() => {
+        throw new Error("boom");
+      });
+
+    expect(() => buildWaves(sourceMap)).toThrowError("boom");
+    overallOrderSpy.mockRestore();
+  });
+
+  test("executeWaves rejects invalid source definitions", async () => {
+    const sourceMap = {
+      invalid: 123,
+    } as unknown as Record<string, AnyResolverSource>;
+
+    await expect(
+      executeWaves(sourceMap, {}, [{ keys: ["invalid"] }], new Map(), "task", () => {}),
+    ).rejects.toThrowError(SourceResolutionError);
   });
 
   test("independent sources resolve in parallel", async () => {

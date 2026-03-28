@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
 import { createPolo } from "../src/index.ts";
+import { buildTrace } from "../src/trace.ts";
 
 const polo = createPolo();
 const emptyInputSchema = z.object({});
@@ -86,5 +87,33 @@ describe("trace", () => {
     const { trace } = await polo.resolve(task, {});
     const raw = JSON.stringify(trace);
     expect(raw).not.toContain("123-45-6789");
+  });
+
+  test("buildTrace falls back to empty chunks when chunkRecords are missing", () => {
+    const now = new Date();
+    const trace = buildTrace({
+      taskId: "test_trace_chunk_fallback",
+      startedAt: now,
+      completedAt: now,
+      sourceTimings: [
+        {
+          key: "docs",
+          type: "chunks",
+          tags: [],
+          resolvedAt: now,
+          durationMs: 0,
+        },
+      ],
+      policyRecords: [],
+      derived: {},
+      budgetMax: 0,
+      budgetUsed: 0,
+    });
+
+    const docs = trace.sources.find((source) => source.key === "docs");
+    expect(docs?.type).toBe("chunks");
+    if (docs?.type === "chunks") {
+      expect(docs.chunks).toEqual([]);
+    }
   });
 });

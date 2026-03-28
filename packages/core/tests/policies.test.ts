@@ -158,6 +158,28 @@ describe("policies.exclude", () => {
     expect(excluded?.reason).toBe("follow-up visits exclude patient intake");
   });
 
+  test("required source cannot be excluded", async () => {
+    const task = polo.define(emptyInputSchema, {
+      id: "test_require_exclude_conflict",
+      sources: {
+        intake: polo.source(emptyInputSchema, {
+          resolve: async () => ({ medications: ["aspirin"] }),
+        }),
+      },
+      policies: {
+        require: ["intake"],
+        exclude: [
+          () => ({
+            source: "intake",
+            reason: "conflicting policy",
+          }),
+        ],
+      } as never,
+    });
+
+    await expect(polo.resolve(task, {})).rejects.toThrow(/cannot be excluded/);
+  });
+
   test("exclude callback runs once per resolution", async () => {
     let callCount = 0;
 

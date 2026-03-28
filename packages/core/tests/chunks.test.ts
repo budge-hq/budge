@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
 import { createPolo, registerSources } from "../src/index.ts";
+import { createChunks } from "../src/chunks.ts";
 import type { AnyResolverSource } from "../src/types.ts";
 
 const polo = createPolo();
@@ -229,6 +230,12 @@ describe("polo.source.chunks", () => {
     );
   });
 
+  test("createChunks rejects invalid non-normalized items", async () => {
+    await expect(createChunks(Promise.resolve([{ text: "not a chunk" }] as never))).rejects.toThrow(
+      /requires either Chunk\[] input or a normalize function/,
+    );
+  });
+
   test("dependent chunk sources also reject invalid normalize output", async () => {
     const sharedSourceSet = polo.sourceSet((sources) => {
       const account = sources.value(emptyInputSchema, {
@@ -288,5 +295,32 @@ describe("polo.source.chunks", () => {
     });
 
     await expect(polo.resolve(task, {})).rejects.toThrow(/resolved malformed chunks/);
+  });
+
+  test("non-chunk sources over budget produce dropped policy records", async () => {
+    const task = polo.define(emptyInputSchema, {
+      id: "test_non_chunk_over_budget_drop",
+      sources: {
+        requiredText: polo.source(emptyInputSchema, {
+          resolve: async () => "keep me",
+        }),
+        extraText: polo.source(emptyInputSchema, {
+          resolve: async () => "x".repeat(2_000),
+        }),
+      },
+      policies: {
+        require: ["requiredText"],
+        budget: 10,
+      },
+    });
+
+    const { context, trace } = await polo.resolve(task, {});
+    expect(context.requiredText).toBe("keep me");
+    expect("extraText" in context).toBe(false);
+
+    const dropped = trace.policies.find(
+      (policy) => policy.source === "extraText" && policy.action === "dropped",
+    );
+    expect(dropped?.reason).toBe("over_budget");
   });
 });

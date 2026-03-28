@@ -2,6 +2,7 @@ import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
 import { createPolo } from "../src/index.ts";
 import { estimateTokens } from "../src/pack.ts";
+import type { AnyResolverSource } from "../src/types.ts";
 
 /* eslint-disable @typescript-eslint/restrict-template-expressions -- Tests intentionally interpolate render-aware context proxies. */
 
@@ -276,6 +277,77 @@ describe("template", () => {
     const { prompt } = await polo.resolve(task, {});
     expect(prompt?.prompt).toContain("name: Acme");
     expect(prompt?.prompt).toContain("\u001fPOLO_SLOT_0\u001f");
+  });
+
+  test("template proxy supports ownKeys and descriptor access for context.raw", async () => {
+    const task = polo.define(emptyInputSchema, {
+      id: "test_template_proxy_raw_own_keys",
+      sources: {
+        account: polo.source(emptyInputSchema, {
+          resolve: async () => ({ name: "Acme" }),
+        }),
+      },
+      template: ({ context }) => {
+        const keys = Object.keys(context).sort().join(",");
+        const hasRaw = "raw" in context;
+        const rawDescriptor = Object.getOwnPropertyDescriptor(context, "raw");
+
+        return {
+          system: `keys=${keys} hasRaw=${hasRaw}`,
+          prompt:
+            rawDescriptor && rawDescriptor.enumerable === false ? "raw-hidden" : "raw-missing",
+        };
+      },
+    });
+
+    const { prompt } = await polo.resolve(task, {});
+    expect(prompt?.system).toContain("keys=account");
+    expect(prompt?.system).toContain("hasRaw=true");
+    expect(prompt?.prompt).toBe("raw-hidden");
+  });
+
+  test("template proxy materializes objects via toString/valueOf coercion", async () => {
+    const task = polo.define(emptyInputSchema, {
+      id: "test_template_proxy_to_string_and_value_of",
+      sources: {
+        account: polo.source(emptyInputSchema, {
+          resolve: async () => ({ name: "Acme", plan: "enterprise" as const }),
+        }),
+      },
+      template: ({ context }) => ({
+        system: `${context.account}`,
+        prompt: String(context.account?.valueOf()),
+      }),
+    });
+
+    const { prompt } = await polo.resolve(task, {});
+    expect(prompt?.system).toContain("name: Acme");
+    expect(prompt?.prompt).toContain("plan: enterprise");
+  });
+
+  test("template path throws for malformed chunk envelopes", async () => {
+    const malformedChunksSource = polo.source(emptyInputSchema, {
+      async resolve() {
+        return {
+          _type: "chunks",
+          items: [{ content: undefined }],
+        };
+      },
+    });
+    (malformedChunksSource as AnyResolverSource)._sourceKind = "chunks";
+
+    const task = polo.define(emptyInputSchema, {
+      id: "test_template_malformed_chunk_envelope",
+      sources: {
+        docs: malformedChunksSource,
+      },
+      template: ({ context }) => ({
+        system: "",
+        prompt: `${context.docs ?? "none"}`,
+      }),
+    });
+
+    await expect(polo.resolve(task, {})).rejects.toThrow(/resolved malformed chunks/);
   });
 });
 
