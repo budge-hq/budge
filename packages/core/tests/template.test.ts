@@ -71,6 +71,49 @@ describe("template", () => {
     expect(typeof trace.prompt?.includedCompressionRatio).toBe("number");
   });
 
+  test("trace token accounting does not throw for BigInt source values", async () => {
+    const task = polo.define(emptyInputSchema, {
+      id: "test_template_trace_bigint",
+      sources: {
+        data: polo.source(emptyInputSchema, {
+          resolve: async () => 1n,
+        }),
+      },
+      template: () => ({
+        system: "System prompt.",
+        prompt: "ok",
+      }),
+    });
+
+    const { trace } = await polo.resolve(task, {});
+    expect(trace.prompt).toBeDefined();
+    expect(typeof trace.prompt?.rawContextTokens).toBe("number");
+    expect(typeof trace.prompt?.includedContextTokens).toBe("number");
+  });
+
+  test("trace token accounting does not throw for circular source values", async () => {
+    const circular: { self?: unknown } = {};
+    circular.self = circular;
+
+    const task = polo.define(emptyInputSchema, {
+      id: "test_template_trace_circular",
+      sources: {
+        data: polo.source(emptyInputSchema, {
+          resolve: async () => circular,
+        }),
+      },
+      template: () => ({
+        system: "System prompt.",
+        prompt: "ok",
+      }),
+    });
+
+    const { trace } = await polo.resolve(task, {});
+    expect(trace.prompt).toBeDefined();
+    expect(typeof trace.prompt?.rawContextTokens).toBe("number");
+    expect(typeof trace.prompt?.includedContextTokens).toBe("number");
+  });
+
   test("included prompt metrics exclude policy-gated sources", async () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_template_included_metrics",

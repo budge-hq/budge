@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import stringify from "safe-stable-stringify";
 import type {
   AllowedContext,
   AnyInput,
@@ -67,7 +68,11 @@ async function validateInput<TResolveInput extends AnyInput, TInput extends AnyI
 function computeJsonValueTokens(values: Iterable<unknown>): number {
   let total = 0;
   for (const value of values) {
-    const str = value === null || value === undefined ? "" : JSON.stringify(value);
+    const str =
+      value === null || value === undefined
+        ? ""
+        : (stringify(value, (_key, item) => (typeof item === "bigint" ? item.toString() : item)) ??
+          "");
     total += estimateTokens(str);
   }
   return total;
