@@ -306,7 +306,11 @@ describe("polo.source.chunks", () => {
       { content: "b".repeat(30), score: 0.5 },
     ];
 
-    const makeTask = (budget: number | { maxTokens: number; strategy: { type: "greedy_score" | "score_per_token" } }) =>
+    const makeTask = (
+      budget:
+        | number
+        | { maxTokens: number; strategy: { type: "greedy_score" | "score_per_token" } },
+    ) =>
       polo.define(emptyInputSchema, {
         id: `test_strategy_${typeof budget === "number" ? "number" : budget.strategy.type}`,
         sources: {

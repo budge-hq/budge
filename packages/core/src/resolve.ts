@@ -562,7 +562,14 @@ function resolveWithTemplate(options: {
       const chunks = context[key] as unknown[];
       return sum + (chunks?.length ?? 0);
     }, 0);
-    return { context, prompt, policyRecords, sourceTimings, budgetCandidates: templateCandidates, budgetSelected: selectedCount };
+    return {
+      context,
+      prompt,
+      policyRecords,
+      sourceTimings,
+      budgetCandidates: templateCandidates,
+      budgetSelected: selectedCount,
+    };
   }
 
   // Partition droppable sources: non-chunk sources are dropped whole, chunk sources are trimmed.
@@ -652,5 +659,12 @@ function resolveWithTemplate(options: {
     const chunks = context[key] as unknown[] | undefined;
     return sum + (chunks?.length ?? 0);
   }, 0);
-  return { context, prompt, policyRecords, sourceTimings, budgetCandidates: templateCandidates, budgetSelected: selectedCount };
+  return {
+    context,
+    prompt,
+    policyRecords,
+    sourceTimings,
+    budgetCandidates: templateCandidates,
+    budgetSelected: selectedCount,
+  };
 }

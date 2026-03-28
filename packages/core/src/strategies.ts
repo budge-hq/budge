@@ -30,7 +30,12 @@ export const greedyScore: BudgetStrategyFn = (
       tokensUsed += tokens;
       records.push({ content: chunk.content, score: chunk.score, included: true });
     } else {
-      records.push({ content: chunk.content, score: chunk.score, included: false, reason: "over_budget" });
+      records.push({
+        content: chunk.content,
+        score: chunk.score,
+        included: false,
+        reason: "over_budget",
+      });
     }
   }
 
@@ -66,7 +71,12 @@ export function scorePerToken(options?: ScorePerTokenOptions): BudgetStrategyFn 
         tokensUsed += tokens;
         records.push({ content: chunk.content, score: chunk.score, included: true });
       } else {
-        records.push({ content: chunk.content, score: chunk.score, included: false, reason: "over_budget" });
+        records.push({
+          content: chunk.content,
+          score: chunk.score,
+          included: false,
+          reason: "over_budget",
+        });
       }
     }
 
