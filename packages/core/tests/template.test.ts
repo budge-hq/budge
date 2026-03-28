@@ -585,6 +585,57 @@ describe("template budget fitting", () => {
     }
   });
 
+  test("Phase 2 trimming respects scorePerToken strategy ordering", async () => {
+    // Chunk A: high score, many tokens (low efficiency)
+    // Chunk B: low score, few tokens (high efficiency)
+    // Under scorePerToken, B is more valuable and should be kept when trimming.
+    // A naive lowest-score trim would incorrectly drop B.
+    const chunkA = { content: "x".repeat(200), score: 0.9 };
+    const chunkB = { content: "y".repeat(20), score: 0.2 };
+
+    // Budget tight enough that only one chunk survives after template rendering.
+    // Both chunks joined by newline exceed this, forcing Phase 2 to trim one.
+    const bothRendered = [chunkA.content, chunkB.content].join("\n");
+    const budget = estimateTokens(bothRendered) - 1;
+
+    const task = polo.define(emptyInputSchema, {
+      id: "test_template_phase2_strategy_ordering",
+      sources: {
+        docs: polo.source.chunks(emptyInputSchema, {
+          async resolve() {
+            return [chunkA, chunkB];
+          },
+          normalize: (item) => ({ content: item.content, score: item.score }),
+        }),
+      },
+      policies: {
+        prefer: ["docs"],
+        budget: { maxTokens: budget, strategy: { type: "score_per_token" } },
+      },
+      template: ({ context }) => ({
+        system: "",
+        prompt: (context.docs ?? []).map((chunk) => chunk.content).join("\n"),
+      }),
+    });
+
+    const { context, trace } = await polo.resolve(task, {});
+
+    // scorePerToken ranks B higher (more efficient), so Phase 2 should
+    // trim A (last in strategy order) and keep B
+    const docs = context.docs as Array<{ content: string; score?: number }>;
+    expect(docs).toHaveLength(1);
+    expect(docs[0]!.content).toBe(chunkB.content);
+
+    const docsRecord = trace.sources.find((s) => s.key === "docs");
+    if (docsRecord?.type === "chunks") {
+      const kept = docsRecord.chunks.find((c) => c.included);
+      const dropped = docsRecord.chunks.find((c) => !c.included);
+      expect(kept?.score).toBe(0.2);
+      expect(dropped?.score).toBe(0.9);
+      expect(dropped?.reason).toBe("chunk_trimmed_over_budget");
+    }
+  });
+
   test("dropping a chunk source whole clears all included chunk records", async () => {
     const items = [
       { content: "chunk-high ".repeat(10), score: 0.9 },
