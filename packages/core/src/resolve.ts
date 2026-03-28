@@ -390,8 +390,9 @@ export async function resolveDefinition<
     const raw = resolvedRaw.get(key);
 
     if (isChunks(raw)) {
-      const remaining = budget === Infinity ? Infinity : budget - budgetUsed;
-      const packed = packChunks(raw, remaining);
+      const packed = requiredKeys.has(key)
+        ? packChunks(raw, Infinity)
+        : packChunks(raw, budget === Infinity ? Infinity : budget - budgetUsed);
 
       budgetUsed += packed.tokensUsed;
       context[key] = packed.included;

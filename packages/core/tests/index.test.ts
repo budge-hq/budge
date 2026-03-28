@@ -806,6 +806,50 @@ describe("polo.source.chunks", () => {
     expect(chunks.length).toBe(2);
   });
 
+  test("required chunk sources are never trimmed in non-template mode", async () => {
+    const items = [
+      { content: "high ".repeat(30), score: 0.9 },
+      { content: "mid ".repeat(30), score: 0.5 },
+      { content: "low ".repeat(30), score: 0.1 },
+    ];
+
+    const task = polo.define(emptyInputSchema, {
+      id: "test_required_chunks_non_template",
+      sources: {
+        docs: polo.source.chunks(emptyInputSchema, {
+          async resolve() {
+            return items;
+          },
+          normalize(item) {
+            return {
+              content: item.content,
+              score: item.score,
+            };
+          },
+        }),
+      },
+      policies: {
+        require: ["docs"],
+        budget: 1,
+      },
+    });
+
+    const { context, trace } = await polo.resolve(task, {});
+    expect(context.docs).toHaveLength(3);
+
+    const docsRecord = trace.sources.find((source) => source.key === "docs");
+    expect(docsRecord?.type).toBe("chunks");
+    if (docsRecord?.type === "chunks") {
+      expect(docsRecord.chunks).toHaveLength(3);
+      expect(docsRecord.chunks.every((chunk) => chunk.included)).toBe(true);
+    }
+
+    const droppedPolicy = trace.policies.find(
+      (policy) => policy.source === "docs" && policy.action === "dropped",
+    );
+    expect(droppedPolicy).toBeUndefined();
+  });
+
   test("chunks are sorted by score descending", async () => {
     const items = [
       { content: "low", score: 0.3 },
