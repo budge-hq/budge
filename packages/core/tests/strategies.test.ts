@@ -54,6 +54,18 @@ describe("greedyScore", () => {
 });
 
 describe("scorePerToken", () => {
+  test("throws when alpha is negative", () => {
+    expect(() => scorePerToken({ alpha: -1 })).toThrow(
+      "score_per_token: alpha must be a finite number >= 0.",
+    );
+  });
+
+  test("throws when minChunkTokens is less than 1", () => {
+    expect(() => scorePerToken({ minChunkTokens: 0 })).toThrow(
+      "score_per_token: minChunkTokens must be a finite number >= 1.",
+    );
+  });
+
   test("prefers small high-score chunks over large high-score chunks", () => {
     const bigChunk: Chunk = { content: "x".repeat(200), score: 0.8 };
     const smallChunk: Chunk = { content: "y".repeat(20), score: 0.7 };
@@ -78,6 +90,25 @@ describe("scorePerToken", () => {
     const result = strategy([big, small], ctx(Infinity));
     // alpha=0 means score^0 = 1, so ranking is 1/tokens → small chunk first
     expect(result.included[0]!.content).toBe(small.content);
+  });
+
+  test("with alpha=0 and equal token cost, score does not break ties", () => {
+    const strategy = scorePerToken({ alpha: 0 });
+    const result = strategy(
+      [
+        { content: "first", score: 10 },
+        { content: "second", score: 1 },
+      ],
+      {
+        budget: Infinity,
+        estimateTokens() {
+          return 10;
+        },
+      },
+    );
+
+    expect(result.included[0]!.content).toBe("first");
+    expect(result.included[1]!.content).toBe("second");
   });
 
   test("with alpha=2 heavily favors high-score chunks", () => {
@@ -123,6 +154,67 @@ describe("scorePerToken", () => {
     expect(efficient.included).toHaveLength(2);
     expect(efficient.included[0]!.score).toBe(0.6);
     expect(efficient.included[1]!.score).toBe(0.5);
+  });
+
+  test("ties on efficiency are broken by higher score", () => {
+    const strategy = scorePerToken();
+    const result = strategy(
+      [
+        { content: "a", score: 1 },
+        { content: "bb", score: 2 },
+      ],
+      {
+        budget: Infinity,
+        estimateTokens(content) {
+          if (content === "a") return 10;
+          if (content === "bb") return 20;
+          return 1;
+        },
+      },
+    );
+
+    expect(result.included[0]!.content).toBe("bb");
+    expect(result.included[1]!.content).toBe("a");
+  });
+
+  test("ties on efficiency and score are broken by lower actual token cost", () => {
+    const strategy = scorePerToken({ minChunkTokens: 100 });
+    const result = strategy(
+      [
+        { content: "small", score: 1 },
+        { content: "large", score: 1 },
+      ],
+      {
+        budget: Infinity,
+        estimateTokens(content) {
+          if (content === "small") return 10;
+          if (content === "large") return 20;
+          return 1;
+        },
+      },
+    );
+
+    expect(result.included[0]!.content).toBe("small");
+    expect(result.included[1]!.content).toBe("large");
+  });
+
+  test("ties on efficiency, score, and token cost keep input order", () => {
+    const strategy = scorePerToken();
+    const result = strategy(
+      [
+        { content: "first", score: 1 },
+        { content: "second", score: 1 },
+      ],
+      {
+        budget: Infinity,
+        estimateTokens() {
+          return 10;
+        },
+      },
+    );
+
+    expect(result.included[0]!.content).toBe("first");
+    expect(result.included[1]!.content).toBe("second");
   });
 });
 
