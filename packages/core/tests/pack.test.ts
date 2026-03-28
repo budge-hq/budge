@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { normalizeBudget, packChunks, serialize } from "../src/pack.ts";
+import { estimateTokens, normalizeBudget, packChunks, serialize } from "../src/pack.ts";
 import { greedyScore, scorePerToken } from "../src/strategies.ts";
 import type { Chunks } from "../src/types.ts";
 
@@ -108,18 +108,26 @@ describe("packChunks", () => {
     expect(defaultResult.tokensUsed).toBe(explicitResult.tokensUsed);
   });
 
-  test("with scorePerToken changes chunk selection", () => {
+  test("with scorePerToken prefers efficient chunks under tight budget", () => {
     const big = "x".repeat(200);
-    const small = "y".repeat(20);
+    const small1 = "a".repeat(30);
+    const small2 = "b".repeat(30);
+
+    const budget = estimateTokens(big) + 1;
     const chunks = makeChunks([
       { content: big, score: 0.9 },
-      { content: small, score: 0.7 },
+      { content: small1, score: 0.6 },
+      { content: small2, score: 0.5 },
     ]);
-    // Use a tight budget
-    const result = packChunks(chunks, 10, scorePerToken());
-    // Small chunk is more efficient and may fit
-    for (const record of result.records) {
-      expect(typeof record.included).toBe("boolean");
-    }
+
+    const greedy = packChunks(chunks, budget, greedyScore);
+    const efficient = packChunks(chunks, budget, scorePerToken());
+
+    expect(greedy.included).toHaveLength(1);
+    expect(greedy.included[0]!.score).toBe(0.9);
+
+    expect(efficient.included).toHaveLength(2);
+    expect(efficient.included[0]!.score).toBe(0.6);
+    expect(efficient.included[1]!.score).toBe(0.5);
   });
 });

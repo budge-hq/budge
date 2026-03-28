@@ -2,6 +2,7 @@ import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
 import { createPolo, registerSources } from "../src/index.ts";
 import { createChunks } from "../src/chunks.ts";
+import { estimateTokens } from "../src/pack.ts";
 import type { AnyResolverSource, BudgetStrategyFn } from "../src/types.ts";
 
 const polo = createPolo();
@@ -326,17 +327,24 @@ describe("polo.source.chunks", () => {
         policies: { budget },
       });
 
-    const greedyResult = await polo.resolve(makeTask(40), {});
+    const bigTokens = estimateTokens(items[0]!.content);
+    const budget = bigTokens + 1;
+
+    const greedyResult = await polo.resolve(makeTask(budget), {});
     const efficientResult = await polo.resolve(
-      makeTask({ maxTokens: 40, strategy: { type: "score_per_token" } }),
+      makeTask({ maxTokens: budget, strategy: { type: "score_per_token" } }),
       {},
     );
 
     const greedyChunks = greedyResult.context.docs as Array<{ content: string }>;
     const efficientChunks = efficientResult.context.docs as Array<{ content: string }>;
 
-    // score_per_token should include more small efficient chunks
-    expect(efficientChunks.length).toBeGreaterThanOrEqual(greedyChunks.length);
+    expect(greedyChunks).toHaveLength(1);
+    expect(greedyChunks[0]!.content).toBe(items[0]!.content);
+
+    expect(efficientChunks).toHaveLength(2);
+    expect(efficientChunks[0]!.content).toBe(items[1]!.content);
+    expect(efficientChunks[1]!.content).toBe(items[2]!.content);
   });
 
   test("custom strategy function is invoked", async () => {
