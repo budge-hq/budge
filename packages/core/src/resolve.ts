@@ -14,7 +14,7 @@ import type {
   TemplateContext,
 } from "./types.ts";
 import { isChunks } from "./chunks.ts";
-import { buildWaves, executeWaves } from "./graph.ts";
+import { buildWaves, executeWaves, validateSourceDependencies } from "./graph.ts";
 import { applyPolicies } from "./policies.ts";
 import { estimateTokens, packChunks, serialize } from "./pack.ts";
 import { buildTrace } from "./trace.ts";
@@ -233,7 +233,8 @@ export async function resolveDefinition<
   const normalizedInput = await validateInput(inputSchema, input, taskId);
 
   // --- build execution plan ---
-  const waves = buildWaves(sourceMap);
+  const sourceKeysById = validateSourceDependencies(sourceMap, "source map");
+  const waves = buildWaves(sourceMap, "source map", sourceKeysById);
 
   // --- execute sources wave by wave ---
   const sourceTimings: SourceTiming[] = [];
@@ -242,6 +243,7 @@ export async function resolveDefinition<
     sourceMap,
     normalizedInput,
     waves,
+    sourceKeysById,
     taskId,
     (key, value, durationMs) => {
       const source = sourceMap[key]!;

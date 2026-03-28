@@ -127,7 +127,7 @@ function indexSelectedSourcesById<TSourceMap extends Record<string, unknown>>(
 export function validateSourceDependencies<TSourceMap extends Record<string, unknown>>(
   sourceMap: TSourceMap,
   ownerLabel: string,
-): void {
+): Map<string, string> {
   const sourceKeysById = indexSelectedSourcesById(sourceMap, ownerLabel);
 
   for (const [key, source] of Object.entries(sourceMap)) {
@@ -148,6 +148,8 @@ export function validateSourceDependencies<TSourceMap extends Record<string, unk
       }
     }
   }
+
+  return sourceKeysById;
 }
 
 interface Wave {
@@ -161,9 +163,10 @@ interface Wave {
 export function buildWaves<TSourceMap extends Record<string, unknown>>(
   sourceMap: TSourceMap,
   ownerLabel = "source map",
+  sourceKeysById?: Map<string, string>,
 ): Wave[] {
-  validateSourceDependencies(sourceMap, ownerLabel);
-  const sourceKeysById = indexSelectedSourcesById(sourceMap, ownerLabel);
+  const validatedSourceKeysById =
+    sourceKeysById ?? validateSourceDependencies(sourceMap, ownerLabel);
 
   const keys = Object.keys(sourceMap);
   const deps = new Map<string, Set<string>>();
@@ -172,7 +175,9 @@ export function buildWaves<TSourceMap extends Record<string, unknown>>(
     deps.set(
       key,
       new Set(
-        getDependencyIds(sourceMap[key]).map((dependencyId) => sourceKeysById.get(dependencyId)!),
+        getDependencyIds(sourceMap[key]).map(
+          (dependencyId) => validatedSourceKeysById.get(dependencyId)!,
+        ),
       ),
     );
   }
@@ -215,11 +220,11 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
   sourceMap: TSourceMap,
   input: AnyInput,
   waves: Wave[],
+  sourceKeysById: Map<string, string>,
   taskId: string,
   onResolved: (key: string, value: unknown, durationMs: number) => void,
 ): Promise<Map<string, unknown>> {
   const resolved = new Map<string, unknown>();
-  const sourceKeysById = indexSelectedSourcesById(sourceMap, `task "${taskId}"`);
 
   for (const wave of waves) {
     await Promise.all(
