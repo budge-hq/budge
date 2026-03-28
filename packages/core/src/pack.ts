@@ -25,7 +25,7 @@ export function estimateTokens(text: string): number {
   return estimateTokenCount(text);
 }
 
-export interface NormalizedBudget {
+interface NormalizedBudget {
   maxTokens: number;
   strategyFn: BudgetStrategyFn;
   strategyName: string;

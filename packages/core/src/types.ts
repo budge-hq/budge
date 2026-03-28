@@ -85,11 +85,6 @@ export type SourceDepValues<TDeps extends Record<string, AnyResolverSource>> = {
   [K in keyof TDeps]: InferSource<AnyInput, TDeps[K]>;
 };
 
-type SourceId<TSource> =
-  TSource extends ResolverSource<unknown, AnyInput, infer TSourceId, string> ? TSourceId : never;
-
-export type SourcePublicId<TSource> = SourceId<TSource>;
-
 type EffectiveSelectedSourceId<TSource, TSelectedKey extends string> =
   TSource extends ResolverSource<unknown, AnyInput, infer TSourceId, string>
     ? string extends TSourceId

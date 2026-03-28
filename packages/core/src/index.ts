@@ -63,9 +63,6 @@ export type {
   ValueSource,
 } from "./types.ts";
 
-// Budget strategies
-export { greedyScore, scorePerToken } from "./strategies.ts";
-
 // Errors
 export {
   CircularSourceDependencyError,
