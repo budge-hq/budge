@@ -73,7 +73,7 @@ jobs:
       - name: Run tests
         run: |
           if [ "${{ matrix.node-version }}" = "24" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
-            vp run test -- --coverage.enabled true --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json
+            vp run test -- -- --coverage.enabled true --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json
           else
             vp run test
           fi
