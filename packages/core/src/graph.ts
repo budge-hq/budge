@@ -1,4 +1,5 @@
 import type { AnyInput, AnyResolverSource, InputSource } from "./types.ts";
+import { DepGraph } from "dependency-graph";
 import {
   CircularSourceDependencyError,
   MissingSourceDependencyError,
@@ -156,6 +157,61 @@ interface Wave {
   keys: string[];
 }
 
+function isCycleError(error: unknown): error is Error & { cyclePath?: string[] } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message: unknown }).message === "string" &&
+    (error as { message: string }).message.includes("Dependency Cycle Found")
+  );
+}
+
+function buildDependencyGraph<TSourceMap extends Record<string, unknown>>(
+  sourceMap: TSourceMap,
+  sourceKeysById: Map<string, string>,
+): DepGraph<string> {
+  const graph = new DepGraph<string>();
+
+  for (const key of Object.keys(sourceMap)) {
+    graph.addNode(key);
+  }
+
+  for (const [key, source] of Object.entries(sourceMap)) {
+    for (const dependencyId of getDependencyIds(source)) {
+      graph.addDependency(key, sourceKeysById.get(dependencyId)!);
+    }
+  }
+
+  return graph;
+}
+
+function computeWaveLevels(graph: DepGraph<string>): Wave[] {
+  const order = graph.overallOrder();
+  const levels = new Map<string, number>();
+
+  for (const key of order) {
+    const directDeps = graph.directDependenciesOf(key);
+    const level = directDeps.length
+      ? Math.max(...directDeps.map((dep) => levels.get(dep) ?? 0)) + 1
+      : 0;
+    levels.set(key, level);
+  }
+
+  const wavesByLevel = new Map<number, string[]>();
+  for (const key of order) {
+    const level = levels.get(key) ?? 0;
+    const existing = wavesByLevel.get(level);
+    if (existing) {
+      existing.push(key);
+    } else {
+      wavesByLevel.set(level, [key]);
+    }
+  }
+
+  return [...wavesByLevel.entries()].sort(([a], [b]) => a - b).map(([, keys]) => ({ keys }));
+}
+
 /**
  * Build an ordered list of execution waves from the source map.
  * Sources in the same wave can be resolved in parallel.
@@ -168,47 +224,17 @@ export function buildWaves<TSourceMap extends Record<string, unknown>>(
   const validatedSourceKeysById =
     sourceKeysById ?? validateSourceDependencies(sourceMap, ownerLabel);
 
-  const keys = Object.keys(sourceMap);
-  const deps = new Map<string, Set<string>>();
+  const graph = buildDependencyGraph(sourceMap, validatedSourceKeysById);
 
-  for (const key of keys) {
-    deps.set(
-      key,
-      new Set(
-        getDependencyIds(sourceMap[key]).map(
-          (dependencyId) => validatedSourceKeysById.get(dependencyId)!,
-        ),
-      ),
-    );
+  try {
+    return computeWaveLevels(graph);
+  } catch (error) {
+    if (isCycleError(error)) {
+      throw new CircularSourceDependencyError(error.cyclePath ?? [], ownerLabel);
+    }
+
+    throw error;
   }
-
-  const waves: Wave[] = [];
-  const resolved = new Set<string>();
-
-  while (resolved.size < keys.length) {
-    const wave: string[] = [];
-
-    for (const key of keys) {
-      if (resolved.has(key)) continue;
-      const keyDeps = deps.get(key) ?? new Set();
-      const allResolved = [...keyDeps].every((dep) => resolved.has(dep));
-      if (allResolved) {
-        wave.push(key);
-      }
-    }
-
-    if (wave.length === 0) {
-      const unresolved = keys.filter((key) => !resolved.has(key));
-      throw new CircularSourceDependencyError(unresolved, ownerLabel);
-    }
-
-    waves.push({ keys: wave });
-    for (const key of wave) {
-      resolved.add(key);
-    }
-  }
-
-  return waves;
 }
 
 /**
