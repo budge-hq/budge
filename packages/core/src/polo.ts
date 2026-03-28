@@ -293,10 +293,6 @@ export function registerSources<const TSourceSets extends readonly SourceSet<any
     }
 
     for (const [key, source] of Object.entries(sourceSet)) {
-      if (key === "_sourceSet" || key === "_sources") {
-        continue;
-      }
-
       if (key in merged) {
         throw new Error(`Duplicate source key "${key}" found while registering sources.`);
       }
