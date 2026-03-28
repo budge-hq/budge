@@ -689,6 +689,46 @@ describe("policies.exclude", () => {
     expect("sourceA" in context).toBe(false);
     expect(context.sourceB).toBe("b");
   });
+
+  test("excluded chunk source keeps redacted exclusion records in trace", async () => {
+    const task = polo.define(emptyInputSchema, {
+      id: "test_excluded_chunk_trace_records",
+      sources: {
+        docs: polo.source.chunks(emptyInputSchema, {
+          async resolve() {
+            return [
+              { content: "chunk A secret", score: 0.9 },
+              { content: "chunk B secret", score: 0.7 },
+            ];
+          },
+        }),
+      },
+      policies: {
+        exclude: [
+          () => ({
+            source: "docs",
+            reason: "excluded for test",
+          }),
+        ],
+      },
+    });
+
+    const { context, trace } = await polo.resolve(task, {});
+
+    expect("docs" in context).toBe(false);
+
+    const docsRecord = trace.sources.find((source) => source.key === "docs");
+    expect(docsRecord?.type).toBe("chunks");
+    if (docsRecord?.type === "chunks") {
+      expect(docsRecord.chunks).toHaveLength(2);
+      expect(docsRecord.chunks.every((chunk) => chunk.included === false)).toBe(true);
+      expect(docsRecord.chunks.every((chunk) => chunk.reason === "excluded")).toBe(true);
+      expect(docsRecord.chunks.every((chunk) => chunk.content === "")).toBe(true);
+    }
+
+    expect(JSON.stringify(trace)).not.toContain("chunk A secret");
+    expect(JSON.stringify(trace)).not.toContain("chunk B secret");
+  });
 });
 
 // ============================================================

@@ -285,6 +285,30 @@ export async function resolveDefinition<
     TPrefer
   >(resolvedRaw, derived, policies, taskId);
 
+  // Excluded chunk sources are resolved before policies run. Attach redacted
+  // chunk records so source-level trace entries remain self-contained and
+  // clearly indicate policy exclusion.
+  const excludedChunkKeys = new Set(
+    policyRecords.filter((record) => record.action === "excluded").map((record) => record.source),
+  );
+
+  for (const key of excludedChunkKeys) {
+    const raw = resolvedRaw.get(key);
+    if (!isChunks(raw)) {
+      continue;
+    }
+
+    const timing = sourceTimings.find((t) => t.key === key);
+    if (timing && timing.chunkRecords === undefined) {
+      timing.chunkRecords = raw.items.map((chunk) => ({
+        content: "",
+        score: chunk.score,
+        included: false,
+        reason: "excluded",
+      }));
+    }
+  }
+
   const requiredKeys = new Set((policies.require ?? []).map(String));
   const preferredKeys = new Set((policies.prefer ?? []).map(String));
   const declaredChunkSourceKeys = new Set(
