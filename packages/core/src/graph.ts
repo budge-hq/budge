@@ -1,5 +1,5 @@
 import type { AnyInput, AnyResolverSource, InputSource } from "./types.ts";
-import { DepGraph } from "dependency-graph";
+import { DepGraph, DepGraphCycleError } from "dependency-graph";
 import {
   CircularSourceDependencyError,
   MissingSourceDependencyError,
@@ -157,16 +157,6 @@ interface Wave {
   keys: string[];
 }
 
-function isCycleError(error: unknown): error is Error & { cyclePath?: string[] } {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof (error as { message: unknown }).message === "string" &&
-    (error as { message: string }).message.includes("Dependency Cycle Found")
-  );
-}
-
 function buildDependencyGraph<TSourceMap extends Record<string, unknown>>(
   sourceMap: TSourceMap,
   sourceKeysById: Map<string, string>,
@@ -229,8 +219,8 @@ export function buildWaves<TSourceMap extends Record<string, unknown>>(
   try {
     return computeWaveLevels(graph);
   } catch (error) {
-    if (isCycleError(error)) {
-      throw new CircularSourceDependencyError(error.cyclePath ?? [], ownerLabel);
+    if (error instanceof DepGraphCycleError) {
+      throw new CircularSourceDependencyError(error.cyclePath, ownerLabel);
     }
 
     throw error;
