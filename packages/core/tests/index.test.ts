@@ -626,6 +626,69 @@ describe("policies.exclude", () => {
     expect(excluded?.source).toBe("intake");
     expect(excluded?.reason).toBe("follow-up visits exclude patient intake");
   });
+
+  test("exclude callback runs once per resolution", async () => {
+    let callCount = 0;
+
+    const task = polo.define(emptyInputSchema, {
+      id: "test_exclude_called_once",
+      sources: {
+        sourceA: polo.source(emptyInputSchema, {
+          resolve: async () => "a",
+        }),
+        sourceB: polo.source(emptyInputSchema, {
+          resolve: async () => "b",
+        }),
+      },
+      policies: {
+        exclude: [
+          () => {
+            callCount++;
+            return false;
+          },
+        ],
+      },
+    });
+
+    await polo.resolve(task, {});
+    expect(callCount).toBe(1);
+  });
+
+  test("exclude callback that would throw on second call does not throw", async () => {
+    let callCount = 0;
+
+    const task = polo.define(emptyInputSchema, {
+      id: "test_exclude_no_second_call",
+      sources: {
+        sourceA: polo.source(emptyInputSchema, {
+          resolve: async () => "a",
+        }),
+        sourceB: polo.source(emptyInputSchema, {
+          resolve: async () => "b",
+        }),
+      },
+      policies: {
+        exclude: [
+          () => {
+            callCount++;
+            if (callCount === 1) {
+              return {
+                source: "sourceA" as const,
+                reason: "excluded once",
+              };
+            }
+
+            throw new Error("Error on second call");
+          },
+        ],
+      },
+    });
+
+    const { context } = await polo.resolve(task, {});
+    expect(callCount).toBe(1);
+    expect("sourceA" in context).toBe(false);
+    expect(context.sourceB).toBe("b");
+  });
 });
 
 // ============================================================

@@ -24,6 +24,7 @@ export function applyPolicies<
   const records: PolicyRecord[] = [];
   const sourceKeys = [...resolvedSources.keys()];
   const allowed = new Set(sourceKeys);
+  const requiredKeys = new Set((policies.require ?? []).map(String));
 
   // Build merged context for exclude fn evaluation
   const mergedContext = Object.fromEntries(resolvedSources) as TSources & TDerived;
@@ -56,16 +57,18 @@ export function applyPolicies<
   }
 
   // --- exclude ---
+  const excludedKeys: string[] = [];
   for (const excludeFn of policies.exclude ?? []) {
     const decision = excludeFn({ context: mergedContext });
     if (decision !== false) {
       const { source, reason } = decision;
 
-      if ((policies.require ?? []).map(String).includes(source)) {
+      if (requiredKeys.has(source)) {
         throw new Error(`Required source "${source}" cannot be excluded.`);
       }
 
       allowed.delete(source);
+      excludedKeys.push(source);
       records.push({
         source,
         action: "excluded",
@@ -75,13 +78,8 @@ export function applyPolicies<
   }
 
   // Mark all non-excluded, non-required, non-preferred sources as included
-  const excludedKeys = (policies.exclude ?? []).flatMap((fn) => {
-    const decision = fn({ context: mergedContext });
-    return decision !== false ? [decision.source] : [];
-  });
-
   const explicitKeys = new Set([
-    ...(policies.require ?? []).map(String),
+    ...requiredKeys,
     ...(policies.prefer ?? []).map(String),
     ...excludedKeys.map(String),
   ]);
