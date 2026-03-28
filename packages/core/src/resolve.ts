@@ -394,12 +394,17 @@ export async function resolveDefinition<
         ? packChunks(raw, Infinity)
         : packChunks(raw, budget === Infinity ? Infinity : budget - budgetUsed);
 
-      budgetUsed += packed.tokensUsed;
-      context[key] = packed.included;
-
       // Attach chunk records to the source timing entry
       const timing = sourceTimings.find((t) => t.key === key);
       if (timing) timing.chunkRecords = packed.records;
+
+      if (!requiredKeys.has(key) && raw.items.length > 0 && packed.included.length === 0) {
+        policyRecords.push({ source: key, action: "dropped", reason: "over_budget" });
+        continue;
+      }
+
+      budgetUsed += packed.tokensUsed;
+      context[key] = packed.included;
     } else {
       if (declaredChunkSourceKeys.has(key) && isChunkEnvelope(raw)) {
         throw new TypeError(

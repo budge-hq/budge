@@ -850,6 +850,64 @@ describe("polo.source.chunks", () => {
     expect(droppedPolicy).toBeUndefined();
   });
 
+  test("non-required chunk source gets dropped policy when all chunks are over budget", async () => {
+    const task = polo.define(emptyInputSchema, {
+      id: "test_chunks_full_drop_policy_record",
+      sources: {
+        guidelines: polo.source.chunks(emptyInputSchema, {
+          async resolve() {
+            return [
+              { content: "long chunk that will be dropped ".repeat(20), score: 0.9 },
+              { content: "another long chunk that will be dropped ".repeat(20), score: 0.8 },
+            ];
+          },
+        }),
+      },
+      policies: {
+        budget: 1,
+      },
+    });
+
+    const { context, trace } = await polo.resolve(task, {});
+    expect("guidelines" in context).toBe(false);
+
+    const droppedPolicy = trace.policies.find(
+      (policy) => policy.source === "guidelines" && policy.action === "dropped",
+    );
+    expect(droppedPolicy?.reason).toBe("over_budget");
+
+    const guidelinesRecord = trace.sources.find((source) => source.key === "guidelines");
+    expect(guidelinesRecord?.type).toBe("chunks");
+    if (guidelinesRecord?.type === "chunks") {
+      expect(guidelinesRecord.chunks.every((chunk) => chunk.included === false)).toBe(true);
+      expect(guidelinesRecord.chunks.every((chunk) => chunk.reason === "over_budget")).toBe(true);
+    }
+  });
+
+  test("empty chunk source is not marked dropped", async () => {
+    const task = polo.define(emptyInputSchema, {
+      id: "test_empty_chunks_not_dropped",
+      sources: {
+        docs: polo.source.chunks(emptyInputSchema, {
+          async resolve() {
+            return [];
+          },
+        }),
+      },
+      policies: {
+        budget: 1,
+      },
+    });
+
+    const { context, trace } = await polo.resolve(task, {});
+    expect(context.docs).toEqual([]);
+
+    const droppedPolicy = trace.policies.find(
+      (policy) => policy.source === "docs" && policy.action === "dropped",
+    );
+    expect(droppedPolicy).toBeUndefined();
+  });
+
   test("chunks are sorted by score descending", async () => {
     const items = [
       { content: "low", score: 0.3 },
