@@ -1,5 +1,9 @@
-import type { AnyInput, InputSource, ResolverSource } from "./types.ts";
-import { SourceResolutionError } from "./errors.ts";
+import type { AnyInput, AnyResolverSource, InputSource } from "./types.ts";
+import {
+  CircularSourceDependencyError,
+  MissingSourceDependencyError,
+  SourceResolutionError,
+} from "./errors.ts";
 
 function isInputSource(source: unknown): source is InputSource<string> {
   return (
@@ -10,7 +14,7 @@ function isInputSource(source: unknown): source is InputSource<string> {
   );
 }
 
-function isResolverSource(source: unknown): source is ResolverSource<unknown> {
+function isResolverSource(source: unknown): source is AnyResolverSource {
   return (
     typeof source === "object" &&
     source !== null &&
@@ -19,76 +23,131 @@ function isResolverSource(source: unknown): source is ResolverSource<unknown> {
   );
 }
 
-function stripCommentsAndLiterals(source: string): string {
-  return source.replace(
-    /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\/(?:\\[\s\S]|[^/\\\n])+\/[gimsuvy]*/g,
-    (match) => match.replace(/[^\n]/g, " "),
-  );
-}
-
-function inferDestructuredDependencies(source: string, validKeys: Set<string>): Set<string> {
-  const dependencies = new Set<string>();
-  const parameterMatch = source.match(/^[^(]*\(([^)]*)\)/);
-  const parameters = parameterMatch?.[1] ?? "";
-  const secondParameter = parameters.split(/,(.+)/)[1]?.trim() ?? "";
-
-  if (!secondParameter.startsWith("{") || !secondParameter.endsWith("}")) {
-    return dependencies;
+function getDependencyIds(source: unknown): string[] {
+  if (!isResolverSource(source)) {
+    return [];
   }
 
-  const body = secondParameter.slice(1, -1);
-  for (const segment of body.split(",")) {
-    const candidate = segment.trim();
-    if (!candidate || candidate.startsWith("...")) {
+  return source._dependencyRefs?.map((dependency) => dependency.internalId) ?? [];
+}
+
+function getDependencyRefs(source: unknown) {
+  if (!isResolverSource(source)) {
+    return [];
+  }
+
+  return [...(source._dependencyRefs ?? [])];
+}
+
+function hydrateSelectedSourceMetadata<TSourceMap extends Record<string, unknown>>(
+  sourceMap: TSourceMap,
+  ownerLabel: string,
+): void {
+  const selectedKeysByInternalId = new Map<string, string>();
+
+  for (const [selectedKey, source] of Object.entries(sourceMap)) {
+    if (!isResolverSource(source)) {
       continue;
     }
 
-    const key = candidate.split(":", 1)[0]?.trim();
-    if (key && validKeys.has(key)) {
-      dependencies.add(key);
+    if (!source._internalId) {
+      throw new Error(`Source "${selectedKey}" is missing an internal id in ${ownerLabel}.`);
     }
+
+    selectedKeysByInternalId.set(source._internalId, selectedKey);
   }
 
-  return dependencies;
+  for (const [selectedKey, source] of Object.entries(sourceMap)) {
+    if (!isResolverSource(source)) {
+      continue;
+    }
+
+    const dependencySources = source._dependencySources ?? {};
+    if (Object.keys(dependencySources).length === 0) {
+      source._dependencyRefs = source._dependencyRefs ?? [];
+      continue;
+    }
+
+    source._dependencyRefs = Object.entries(dependencySources).map(([alias, dependencySource]) => {
+      const dependencyId = dependencySource._internalId;
+      if (!dependencyId) {
+        throw new Error(
+          `Source "${selectedKey}" references an unresolved dependency in ${ownerLabel}.`,
+        );
+      }
+
+      const expectedDependencyKey =
+        dependencySource._registeredId ?? selectedKeysByInternalId.get(dependencyId);
+
+      if (expectedDependencyKey && alias !== expectedDependencyKey) {
+        throw new Error(
+          `Dependency aliases are not supported yet. Source "${selectedKey}" must reference dependency "${expectedDependencyKey}" under its own key.`,
+        );
+      }
+
+      return {
+        alias,
+        internalId: dependencyId,
+        registeredId: dependencySource._registeredId,
+      };
+    });
+  }
 }
 
-function inferDependencies<TSourceMap extends Record<string, unknown>>(
+function indexSelectedSourcesById<TSourceMap extends Record<string, unknown>>(
   sourceMap: TSourceMap,
-  key: string,
-): Set<string> {
-  const source = sourceMap[key];
-  if (!source || isInputSource(source) || !isResolverSource(source)) {
-    return new Set();
+  ownerLabel: string,
+): Map<string, string> {
+  hydrateSelectedSourceMetadata(sourceMap, ownerLabel);
+  const sourceKeysById = new Map<string, string>();
+
+  for (const [selectedKey, source] of Object.entries(sourceMap)) {
+    if (!isResolverSource(source)) {
+      continue;
+    }
+
+    const sourceId = source._internalId;
+    if (!sourceId) {
+      throw new Error(`Source "${selectedKey}" is missing an internal id in ${ownerLabel}.`);
+    }
+
+    const existingKey = sourceKeysById.get(sourceId);
+    if (existingKey && existingKey !== selectedKey) {
+      throw new Error(
+        `Source "${sourceId}" is selected multiple times in ${ownerLabel}: "${existingKey}" and "${selectedKey}".`,
+      );
+    }
+
+    sourceKeysById.set(sourceId, selectedKey);
   }
 
-  const validKeys = new Set(Object.keys(sourceMap));
-  const accessed = new Set<string>();
-  const fnStr = stripCommentsAndLiterals(source._dependencySource ?? source.resolve.toString());
+  return sourceKeysById;
+}
 
-  for (const dep of inferDestructuredDependencies(fnStr, validKeys)) {
-    if (dep !== key) {
-      accessed.add(dep);
+export function validateSourceDependencies<TSourceMap extends Record<string, unknown>>(
+  sourceMap: TSourceMap,
+  ownerLabel: string,
+): void {
+  const sourceKeysById = indexSelectedSourcesById(sourceMap, ownerLabel);
+
+  for (const [key, source] of Object.entries(sourceMap)) {
+    if (!isResolverSource(source)) {
+      continue;
+    }
+
+    for (const dependencyId of getDependencyIds(source)) {
+      if (!sourceKeysById.has(dependencyId)) {
+        const dependencyRef = getDependencyRefs(source).find(
+          (candidate) => candidate.internalId === dependencyId,
+        );
+        throw new MissingSourceDependencyError(
+          key,
+          dependencyRef?.registeredId ?? dependencyRef?.alias ?? dependencyId,
+          ownerLabel,
+        );
+      }
     }
   }
-
-  const dotPattern = /\b(?:sources|context)\.([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-  const bracketPattern = /\b(?:sources|context)\[["']([a-zA-Z_$][a-zA-Z0-9_$]*)["']\]/g;
-
-  for (const match of fnStr.matchAll(dotPattern)) {
-    const dep = match[1];
-    if (dep && validKeys.has(dep) && dep !== key) {
-      accessed.add(dep);
-    }
-  }
-
-  for (const match of fnStr.matchAll(bracketPattern)) {
-    const dep = match[1];
-    if (dep && validKeys.has(dep) && dep !== key) {
-      accessed.add(dep);
-    }
-  }
-
-  return accessed;
 }
 
 interface Wave {
@@ -101,12 +160,21 @@ interface Wave {
  */
 export function buildWaves<TSourceMap extends Record<string, unknown>>(
   sourceMap: TSourceMap,
+  ownerLabel = "source map",
 ): Wave[] {
+  validateSourceDependencies(sourceMap, ownerLabel);
+  const sourceKeysById = indexSelectedSourcesById(sourceMap, ownerLabel);
+
   const keys = Object.keys(sourceMap);
   const deps = new Map<string, Set<string>>();
 
   for (const key of keys) {
-    deps.set(key, inferDependencies(sourceMap, key));
+    deps.set(
+      key,
+      new Set(
+        getDependencyIds(sourceMap[key]).map((dependencyId) => sourceKeysById.get(dependencyId)!),
+      ),
+    );
   }
 
   const waves: Wave[] = [];
@@ -125,14 +193,14 @@ export function buildWaves<TSourceMap extends Record<string, unknown>>(
     }
 
     if (wave.length === 0) {
-      const unresolved = keys.filter((k) => !resolved.has(k));
-      throw new Error(
-        `Circular dependency or unresolvable sources detected: ${unresolved.join(", ")}`,
-      );
+      const unresolved = keys.filter((key) => !resolved.has(key));
+      throw new CircularSourceDependencyError(unresolved, ownerLabel);
     }
 
     waves.push({ keys: wave });
-    for (const key of wave) resolved.add(key);
+    for (const key of wave) {
+      resolved.add(key);
+    }
   }
 
   return waves;
@@ -151,16 +219,7 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
   onResolved: (key: string, value: unknown, durationMs: number) => void,
 ): Promise<Map<string, unknown>> {
   const resolved = new Map<string, unknown>();
-
-  // Build a proxy that reads from the resolved map
-  const sourcesProxy: Record<string, unknown> = new Proxy(
-    {},
-    {
-      get(_target, prop: string) {
-        return resolved.get(prop);
-      },
-    },
-  );
+  const sourceKeysById = indexSelectedSourcesById(sourceMap, `task "${taskId}"`);
 
   for (const wave of waves) {
     await Promise.all(
@@ -174,7 +233,13 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
           if (isInputSource(source)) {
             value = input[source._key];
           } else if (isResolverSource(source)) {
-            value = await source.resolve(input, sourcesProxy);
+            const dependencyContext = Object.fromEntries(
+              getDependencyRefs(source).map((dependency) => [
+                dependency.alias,
+                resolved.get(sourceKeysById.get(dependency.internalId)!),
+              ]),
+            );
+            value = await source.resolve(input, dependencyContext);
           } else {
             throw new TypeError(`Invalid source definition for "${key}".`);
           }
@@ -182,8 +247,8 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
           const durationMs = Date.now() - start;
           resolved.set(key, value);
           onResolved(key, value, durationMs);
-        } catch (err) {
-          throw new SourceResolutionError(key, taskId, err);
+        } catch (error) {
+          throw new SourceResolutionError(key, taskId, error);
         }
       }),
     );

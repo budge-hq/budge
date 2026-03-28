@@ -60,38 +60,101 @@ export interface InputSource<TKey extends string = string> {
   _tags: SourceTag[];
 }
 
-export interface SourceResolveArgs<
-  TInput extends AnyInput,
-  TContext extends Record<string, unknown> = Record<string, unknown>,
-> {
+export interface SourceResolveArgs<TInput extends AnyInput> {
   input: TInput;
-  context: TContext;
 }
+
+export interface SourceSetBrand<TSources extends Record<string, AnyResolverSource>> {
+  readonly _sourceSet: true;
+  readonly _sources?: TSources;
+}
+
+type FinalizeSourceId<TSource, TSourceId extends string> =
+  TSource extends ResolverSource<infer TResult, infer TSourceInput, string, infer TDependencyIds>
+    ? ResolverSource<TResult, TSourceInput, TSourceId, TDependencyIds>
+    : never;
+
+type FinalizeSourceSetSources<TSources extends Record<string, AnyResolverSource>> = {
+  [K in keyof TSources]: FinalizeSourceId<TSources[K], Extract<K, string>>;
+};
+
+export type SourceSet<TSources extends Record<string, AnyResolverSource>> =
+  FinalizeSourceSetSources<TSources> & SourceSetBrand<FinalizeSourceSetSources<TSources>>;
+
+export type SourceDepValues<TDeps extends Record<string, AnyResolverSource>> = {
+  [K in keyof TDeps]: InferSource<AnyInput, TDeps[K]>;
+};
+
+type SourceId<TSource> =
+  TSource extends ResolverSource<unknown, AnyInput, infer TSourceId, string> ? TSourceId : never;
+
+export type SourcePublicId<TSource> = SourceId<TSource>;
+
+type EffectiveSelectedSourceId<TSource, TSelectedKey extends string> =
+  TSource extends ResolverSource<unknown, AnyInput, infer TSourceId, string>
+    ? string extends TSourceId
+      ? TSelectedKey
+      : TSourceId
+    : never;
 
 export interface SourceConfig<
   TInput extends AnyInput = AnyInput,
-  TContext extends Record<string, unknown> = Record<string, unknown>,
   TOutput = unknown,
 > extends SourceOptions {
   output?: AnySchema;
-  resolve(args: SourceResolveArgs<TInput, TContext>): Promise<TOutput> | TOutput;
+  resolve(args: SourceResolveArgs<TInput>): Promise<TOutput> | TOutput;
+}
+
+export interface DependentSourceConfig<
+  TInput extends AnyInput = AnyInput,
+  TDeps extends Record<string, AnyResolverSource> = Record<string, AnyResolverSource>,
+  TOutput = unknown,
+> extends SourceOptions {
+  output?: AnySchema;
+  resolve(args: SourceResolveArgs<TInput> & SourceDepValues<TDeps>): Promise<TOutput> | TOutput;
 }
 
 export interface ChunkSourceConfig<
   TInput extends AnyInput = AnyInput,
-  TContext extends Record<string, unknown> = Record<string, unknown>,
+  TItem = Chunk,
+> extends SourceOptions {
+  output?: AnySchema;
+  normalize?: (item: TItem) => Chunk;
+  resolve(args: SourceResolveArgs<TInput>): Promise<TItem[] | Chunk[]> | TItem[] | Chunk[];
+}
+
+export interface DependentChunkSourceConfig<
+  TInput extends AnyInput = AnyInput,
+  TDeps extends Record<string, AnyResolverSource> = Record<string, AnyResolverSource>,
   TItem = Chunk,
 > extends SourceOptions {
   output?: AnySchema;
   normalize?: (item: TItem) => Chunk;
   resolve(
-    args: SourceResolveArgs<TInput, TContext>,
+    args: SourceResolveArgs<TInput> & SourceDepValues<TDeps>,
   ): Promise<TItem[] | Chunk[]> | TItem[] | Chunk[];
 }
 
-export interface ResolverSource<TResult = unknown, TSourceInput extends AnyInput = AnyInput> {
+export interface SourceDependencyRef {
+  alias: string;
+  internalId: string;
+  registeredId?: string;
+}
+
+export interface ResolverSource<
+  TResult = unknown,
+  TSourceInput extends AnyInput = AnyInput,
+  TSourceId extends string = string,
+  TDependencyIds extends string = never,
+> {
+  _type: "resolver";
+  _internalId: string;
+  _ownerSetId?: string;
+  _registeredId?: TSourceId;
   _sourceKind?: "value" | "chunks";
-  _dependencySource?: string;
+  _dependencyIdType?: TDependencyIds;
+  _dependencyRefs?: readonly SourceDependencyRef[];
+  _dependencySources?: Readonly<Record<string, AnyResolverSource>>;
   resolve(input: AnyInput, context: Record<string, unknown>): Promise<TResult>;
   output?: AnySchema;
   tags?: SourceTag[];
@@ -101,25 +164,67 @@ export interface ResolverSource<TResult = unknown, TSourceInput extends AnyInput
 export type ValueSource<
   TResult = unknown,
   TSourceInput extends AnyInput = AnyInput,
-> = ResolverSource<TResult, TSourceInput>;
+  TSourceId extends string = string,
+  TDependencyIds extends string = never,
+> = ResolverSource<TResult, TSourceInput, TSourceId, TDependencyIds>;
 
-export type ChunkSource<TSourceInput extends AnyInput = AnyInput> = ResolverSource<
-  Chunks,
-  TSourceInput
->;
+export type ChunkSource<
+  TSourceInput extends AnyInput = AnyInput,
+  TSourceId extends string = string,
+  TDependencyIds extends string = never,
+> = ResolverSource<Chunks, TSourceInput, TSourceId, TDependencyIds>;
 
-export type AnyResolverSource = ResolverSource<unknown, AnyInput>;
+export type AnyResolverSource = ResolverSource<unknown, AnyInput, string, string>;
 
 export type AnySource = InputSource<string> | AnyResolverSource;
 
 type InferResolvedValue<TResult> = Awaited<TResult> extends Chunks ? Chunk[] : Awaited<TResult>;
+
+type SourceDependencies<TSource> =
+  TSource extends ResolverSource<unknown, AnyInput, string, infer TDependencyIds>
+    ? TDependencyIds
+    : never;
+
+type SelectedSourceIds<TSourceMap extends Record<string, unknown>> = {
+  [K in Extract<keyof TSourceMap, string>]: EffectiveSelectedSourceId<TSourceMap[K], K>;
+}[Extract<keyof TSourceMap, string>];
+
+type MissingDependencies<TSourceMap extends Record<string, unknown>> = {
+  [K in Extract<keyof TSourceMap, string>]: Exclude<
+    SourceDependencies<TSourceMap[K]>,
+    SelectedSourceIds<TSourceMap>
+  > extends never
+    ? never
+    : {
+        source: K;
+        missing: Exclude<SourceDependencies<TSourceMap[K]>, SelectedSourceIds<TSourceMap>>;
+      };
+}[Extract<keyof TSourceMap, string>];
+
+export type EnforceSourceDependencies<TSourceMap extends Record<string, unknown>> = [
+  MissingDependencies<TSourceMap>,
+] extends [never]
+  ? unknown
+  : { __polo_missing_source_dependencies__: MissingDependencies<TSourceMap> };
+
+export type SourceSetSources<TSourceSet> =
+  TSourceSet extends SourceSetBrand<infer TSources extends Record<string, AnyResolverSource>>
+    ? TSources
+    : never;
+
+export type MergeSourceSets<
+  TSourceSets extends readonly unknown[],
+  TAccumulated extends Record<string, AnyResolverSource> = {},
+> = TSourceSets extends readonly [infer TFirst, ...infer TRest]
+  ? MergeSourceSets<TRest, TAccumulated & SourceSetSources<TFirst>>
+  : TAccumulated;
 
 type CompatibleSource<TInput extends AnyInput, TSource> =
   TSource extends InputSource<infer TKey>
     ? TKey extends Extract<keyof TInput, string>
       ? TSource
       : never
-    : TSource extends ResolverSource<unknown, infer TSourceInput>
+    : TSource extends ResolverSource<unknown, infer TSourceInput, string, string>
       ? TSourceInput extends Partial<TInput>
         ? TSource
         : never
@@ -328,7 +433,9 @@ export interface DefinitionConfig<
   TPrefer extends readonly Extract<keyof InferSources<TInput, TSourceMap>, string>[] = [],
 > {
   id: string;
-  sources: TSourceMap & SourceShape<TInput, NoInfer<TSourceMap>>;
+  sources: TSourceMap &
+    SourceShape<TInput, NoInfer<TSourceMap>> &
+    EnforceSourceDependencies<NoInfer<TSourceMap>>;
   derive?: DeriveFn<InferSources<TInput, TSourceMap>, TDerived>;
   policies?: Policies<InferSources<TInput, TSourceMap>, NoInfer<TDerived>, TRequired, TPrefer>;
   template?: TemplateFn<InferSources<TInput, TSourceMap>, NoInfer<TDerived>, TRequired>;

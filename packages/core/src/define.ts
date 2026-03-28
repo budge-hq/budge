@@ -1,4 +1,5 @@
 import type { AnyInput, Definition, DefinitionConfig, InferSources, InputSchema } from "./types.ts";
+import { buildWaves } from "./graph.ts";
 
 export function createDefinition<
   TInput extends AnyInput,
@@ -11,6 +12,8 @@ export function createDefinition<
   input: InputSchema<TResolveInput, TInput>,
   config: DefinitionConfig<TInput, TSourceMap, TDerived, TRequired, TPrefer>,
 ): Definition<TInput, TSourceMap, TDerived, TRequired, TPrefer, TResolveInput> {
+  buildWaves(config.sources, `task "${config.id}"`);
+
   return {
     _id: config.id,
     _inputSchema: input,

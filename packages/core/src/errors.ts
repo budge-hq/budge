@@ -11,6 +11,30 @@ export class RequiredSourceMissingError extends Error {
   }
 }
 
+export class MissingSourceDependencyError extends Error {
+  readonly sourceKey: string;
+  readonly dependencyKey: string;
+
+  constructor(sourceKey: string, dependencyKey: string, ownerLabel: string) {
+    super(
+      `Source "${sourceKey}" requires source "${dependencyKey}", but it is missing from ${ownerLabel}.`,
+    );
+    this.name = "MissingSourceDependencyError";
+    this.sourceKey = sourceKey;
+    this.dependencyKey = dependencyKey;
+  }
+}
+
+export class CircularSourceDependencyError extends Error {
+  readonly sourceKeys: string[];
+
+  constructor(sourceKeys: string[], ownerLabel: string) {
+    super(`Circular source dependencies detected in ${ownerLabel}: ${sourceKeys.join(", ")}.`);
+    this.name = "CircularSourceDependencyError";
+    this.sourceKeys = sourceKeys;
+  }
+}
+
 export class SourceResolutionError extends Error {
   readonly sourceKey: string;
   readonly cause: unknown;

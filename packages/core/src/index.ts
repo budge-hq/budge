@@ -7,12 +7,16 @@ export type {
   AnySchema,
   AnySource,
   AnyInput,
+  AnyResolverSource,
   Chunk,
   ChunkSource,
   ChunkRecord,
   Chunks,
+  DependentChunkSourceConfig,
+  DependentSourceConfig,
   Definition,
   DeriveFn,
+  EnforceSourceDependencies,
   ExcludeDecision,
   FromInputSourceOptions,
   InferContext,
@@ -35,7 +39,11 @@ export type {
   ResolverSource,
   Resolution,
   SourceConfig,
+  SourceDepValues,
   SourceResolveArgs,
+  SourceSet,
+  SourceSetBrand,
+  SourceSetSources,
   SourceTag,
   SourceShape,
   ChunkSourceConfig,
@@ -49,4 +57,9 @@ export type {
 } from "./types.ts";
 
 // Errors
-export { RequiredSourceMissingError, SourceResolutionError } from "./errors.ts";
+export {
+  CircularSourceDependencyError,
+  MissingSourceDependencyError,
+  RequiredSourceMissingError,
+  SourceResolutionError,
+} from "./errors.ts";

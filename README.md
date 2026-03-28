@@ -24,7 +24,7 @@ export const polo = createPolo();
 
 `createPolo()` gives you an isolated runtime surface. You can also pass runtime hooks like `logger` and `onTrace` if you want to forward traces into your own observability layer.
 
-### Create context sources
+### Create source sets
 
 ```ts
 import { registerSources } from "@polo/core";
@@ -43,44 +43,56 @@ const transcriptSourceInputSchema = z.object({
   transcript: z.string(),
 });
 
-const supportReplySources = registerSources({
-  account: polo.source(accountSourceInputSchema, {
+const accountSourceSet = polo.sourceSet((sources) => {
+  const account = sources.value(accountSourceInputSchema, {
     tags: ["internal"],
     async resolve({ input }) {
       return db.getAccount(input.accountId);
     },
-  }),
+  });
 
-  billingNotes: polo.source(accountSourceInputSchema, {
+  const billingNotes = sources.value(accountSourceInputSchema, { account }, {
     tags: ["billing"],
-    async resolve({ context }: { context: { account: Account } }) {
-      return db.getBillingNotes(context.account.id);
+    async resolve({ account }) {
+      return db.getBillingNotes(account.id);
     },
-  }),
+  });
 
-  recentTickets: polo.source.chunks(transcriptSourceInputSchema, {
-    tags: ["internal"],
-    async resolve({
-      input,
-      context,
-    }: {
-      input: z.output<typeof transcriptSourceInputSchema>;
-      context: { account: Account };
-    }) {
-      return vectorDb.searchTickets(context.account.id, input.transcript);
-    },
-    normalize(item) {
-      return {
-        content: item.pageContent,
-        score: item.relevanceScore,
-        metadata: { ticketId: item.id },
-      };
-    },
-  }),
+  return { account, billingNotes };
 });
+
+const ticketSourceSet = polo.sourceSet((sources) => {
+  const recentTickets = sources.chunks(
+    transcriptSourceInputSchema,
+    { account: accountSourceSet.account },
+    {
+      tags: ["internal"],
+      async resolve({ input, account }) {
+        return vectorDb.searchTickets(account.id, input.transcript);
+      },
+      normalize(item) {
+        return {
+          content: item.pageContent,
+          score: item.relevanceScore,
+          metadata: { ticketId: item.id },
+        };
+      },
+    },
+  );
+
+  return { recentTickets };
+});
+
+const supportReplySources = registerSources(accountSourceSet, ticketSourceSet);
 ```
 
-Use `registerSources(...)` for shared resolver-style sources only. Input passthroughs like `transcript` stay local to each task definition.
+Use `polo.sourceSet(...)` to author reusable resolver/chunk sources and `registerSources(...)` to assemble the final shared registry. Input passthroughs like `transcript` stay local to each task definition.
+
+Dependencies are declared by referencing source handles like `{ account }` or `{ account: accountSourceSet.account }`. Polo validates that graph during source registration, then checks that every task selects a dependency-closed source set during `polo.define(...)`.
+
+Task definitions may alias selected source keys, but dependency declarations inside `polo.source(..., deps, config)` and `polo.source.chunks(..., deps, config)` must currently use the referenced source's own key.
+
+Source handles are single-owner objects: create them inside one `polo.sourceSet(...)`, then reference them from other sets as dependencies instead of re-exporting the same handle from multiple sets.
 
 ### Define tasks with a template
 
@@ -159,15 +171,18 @@ console.log(
 
 ## API
 
-|                                           |                                                |
-| ----------------------------------------- | ---------------------------------------------- |
-| `createPolo(options?)`                    | Create an isolated Polo runtime                |
-| `registerSources(sources)`                | Compose reusable shared resolver/chunk sources |
-| `polo.define(inputSchema, config)`        | Declare the context contract for a task        |
-| `polo.resolve(definition, input)`         | Resolve context and prompt at runtime          |
-| `polo.source.fromInput(key, options?)`    | Passthrough from call-time input               |
-| `polo.source(inputSchema, config)`        | Resolve a single async value                   |
-| `polo.source.chunks(inputSchema, config)` | Resolve ranked multi-block context             |
+| API | Description |
+| --- | --- |
+| `createPolo(options?)` | Create an isolated Polo runtime |
+| `polo.sourceSet(builder)` | Define a reusable shared source fragment |
+| `registerSources(...sourceSets)` | Register a composed shared source registry |
+| `polo.define(inputSchema, config)` | Declare the context contract for a task |
+| `polo.resolve(definition, input)` | Resolve context and prompt at runtime |
+| `polo.source.fromInput(key, options?)` | Passthrough from call-time input |
+| `polo.source(inputSchema, config)` | Resolve a single async value |
+| `polo.source(inputSchema, deps, config)` | Resolve a value that depends on other sources |
+| `polo.source.chunks(inputSchema, config)` | Resolve ranked multi-block context |
+| `polo.source.chunks(inputSchema, deps, config)` | Resolve ranked blocks with dependencies |
 
 ---
 
@@ -207,9 +222,16 @@ Required sources are never dropped. Each dropped source is recorded in the trace
 Resolvers receive a single argument object with:
 
 - `input`: task input narrowed by the source's schema
-- `context`: already-resolved source values the resolver depends on
+- direct dependency values, flattened onto the resolver args
 
-Polo infers the dependency graph automatically from resolver usage and runs independent sources in parallel.
+Polo builds the dependency graph from the source handles you pass in the `deps` object and validates it during source registration and task definition.
+
+That gives you two safety nets:
+
+- type errors in `polo.define(...)` when a task selects a dependent source without its prerequisites
+- runtime errors with clear source names if JavaScript or ignored type errors bypass the static check
+
+Dependency validation follows the referenced source handles' internal ids, not the task's selected key names.
 
 ```ts
 account: polo.source(accountSourceInputSchema, {
@@ -218,9 +240,9 @@ account: polo.source(accountSourceInputSchema, {
   },
 });
 
-billingNotes: polo.source(accountSourceInputSchema, {
-  async resolve({ context }: { context: { account: Account } }) {
-    return db.getBillingNotes(context.account.id);
+billingNotes: polo.source(accountSourceInputSchema, { account }, {
+  async resolve({ account }) {
+    return db.getBillingNotes(account.id);
   },
 });
 ```
@@ -230,15 +252,9 @@ billingNotes: polo.source(accountSourceInputSchema, {
 `polo.source.chunks()` is for sources that return multiple ranked blocks. Polo fits as many as the token budget allows, drops the rest, and records each decision in the trace.
 
 ```ts
-recentTickets: polo.source.chunks(transcriptSourceInputSchema, {
-  async resolve({
-    input,
-    context,
-  }: {
-    input: { transcript: string };
-    context: { account: Account };
-  }) {
-    return vectorDb.searchTickets(context.account.id, input.transcript);
+recentTickets: polo.source.chunks(transcriptSourceInputSchema, { account }, {
+  async resolve({ input, account }) {
+    return vectorDb.searchTickets(account.id, input.transcript);
   },
   normalize(item) {
     return {
@@ -352,7 +368,7 @@ Polo gives you:
 - **consistent outputs** — same policies run every time, same sources, same budget
 - **explicit contracts** — input schemas, source schemas, and policies live next to the task
 - **typed context** — `context` is fully typed from your source definitions, no casting
-- **automatic dependency resolution** — sources run in parallel waves, no manual sequencing
+- **validated dependency graphs** — sources run in parallel waves, and missing prerequisites are caught before runtime work starts
 - **token-efficient serialization** — TOON encoding delivers ~40% fewer tokens than JSON on structured data, with equal or better model accuracy
 - **measurable optimization** — prompt traces include both full-resolution and final-included compression metrics for A/B testing prompt strategies
 - **debuggable** — when outputs go wrong, the trace tells you exactly what the model saw

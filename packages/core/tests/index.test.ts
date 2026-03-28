@@ -1,9 +1,12 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import { z } from "zod";
 import {
+  CircularSourceDependencyError,
   createPolo,
+  MissingSourceDependencyError,
   registerSources,
   RequiredSourceMissingError,
+  type AnyResolverSource,
   type InferContext,
 } from "../src/index.ts";
 import { estimateTokens, serialize } from "../src/pack.ts";
@@ -78,25 +81,30 @@ describe("sources", () => {
     const order: string[] = [];
     const parentSchema = z.object({ id: z.string() });
     const childSchema = z.object({ parentId: z.string() });
-    type Parent = z.output<typeof parentSchema>;
+    const parent = polo.source(emptyInputSchema, {
+      output: parentSchema,
+      async resolve() {
+        order.push("parent");
+        return { id: "p1" };
+      },
+    });
+    const child = polo.source(
+      emptyInputSchema,
+      { parent },
+      {
+        output: childSchema,
+        async resolve({ parent }) {
+          order.push("child");
+          return { parentId: parent.id };
+        },
+      },
+    );
 
     const task = polo.define(emptyInputSchema, {
       id: "test_dep",
       sources: {
-        parent: polo.source(emptyInputSchema, {
-          output: parentSchema,
-          async resolve() {
-            order.push("parent");
-            return { id: "p1" };
-          },
-        }),
-        child: polo.source(emptyInputSchema, {
-          output: childSchema,
-          async resolve({ context }: { context: { parent: Parent } }) {
-            order.push("child");
-            return { parentId: context.parent.id };
-          },
-        }),
+        parent,
+        child,
       },
     });
 
@@ -108,28 +116,239 @@ describe("sources", () => {
   test("dependent source waits for parent when sources are destructured", async () => {
     const parentSchema = z.object({ id: z.string() });
     const childSchema = z.object({ parentId: z.string() });
-    type Parent = z.output<typeof parentSchema>;
+    const parent = polo.source(emptyInputSchema, {
+      output: parentSchema,
+      async resolve() {
+        return { id: "p1" };
+      },
+    });
+    const child = polo.source(
+      emptyInputSchema,
+      { parent },
+      {
+        output: childSchema,
+        async resolve({ parent }) {
+          return { parentId: parent.id };
+        },
+      },
+    );
 
     const task = polo.define(emptyInputSchema, {
       id: "test_dep_destructured",
       sources: {
-        parent: polo.source(emptyInputSchema, {
-          output: parentSchema,
-          async resolve() {
-            return { id: "p1" };
-          },
-        }),
-        child: polo.source(emptyInputSchema, {
-          output: childSchema,
-          async resolve({ context }: { context: { parent: Parent } }) {
-            return { parentId: context.parent.id };
-          },
-        }),
+        parent,
+        child,
       },
     });
 
     const { context } = await polo.resolve(task, {});
     expect(context.child).toEqual({ parentId: "p1" });
+  });
+
+  test("missing source dependency throws during task definition", () => {
+    const accountSourceSet = polo.sourceSet((sources) => {
+      const account = sources.value(emptyInputSchema, {
+        async resolve() {
+          return { id: "p1" };
+        },
+      });
+
+      return { account };
+    });
+
+    const childSourceSet = polo.sourceSet((sources) => {
+      const child = sources.value(
+        emptyInputSchema,
+        { account: accountSourceSet.account },
+        {
+          async resolve({ account }) {
+            return { parentId: account.id };
+          },
+        },
+      );
+
+      return { child };
+    });
+
+    const sourceRegistry = registerSources(accountSourceSet, childSourceSet);
+
+    const typecheckOnly = Date.now() < 0;
+
+    if (typecheckOnly) {
+      polo.define(emptyInputSchema, {
+        id: "typecheck_missing_dep",
+        // @ts-expect-error child depends on account
+        sources: {
+          child: sourceRegistry.child,
+        },
+      });
+    }
+
+    expect(() =>
+      polo.define(emptyInputSchema, {
+        id: "runtime_missing_dep",
+        sources: {
+          child: sourceRegistry.child,
+        } as never,
+      }),
+    ).toThrowError(MissingSourceDependencyError);
+  });
+
+  test("dependent sources can be selected under aliased task keys", async () => {
+    const sharedSourceSet = polo.sourceSet((sources) => {
+      const account = sources.value(emptyInputSchema, {
+        async resolve() {
+          return { id: "p1" };
+        },
+      });
+
+      const child = sources.value(
+        emptyInputSchema,
+        { account },
+        {
+          async resolve({ account }) {
+            return { parentId: account.id };
+          },
+        },
+      );
+
+      return { account, child };
+    });
+
+    const sourceRegistry = registerSources(sharedSourceSet);
+    const task = polo.define(emptyInputSchema, {
+      id: "aliased_source_keys",
+      sources: {
+        customer: sourceRegistry.account,
+        child: sourceRegistry.child,
+      },
+    });
+
+    const { context } = await polo.resolve(task, {});
+    expect(context.customer).toEqual({ id: "p1" });
+    expect(context.child).toEqual({ parentId: "p1" });
+  });
+
+  test("local source reuse after aliased selection does not affect later dependencies", async () => {
+    const account = polo.source(emptyInputSchema, {
+      async resolve() {
+        return { id: "p1" };
+      },
+    });
+    const child = polo.source(
+      emptyInputSchema,
+      { account },
+      {
+        async resolve({ account }) {
+          return { parentId: account.id };
+        },
+      },
+    );
+
+    const aliasedTask = polo.define(emptyInputSchema, {
+      id: "local_alias_first",
+      sources: {
+        customer: account,
+      },
+    });
+    const dependentTask = polo.define(emptyInputSchema, {
+      id: "local_alias_second",
+      sources: {
+        account,
+        child,
+      },
+    });
+
+    const { context: aliasedContext } = await polo.resolve(aliasedTask, {});
+    const { context: dependentContext } = await polo.resolve(dependentTask, {});
+
+    expect(aliasedContext.customer).toEqual({ id: "p1" });
+    expect(dependentContext.account).toEqual({ id: "p1" });
+    expect(dependentContext.child).toEqual({ parentId: "p1" });
+  });
+
+  test("local dependency aliases are not supported", () => {
+    const account = polo.source(emptyInputSchema, {
+      async resolve() {
+        return { id: "p1" };
+      },
+    });
+    const child = polo.source(
+      emptyInputSchema,
+      { customer: account },
+      {
+        async resolve({ customer }) {
+          return { parentId: customer.id };
+        },
+      },
+    );
+
+    const typecheckOnly = Date.now() < 0;
+
+    if (typecheckOnly) {
+      polo.define(emptyInputSchema, {
+        id: "typecheck_local_dependency_alias",
+        // @ts-expect-error local dependency aliases are not supported
+        sources: {
+          account,
+          child,
+        },
+      });
+    }
+
+    expect(() =>
+      polo.define(emptyInputSchema, {
+        id: "local_dependency_alias",
+        sources: {
+          account,
+          child,
+        } as never,
+      }),
+    ).toThrowError(/Dependency aliases are not supported yet/);
+  });
+
+  test("reusing a source handle across source sets throws", () => {
+    const shared = polo.sourceSet((sources) => {
+      const account = sources.value(emptyInputSchema, {
+        async resolve() {
+          return { id: "p1" };
+        },
+      });
+
+      return { account };
+    });
+
+    expect(() =>
+      polo.sourceSet(() => ({
+        account: shared.account,
+      })),
+    ).toThrowError(/already owned by another sourceSet/);
+  });
+
+  test("circular dependencies throw during task definition", () => {
+    const first = polo.source(emptyInputSchema, {
+      async resolve() {
+        return "first";
+      },
+    });
+    const second = polo.source(emptyInputSchema, {
+      async resolve() {
+        return "second";
+      },
+    });
+
+    (first as AnyResolverSource)._dependencySources = { second };
+    (second as AnyResolverSource)._dependencySources = { first };
+
+    expect(() =>
+      polo.define(emptyInputSchema, {
+        id: "test_circular",
+        sources: {
+          first,
+          second,
+        },
+      }),
+    ).toThrowError(CircularSourceDependencyError);
   });
 
   test("independent sources resolve in parallel", async () => {
@@ -1235,19 +1454,40 @@ describe("end to end", () => {
       ] as Array<{ pageContent: string; score: number }>),
     };
 
-    const sourceRegistry = registerSources({
-      account: polo.source(accountSourceInputSchema, {
+    const accountSourceSet = polo.sourceSet((sources) => {
+      const account = sources.value(accountSourceInputSchema, {
         tags: ["internal"],
         async resolve({ input }) {
           return mockDb.account(input.accountId);
         },
-      }),
-      priorNote: polo.source(accountSourceInputSchema, {
-        async resolve({ context }: { context: { account: Account } }) {
-          return mockDb.priorNote(context.account.plan);
+      });
+
+      const priorNote = sources.value(
+        accountSourceInputSchema,
+        { account },
+        {
+          async resolve({ account }) {
+            return mockDb.priorNote(account.plan);
+          },
         },
-      }),
-      guidelines: polo.source.chunks(transcriptSourceInputSchema, {
+      );
+
+      const sensitiveData = sources.value(accountSourceInputSchema, {
+        tags: ["phi"],
+        async resolve() {
+          return { secret: "should be excluded" };
+        },
+      });
+
+      return {
+        account,
+        priorNote,
+        sensitiveData,
+      };
+    });
+
+    const guidelineSourceSet = polo.sourceSet((sources) => {
+      const guidelines = sources.chunks(transcriptSourceInputSchema, {
         tags: ["internal"],
         async resolve({ input }) {
           return mockVector.search(input.transcript) as Promise<
@@ -1260,14 +1500,12 @@ describe("end to end", () => {
             score: item.score,
           };
         },
-      }),
-      sensitiveData: polo.source(accountSourceInputSchema, {
-        tags: ["phi"],
-        async resolve() {
-          return { secret: "should be excluded" };
-        },
-      }),
+      });
+
+      return { guidelines };
     });
+
+    const sourceRegistry = registerSources(accountSourceSet, guidelineSourceSet);
 
     const task = polo.define(inputSchema, {
       id: "e2e_test",

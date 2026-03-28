@@ -44,11 +44,11 @@ export const supportReply = polo.define(supportReplyInputSchema, {
         ? "Prioritize urgency and ownership."
         : "Keep the reply practical and direct."
     }`,
-    prompt: `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}${
+    prompt: `Customer message:\n${context.transcript}\n\nAccount:\n${String(context.account)}${
       context.recentTickets?.length
         ? `\n\nRecent tickets:\n${context.recentTickets.map((ticket) => ticket.content).join("\n")}`
         : ""
-    }\n\nBilling notes:\n${context.billingNotes ?? "N/A"}`,
+    }\n\nBilling notes:\n${String(context.billingNotes ?? "N/A")}`,
   }),
 });
 
