@@ -1,12 +1,7 @@
 import { encode } from "@toon-format/toon";
 import { estimateTokenCount } from "tokenx";
-import type { Chunk, ChunkRecord, Chunks } from "./types.ts";
-
-interface PackedChunks {
-  included: Chunk[];
-  records: ChunkRecord[];
-  tokensUsed: number;
-}
+import { greedyScore, resolveStrategy } from "./strategies.ts";
+import type { BudgetConfig, BudgetStrategyFn, Chunks, PackedResult } from "./types.ts";
 
 /**
  * Serialize a value to a token-efficient string for prompt construction.
@@ -30,37 +25,42 @@ export function estimateTokens(text: string): number {
   return estimateTokenCount(text);
 }
 
+interface NormalizedBudget {
+  maxTokens: number;
+  strategyFn: BudgetStrategyFn;
+  strategyName: string;
+}
+
+/**
+ * Normalize the budget field from policies into a consistent shape.
+ * Accepts the old `number` shorthand or the new `BudgetConfig` object.
+ */
+export function normalizeBudget(field: number | BudgetConfig | undefined): NormalizedBudget {
+  if (field === undefined) {
+    return { maxTokens: Infinity, strategyFn: greedyScore, strategyName: "greedy_score" };
+  }
+  if (typeof field === "number") {
+    return { maxTokens: field, strategyFn: greedyScore, strategyName: "greedy_score" };
+  }
+  const strategyFn = resolveStrategy(field.strategy);
+  const strategyName =
+    field.strategy === undefined
+      ? "greedy_score"
+      : typeof field.strategy === "function"
+        ? "custom"
+        : field.strategy.type;
+  return { maxTokens: field.maxTokens, strategyFn, strategyName };
+}
+
 /**
  * Pack chunks from a Chunks result into a token budget.
- * Chunks are sorted by score descending, then fit greedily until budget is exhausted.
+ * Delegates to the provided strategy function (defaults to greedy-by-score).
  */
-export function packChunks(chunks: Chunks, remainingBudget: number): PackedChunks {
-  const sorted = [...chunks.items].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-
-  const included: Chunk[] = [];
-  const records: ChunkRecord[] = [];
-  let tokensUsed = 0;
-
-  for (const chunk of sorted) {
-    const tokens = estimateTokenCount(chunk.content);
-
-    if (tokensUsed + tokens <= remainingBudget) {
-      included.push(chunk);
-      tokensUsed += tokens;
-      records.push({
-        content: chunk.content,
-        score: chunk.score,
-        included: true,
-      });
-    } else {
-      records.push({
-        content: chunk.content,
-        score: chunk.score,
-        included: false,
-        reason: "over_budget",
-      });
-    }
-  }
-
-  return { included, records, tokensUsed };
+export function packChunks(
+  chunks: Chunks,
+  remainingBudget: number,
+  strategy?: BudgetStrategyFn,
+): PackedResult {
+  const fn = strategy ?? greedyScore;
+  return fn(chunks.items, { budget: remainingBudget, estimateTokens: estimateTokenCount });
 }

@@ -27,6 +27,9 @@ export function buildTrace(options: {
   derived: Record<string, unknown>;
   budgetMax: number;
   budgetUsed: number;
+  strategyName?: string;
+  budgetCandidates?: number;
+  budgetSelected?: number;
   promptTrace?: PromptTrace;
 }): Trace {
   const {
@@ -38,6 +41,9 @@ export function buildTrace(options: {
     derived,
     budgetMax,
     budgetUsed,
+    strategyName,
+    budgetCandidates,
+    budgetSelected,
     promptTrace,
   } = options;
 
@@ -62,7 +68,13 @@ export function buildTrace(options: {
     sources,
     policies: policyRecords,
     derived,
-    budget: { max: budgetMax, used: budgetUsed },
+    budget: {
+      max: budgetMax,
+      used: budgetUsed,
+      ...(strategyName !== undefined && { strategy: strategyName }),
+      ...(budgetCandidates !== undefined && { candidates: budgetCandidates }),
+      ...(budgetSelected !== undefined && { selected: budgetSelected }),
+    },
     ...(promptTrace !== undefined && { prompt: promptTrace }),
   };
 }

@@ -85,11 +85,6 @@ export type SourceDepValues<TDeps extends Record<string, AnyResolverSource>> = {
   [K in keyof TDeps]: InferSource<AnyInput, TDeps[K]>;
 };
 
-type SourceId<TSource> =
-  TSource extends ResolverSource<unknown, AnyInput, infer TSourceId, string> ? TSourceId : never;
-
-export type SourcePublicId<TSource> = SourceId<TSource>;
-
 type EffectiveSelectedSourceId<TSource, TSelectedKey extends string> =
   TSource extends ResolverSource<unknown, AnyInput, infer TSourceId, string>
     ? string extends TSourceId
@@ -288,7 +283,54 @@ export interface Policies<
   exclude?: Array<
     PolicyExcludeFn<TSources, TDerived, Exclude<Extract<keyof TSources, string>, TRequired[number]>>
   >;
-  budget?: number;
+  budget?: number | BudgetConfig;
+}
+
+// ============================================================
+// Budget strategies
+// ============================================================
+
+export interface BudgetStrategyContext {
+  budget: number;
+  estimateTokens: (text: string) => number;
+}
+
+export interface PackedResult {
+  included: Chunk[];
+  records: ChunkRecord[];
+  tokensUsed: number;
+}
+
+/**
+ * A function that selects and orders chunks for a token budget.
+ *
+ * The returned `included` array MUST be ordered most-valuable-first.
+ * In template mode, Phase 2 trimming drops `included[included.length - 1]`
+ * to stay within budget, so the last element should be the chunk the
+ * strategy considers least important.
+ */
+export type BudgetStrategyFn = (chunks: Chunk[], ctx: BudgetStrategyContext) => PackedResult;
+
+export interface ScorePerTokenOptions {
+  /**
+   * Exponent applied to score before dividing by token cost. Default: 1.
+   * At alpha=0, score^0=1 for all scores so ranking is purely by 1/tokenCost.
+   * At alpha>0, zero-scored chunks receive efficiency=0 and rank last.
+   */
+  alpha?: number;
+  /** Floor for token cost to prevent division by near-zero. Default: 1. */
+  minChunkTokens?: number;
+}
+
+export type BuiltinBudgetStrategy =
+  | { type: "greedy_score" }
+  | { type: "score_per_token"; options?: ScorePerTokenOptions };
+
+export type BudgetStrategy = BuiltinBudgetStrategy | BudgetStrategyFn;
+
+export interface BudgetConfig {
+  maxTokens: number;
+  strategy?: BudgetStrategy;
 }
 
 // ============================================================
@@ -383,7 +425,7 @@ export interface Trace {
   sources: SourceRecord[];
   policies: PolicyRecord[];
   derived: Record<string, unknown>;
-  budget: { max: number; used: number };
+  budget: { max: number; used: number; strategy?: string; candidates?: number; selected?: number };
   prompt?: PromptTrace;
 }
 

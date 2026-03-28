@@ -3,6 +3,7 @@ import stringify from "safe-stable-stringify";
 import type {
   AllowedContext,
   AnyInput,
+  BudgetStrategyFn,
   Definition,
   InputSchema,
   InputSource,
@@ -17,7 +18,7 @@ import type {
 import { isChunks } from "./chunks.ts";
 import { buildWaves, executeWaves, validateSourceDependencies } from "./graph.ts";
 import { applyPolicies } from "./policies.ts";
-import { estimateTokens, packChunks, serialize } from "./pack.ts";
+import { estimateTokens, normalizeBudget, packChunks, serialize } from "./pack.ts";
 import { buildTrace } from "./trace.ts";
 import type { SourceTiming } from "./trace.ts";
 
@@ -282,7 +283,9 @@ export async function resolveDefinition<
   const derived: TDerived = deriveFn ? deriveFn({ context: resolvedForDerive }) : ({} as TDerived);
 
   // --- apply policies ---
-  const budget = policies.budget ?? Infinity;
+  const { maxTokens: budget, strategyFn, strategyName } = normalizeBudget(policies.budget);
+  let budgetCandidates = 0;
+  let budgetSelected = 0;
   const { allowed, records: policyRecords } = applyPolicies<
     InferSources<TInput, TSourceMap>,
     TDerived,
@@ -333,6 +336,7 @@ export async function resolveDefinition<
       preferredKeys,
       sourceTimings,
       budget,
+      strategyFn,
       declaredChunkSourceKeys,
       templateFn: templateFn as (args: { context: Record<string, unknown> }) => PromptOutput,
       taskId,
@@ -364,6 +368,9 @@ export async function resolveDefinition<
       derived,
       budgetMax: budget === Infinity ? 0 : budget,
       budgetUsed: totalTokens,
+      strategyName,
+      budgetCandidates: resolution.budgetCandidates,
+      budgetSelected: resolution.budgetSelected,
       promptTrace,
     });
 
@@ -396,8 +403,11 @@ export async function resolveDefinition<
 
     if (isChunks(raw)) {
       const packed = requiredKeys.has(key)
-        ? packChunks(raw, Infinity)
-        : packChunks(raw, budget === Infinity ? Infinity : budget - budgetUsed);
+        ? packChunks(raw, Infinity, strategyFn)
+        : packChunks(raw, budget === Infinity ? Infinity : budget - budgetUsed, strategyFn);
+
+      budgetCandidates += raw.items.length;
+      budgetSelected += packed.included.length;
 
       // Attach chunk records to the source timing entry
       const timing = sourceTimings.find((t) => t.key === key);
@@ -445,6 +455,9 @@ export async function resolveDefinition<
     derived,
     budgetMax: budget === Infinity ? 0 : budget,
     budgetUsed,
+    strategyName,
+    budgetCandidates,
+    budgetSelected,
   });
 
   return {
@@ -458,6 +471,8 @@ interface TemplateResolutionResult {
   prompt: PromptOutput;
   policyRecords: PolicyRecord[];
   sourceTimings: SourceTiming[];
+  budgetCandidates: number;
+  budgetSelected: number;
 }
 
 /**
@@ -481,6 +496,7 @@ function resolveWithTemplate(options: {
   preferredKeys: Set<string>;
   sourceTimings: SourceTiming[];
   budget: number;
+  strategyFn: BudgetStrategyFn;
   declaredChunkSourceKeys: Set<string>;
   templateFn: (args: { context: Record<string, unknown> }) => PromptOutput;
   taskId: string;
@@ -494,6 +510,7 @@ function resolveWithTemplate(options: {
     preferredKeys,
     sourceTimings,
     budget,
+    strategyFn,
     declaredChunkSourceKeys,
     templateFn,
   } = options;
@@ -502,21 +519,34 @@ function resolveWithTemplate(options: {
   const context: Record<string, unknown> = {};
   // Track chunk arrays separately so we can trim them
   const chunkContextKeys = new Set<string>();
+  let templateCandidates = 0;
 
   for (const key of allowed) {
     const raw = resolvedRaw.get(key);
     if (isChunks(raw)) {
-      // Start with all chunks; trimming happens in the fitting loop
-      context[key] = [...raw.items];
+      templateCandidates += raw.items.length;
       chunkContextKeys.add(key);
-      // Attach full chunk records to timing
-      const timing = sourceTimings.find((t) => t.key === key);
-      if (timing) {
-        timing.chunkRecords = raw.items.map((c) => ({
-          content: c.content,
-          score: c.score,
-          included: true,
-        }));
+
+      if (budget === Infinity) {
+        // No budget configured — preserve original insertion order
+        context[key] = [...raw.items];
+        const timing = sourceTimings.find((t) => t.key === key);
+        if (timing) {
+          timing.chunkRecords = raw.items.map((c) => ({
+            content: c.content,
+            score: c.score,
+            included: true,
+          }));
+        }
+      } else {
+        // Pre-sort chunks using the strategy's ordering so that Phase 2
+        // trimming drops the least-valuable-per-strategy chunks first.
+        const ranked = strategyFn(raw.items, { budget: Infinity, estimateTokens });
+        context[key] = [...ranked.included];
+        const timing = sourceTimings.find((t) => t.key === key);
+        if (timing) {
+          timing.chunkRecords = ranked.records;
+        }
       }
     } else {
       if (declaredChunkSourceKeys.has(key) && isChunkEnvelope(raw)) {
@@ -537,7 +567,18 @@ function resolveWithTemplate(options: {
   // If no budget, skip fitting
   if (budget === Infinity) {
     const prompt = renderTemplate(templateFn, context);
-    return { context, prompt, policyRecords, sourceTimings };
+    const selectedCount = [...chunkContextKeys].reduce((sum, key) => {
+      const chunks = context[key] as unknown[];
+      return sum + (chunks?.length ?? 0);
+    }, 0);
+    return {
+      context,
+      prompt,
+      policyRecords,
+      sourceTimings,
+      budgetCandidates: templateCandidates,
+      budgetSelected: selectedCount,
+    };
   }
 
   // Partition droppable sources: non-chunk sources are dropped whole, chunk sources are trimmed.
@@ -567,7 +608,9 @@ function resolveWithTemplate(options: {
     prompt = renderTemplate(templateFn, context);
   }
 
-  // Phase 2: trim chunks one-at-a-time from chunk sources (lowest score first)
+  // Phase 2: trim chunks one-at-a-time from chunk sources.
+  // Chunks are already pre-sorted by the budget strategy (most valuable first),
+  // so dropping the last element removes the least-valuable-per-strategy chunk.
   if (renderTokens(prompt) > budget) {
     let trimmed = true;
     while (renderTokens(prompt) > budget && trimmed) {
@@ -580,17 +623,16 @@ function resolveWithTemplate(options: {
         const chunks = context[key] as Array<{ content: string; score?: number }>;
         if (chunks.length <= 1) continue;
 
-        // Drop the lowest-score chunk
-        const lowestIdx = chunks.reduce(
-          (minIdx, c, i) => ((c.score ?? 0) < (chunks[minIdx]?.score ?? 0) ? i : minIdx),
-          0,
-        );
-        chunks.splice(lowestIdx, 1);
+        // Drop the strategy's least-valuable chunk (last in pre-sorted order)
+        const dropped = chunks.pop()!;
 
-        // Update chunk records in timing
+        // Update chunk records in timing — match by content + score, searching
+        // from the end so that duplicates are marked in reverse strategy order
         const timing = sourceTimings.find((t) => t.key === key);
         if (timing?.chunkRecords) {
-          const record = timing.chunkRecords.filter((record) => record.included)[lowestIdx];
+          const record = timing.chunkRecords.findLast(
+            (r) => r.included && r.content === dropped.content && r.score === dropped.score,
+          );
           if (record) {
             record.included = false;
             record.reason = "chunk_trimmed_over_budget";
@@ -623,5 +665,16 @@ function resolveWithTemplate(options: {
     prompt = renderTemplate(templateFn, context);
   }
 
-  return { context, prompt, policyRecords, sourceTimings };
+  const selectedCount = [...chunkContextKeys].reduce((sum, key) => {
+    const chunks = context[key] as unknown[] | undefined;
+    return sum + (chunks?.length ?? 0);
+  }, 0);
+  return {
+    context,
+    prompt,
+    policyRecords,
+    sourceTimings,
+    budgetCandidates: templateCandidates,
+    budgetSelected: selectedCount,
+  };
 }
