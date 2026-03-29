@@ -41,6 +41,8 @@ export type {
   PolicyRecord,
   PromptOutput,
   PromptTrace,
+  QuotaByGroupOptions,
+  RankBudgetStrategy,
   RenderableValue,
   ResolverSource,
   Resolution,

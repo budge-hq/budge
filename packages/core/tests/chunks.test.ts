@@ -420,6 +420,40 @@ describe("polo.source.chunks", () => {
     expect(typeof trace.budget.selected).toBe("number");
   });
 
+  test("quota_by_group strategy is reflected in trace", async () => {
+    const task = polo.define(emptyInputSchema, {
+      id: "test_trace_quota_strategy",
+      sources: {
+        docs: polo.source.chunks(emptyInputSchema, {
+          async resolve() {
+            return [
+              { content: "A1 ".repeat(20), score: 0.95, metadata: { group: "product" } },
+              { content: "A2 ".repeat(20), score: 0.9, metadata: { group: "product" } },
+              { content: "B1 ".repeat(20), score: 0.6, metadata: { group: "policy" } },
+            ];
+          },
+        }),
+      },
+      policies: {
+        budget: {
+          maxTokens: 40,
+          strategy: {
+            type: "quota_by_group",
+            options: {
+              groupBy: "metadata.group",
+              quotas: { product: 0.5, policy: 0.5 },
+            },
+          },
+        },
+      },
+    });
+
+    const { trace } = await polo.resolve(task, {});
+    expect(trace.budget.strategy).toBe("quota_by_group");
+    expect(trace.budget.candidates).toBe(3);
+    expect(typeof trace.budget.selected).toBe("number");
+  });
+
   test("backward compat: budget as number still populates trace strategy", async () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_trace_compat",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { greedyScore, scorePerToken, resolveStrategy } from "../src/strategies.ts";
+import { greedyScore, quotaByGroup, scorePerToken, resolveStrategy } from "../src/strategies.ts";
 import { estimateTokens } from "../src/pack.ts";
 import type { BudgetStrategyContext, Chunk } from "../src/types.ts";
 
@@ -233,6 +233,18 @@ describe("resolveStrategy", () => {
     expect(fn).not.toBe(greedyScore);
   });
 
+  test('{ type: "quota_by_group" } returns a function', () => {
+    const fn = resolveStrategy({
+      type: "quota_by_group",
+      options: {
+        groupBy: "metadata.group",
+        quotas: { a: 0.5 },
+      },
+    });
+    expect(typeof fn).toBe("function");
+    expect(fn).not.toBe(greedyScore);
+  });
+
   test("custom function is passed through", () => {
     const custom = () => ({ included: [], records: [], tokensUsed: 0 });
     expect(resolveStrategy(custom)).toBe(custom);
@@ -242,5 +254,70 @@ describe("resolveStrategy", () => {
     expect(() => resolveStrategy({ type: "unknown" } as never)).toThrow(
       "Unknown budget strategy type: unknown",
     );
+  });
+});
+
+describe("quotaByGroup", () => {
+  test("includes at least one chunk per quota group when budget allows", () => {
+    const chunks: Chunk[] = [
+      { content: "a".repeat(120), score: 0.99, metadata: { group: "A" } },
+      { content: "b".repeat(120), score: 0.95, metadata: { group: "A" } },
+      { content: "c".repeat(120), score: 0.8, metadata: { group: "B" } },
+    ];
+    const perChunk = estimateTokens(chunks[0]!.content);
+    const strategy = quotaByGroup({
+      groupBy: "metadata.group",
+      quotas: { A: 0.5, B: 0.5 },
+    });
+
+    const result = strategy(chunks, ctx(perChunk * 2));
+
+    expect(result.included).toHaveLength(2);
+    const includedGroups = result.included.map((chunk) => chunk.metadata?.group);
+    expect(includedGroups).toContain("A");
+    expect(includedGroups).toContain("B");
+  });
+
+  test("falls back to default group for missing metadata", () => {
+    const strategy = quotaByGroup({
+      groupBy: "metadata.group",
+      quotas: { ungrouped: 1 },
+      defaultGroup: "ungrouped",
+    });
+
+    const chunks: Chunk[] = [
+      { content: "x".repeat(10), score: 0.9 },
+      { content: "y".repeat(10), score: 0.8, metadata: {} },
+    ];
+
+    const result = strategy(chunks, ctx(Infinity));
+    expect(result.included).toHaveLength(2);
+  });
+
+  test("throws when quota ratios sum above 1", () => {
+    expect(() =>
+      quotaByGroup({
+        groupBy: "metadata.group",
+        quotas: { A: 0.7, B: 0.4 },
+      }),
+    ).toThrow("quota_by_group: sum of quota ratios must be <= 1.");
+  });
+
+  test("throws on invalid quota value", () => {
+    expect(() =>
+      quotaByGroup({
+        groupBy: "metadata.group",
+        quotas: { A: -0.1 },
+      }),
+    ).toThrow('quota_by_group: quota for group "A" must be a finite ratio between 0 and 1.');
+  });
+
+  test("throws when groupBy metadata field is empty", () => {
+    expect(() =>
+      quotaByGroup({
+        groupBy: "metadata.",
+        quotas: { A: 1 },
+      }),
+    ).toThrow('quota_by_group: groupBy must use non-empty "metadata.<field>".');
   });
 });

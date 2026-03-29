@@ -322,9 +322,35 @@ export interface ScorePerTokenOptions {
   minChunkTokens?: number;
 }
 
-export type BuiltinBudgetStrategy =
+export type RankBudgetStrategy =
   | { type: "greedy_score" }
   | { type: "score_per_token"; options?: ScorePerTokenOptions };
+
+export interface QuotaByGroupOptions {
+  /**
+   * Group selector for chunk quotas.
+   * - `metadata.<field>`: reads `chunk.metadata[field]`
+   * - function: returns a group key per chunk
+   */
+  groupBy: `metadata.${string}` | ((chunk: Chunk) => string | null | undefined);
+  /**
+   * Per-group quota ratios (0..1), interpreted as a fraction of total budget.
+   * Example: `{ product: 0.4, policy: 0.3 }` reserves up to 70% of budget
+   * before global fill.
+   */
+  quotas: Record<string, number>;
+  /** Fallback group key when groupBy returns empty or missing values. */
+  defaultGroup?: string;
+  /** Ranking strategy used during per-group quota allocation. */
+  intraGroup?: RankBudgetStrategy;
+  /** Ranking strategy used during global fill of remaining budget. */
+  fill?: RankBudgetStrategy;
+}
+
+export type BuiltinBudgetStrategy =
+  | { type: "greedy_score" }
+  | { type: "score_per_token"; options?: ScorePerTokenOptions }
+  | { type: "quota_by_group"; options: QuotaByGroupOptions };
 
 export type BudgetStrategy = BuiltinBudgetStrategy | BudgetStrategyFn;
 
