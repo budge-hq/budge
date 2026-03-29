@@ -37,7 +37,7 @@ const accountSourceSet = polo.sourceSet((sources) => {
 });
 
 const ticketSourceSet = polo.sourceSet((sources) => {
-  const recentTickets = sources.chunks(
+  const recentTickets = sources.rag(
     transcriptInputSchema,
     { account: accountSourceSet.account },
     {

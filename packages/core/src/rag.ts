@@ -1,4 +1,4 @@
-import type { Chunk, Chunks } from "./types.ts";
+import type { Chunk, RagItems } from "./types.ts";
 
 function isChunk(value: unknown): value is Chunk {
   return (
@@ -13,28 +13,28 @@ function isChunkArray(values: unknown[]): values is Chunk[] {
   return values.every(isChunk);
 }
 
-export function isChunks(value: unknown): value is Chunks {
+export function isRagItems(value: unknown): value is RagItems {
   return (
     typeof value === "object" &&
     value !== null &&
     "_type" in value &&
-    value._type === "chunks" &&
+    value._type === "rag" &&
     "items" in value &&
     Array.isArray(value.items) &&
     isChunkArray(value.items)
   );
 }
 
-export function createChunks(promise: Promise<Chunk[]>): Promise<Chunks>;
-export function createChunks<T>(
+export function createRagItems(promise: Promise<Chunk[]>): Promise<RagItems>;
+export function createRagItems<T>(
   promise: Promise<T[]>,
   normalize: (item: T) => Chunk,
-): Promise<Chunks>;
+): Promise<RagItems>;
 
-export async function createChunks<T>(
+export async function createRagItems<T>(
   promise: Promise<T[] | Chunk[]>,
   normalize?: (item: T) => Chunk,
-): Promise<Chunks> {
+): Promise<RagItems> {
   const items = await promise;
 
   if (normalize) {
@@ -42,19 +42,19 @@ export async function createChunks<T>(
 
     if (!isChunkArray(normalizedItems)) {
       throw new TypeError(
-        "polo.source.chunks() normalize() must return Chunk objects with string content.",
+        "polo.source.rag() normalize() must return Chunk objects with string content.",
       );
     }
 
     return {
-      _type: "chunks",
+      _type: "rag",
       items: normalizedItems,
     };
   }
 
   if (!isChunkArray(items)) {
-    throw new TypeError("polo.chunks() requires either Chunk[] input or a normalize function.");
+    throw new TypeError("polo.source.rag() requires either Chunk[] input or a normalize function.");
   }
 
-  return { _type: "chunks", items };
+  return { _type: "rag", items };
 }

@@ -90,11 +90,11 @@ export function summarizeTrace(trace: Trace): string {
   );
 
   for (const source of trace.sources) {
-    if (!source.chunks?.length) {
+    if (!source.items?.length) {
       continue;
     }
 
-    const dropped = source.chunks.filter((chunk) => !chunk.included);
+    const dropped = source.items.filter((chunk) => !chunk.included);
     if (dropped.length) {
       lines.push(`dropped chunks for ${source.key}:`);
       lines.push(

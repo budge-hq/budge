@@ -71,7 +71,7 @@ describe("integration", () => {
     });
 
     const guidelineSourceSet = polo.sourceSet((sources) => {
-      const guidelines = sources.chunks(transcriptSourceInputSchema, {
+      const guidelines = sources.rag(transcriptSourceInputSchema, {
         tags: ["internal"],
         async resolve({ input }) {
           return mockVector.search(input.transcript) as Promise<

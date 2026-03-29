@@ -1,14 +1,14 @@
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
 import { createPolo, registerSources } from "../src/index.ts";
-import { createChunks } from "../src/chunks.ts";
+import { createRagItems } from "../src/rag.ts";
 import { estimateTokens } from "../src/pack.ts";
 import type { AnyResolverSource, BudgetStrategyFn } from "../src/types.ts";
 
 const polo = createPolo();
 const emptyInputSchema = z.object({});
 
-describe("polo.source.chunks", () => {
+describe("polo.source.rag", () => {
   test("packs chunks within budget", async () => {
     const items = [
       { content: "a".repeat(100), score: 0.9 },
@@ -19,7 +19,7 @@ describe("polo.source.chunks", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_chunks_budget",
       sources: {
-        guidelines: polo.source.chunks(emptyInputSchema, {
+        guidelines: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return items;
           },
@@ -41,9 +41,9 @@ describe("polo.source.chunks", () => {
     expect(chunks.length).toBe(2);
 
     const chunkSource_ = trace.sources.find((s) => s.key === "guidelines");
-    expect(chunkSource_?.type).toBe("chunks");
+    expect(chunkSource_?.type).toBe("rag");
     const dropped =
-      chunkSource_?.type === "chunks" ? chunkSource_.chunks.filter((c) => !c.included) : [];
+      chunkSource_?.type === "rag" ? chunkSource_.items.filter((c) => !c.included) : [];
     expect(dropped?.length).toBeGreaterThan(0);
     expect(dropped?.[0]?.reason).toBe("over_budget");
   });
@@ -57,7 +57,7 @@ describe("polo.source.chunks", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_chunks_no_budget",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return items;
           },
@@ -86,7 +86,7 @@ describe("polo.source.chunks", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_required_chunks_non_template",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return items;
           },
@@ -108,10 +108,10 @@ describe("polo.source.chunks", () => {
     expect(context.docs).toHaveLength(3);
 
     const docsRecord = trace.sources.find((source) => source.key === "docs");
-    expect(docsRecord?.type).toBe("chunks");
-    if (docsRecord?.type === "chunks") {
-      expect(docsRecord.chunks).toHaveLength(3);
-      expect(docsRecord.chunks.every((chunk) => chunk.included)).toBe(true);
+    expect(docsRecord?.type).toBe("rag");
+    if (docsRecord?.type === "rag") {
+      expect(docsRecord.items).toHaveLength(3);
+      expect(docsRecord.items.every((chunk) => chunk.included)).toBe(true);
     }
 
     const droppedPolicy = trace.policies.find(
@@ -124,7 +124,7 @@ describe("polo.source.chunks", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_chunks_full_drop_policy_record",
       sources: {
-        guidelines: polo.source.chunks(emptyInputSchema, {
+        guidelines: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return [
               { content: "long chunk that will be dropped ".repeat(20), score: 0.9 },
@@ -147,10 +147,10 @@ describe("polo.source.chunks", () => {
     expect(droppedPolicy?.reason).toBe("over_budget");
 
     const guidelinesRecord = trace.sources.find((source) => source.key === "guidelines");
-    expect(guidelinesRecord?.type).toBe("chunks");
-    if (guidelinesRecord?.type === "chunks") {
-      expect(guidelinesRecord.chunks.every((chunk) => chunk.included === false)).toBe(true);
-      expect(guidelinesRecord.chunks.every((chunk) => chunk.reason === "over_budget")).toBe(true);
+    expect(guidelinesRecord?.type).toBe("rag");
+    if (guidelinesRecord?.type === "rag") {
+      expect(guidelinesRecord.items.every((chunk) => chunk.included === false)).toBe(true);
+      expect(guidelinesRecord.items.every((chunk) => chunk.reason === "over_budget")).toBe(true);
     }
   });
 
@@ -158,7 +158,7 @@ describe("polo.source.chunks", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_empty_chunks_not_dropped",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return [];
           },
@@ -188,7 +188,7 @@ describe("polo.source.chunks", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_chunks_order",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return items;
           },
@@ -213,7 +213,7 @@ describe("polo.source.chunks", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_chunks_invalid_normalize",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return [{ value: "not-content" }];
           },
@@ -231,10 +231,10 @@ describe("polo.source.chunks", () => {
     );
   });
 
-  test("createChunks rejects invalid non-normalized items", async () => {
-    await expect(createChunks(Promise.resolve([{ text: "not a chunk" }] as never))).rejects.toThrow(
-      /requires either Chunk\[] input or a normalize function/,
-    );
+  test("createRagItems rejects invalid non-normalized items", async () => {
+    await expect(
+      createRagItems(Promise.resolve([{ text: "not a chunk" }] as never)),
+    ).rejects.toThrow(/requires either Chunk\[] input or a normalize function/);
   });
 
   test("dependent chunk sources also reject invalid normalize output", async () => {
@@ -245,7 +245,7 @@ describe("polo.source.chunks", () => {
         },
       });
 
-      const docs = sources.chunks(
+      const docs = sources.rag(
         emptyInputSchema,
         { account },
         {
@@ -281,12 +281,12 @@ describe("polo.source.chunks", () => {
     const malformedChunksSource = polo.source(emptyInputSchema, {
       async resolve() {
         return {
-          _type: "chunks",
+          _type: "rag",
           items: [{ content: undefined }],
         };
       },
     });
-    (malformedChunksSource as AnyResolverSource)._sourceKind = "chunks";
+    (malformedChunksSource as AnyResolverSource)._sourceKind = "rag";
 
     const task = polo.define(emptyInputSchema, {
       id: "test_chunks_malformed_envelope",
@@ -295,7 +295,7 @@ describe("polo.source.chunks", () => {
       },
     });
 
-    await expect(polo.resolve(task, {})).rejects.toThrow(/resolved malformed chunks/);
+    await expect(polo.resolve(task, {})).rejects.toThrow(/resolved malformed rag items/);
   });
 
   test("BudgetConfig with score_per_token strategy changes packing", async () => {
@@ -315,7 +315,7 @@ describe("polo.source.chunks", () => {
       polo.define(emptyInputSchema, {
         id: `test_strategy_${typeof budget === "number" ? "number" : budget.strategy.type}`,
         sources: {
-          docs: polo.source.chunks(emptyInputSchema, {
+          docs: polo.source.rag(emptyInputSchema, {
             async resolve() {
               return items;
             },
@@ -369,7 +369,7 @@ describe("polo.source.chunks", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_custom_strategy",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return [
               { content: "first", score: 0.9 },
@@ -400,7 +400,7 @@ describe("polo.source.chunks", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_trace_strategy",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return items;
           },
@@ -424,7 +424,7 @@ describe("polo.source.chunks", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_trace_compat",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return [{ content: "hello", score: 1 }];
           },

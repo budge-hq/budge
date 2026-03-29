@@ -329,12 +329,12 @@ describe("template", () => {
     const malformedChunksSource = polo.source(emptyInputSchema, {
       async resolve() {
         return {
-          _type: "chunks",
+          _type: "rag",
           items: [{ content: undefined }],
         };
       },
     });
-    (malformedChunksSource as AnyResolverSource)._sourceKind = "chunks";
+    (malformedChunksSource as AnyResolverSource)._sourceKind = "rag";
 
     const task = polo.define(emptyInputSchema, {
       id: "test_template_malformed_chunk_envelope",
@@ -347,7 +347,7 @@ describe("template", () => {
       }),
     });
 
-    await expect(polo.resolve(task, {})).rejects.toThrow(/resolved malformed chunks/);
+    await expect(polo.resolve(task, {})).rejects.toThrow(/resolved malformed rag items/);
   });
 });
 
@@ -465,7 +465,7 @@ describe("template budget fitting", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_template_required_chunk_never_trimmed",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return items;
           },
@@ -489,10 +489,10 @@ describe("template budget fitting", () => {
     expect(prompt?.prompt).toContain("chunk-low");
 
     const docsRecord = trace.sources.find((source) => source.key === "docs");
-    expect(docsRecord?.type).toBe("chunks");
-    if (docsRecord?.type === "chunks") {
-      expect(docsRecord.chunks).toHaveLength(3);
-      expect(docsRecord.chunks.every((chunk) => chunk.included)).toBe(true);
+    expect(docsRecord?.type).toBe("rag");
+    if (docsRecord?.type === "rag") {
+      expect(docsRecord.items).toHaveLength(3);
+      expect(docsRecord.items.every((chunk) => chunk.included)).toBe(true);
     }
 
     const droppedPolicy = trace.policies.find(
@@ -511,7 +511,7 @@ describe("template budget fitting", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_template_chunk_trim",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return items;
           },
@@ -545,7 +545,7 @@ describe("template budget fitting", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_template_chunk_trim_duplicate_content",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return items;
           },
@@ -567,9 +567,9 @@ describe("template budget fitting", () => {
     expect(context.docs?.[0]?.score).toBe(0.9);
 
     const docsRecord = trace.sources.find((source) => source.key === "docs");
-    expect(docsRecord?.type).toBe("chunks");
-    if (docsRecord?.type === "chunks") {
-      expect(docsRecord.chunks).toEqual([
+    expect(docsRecord?.type).toBe("rag");
+    if (docsRecord?.type === "rag") {
+      expect(docsRecord.items).toEqual([
         {
           content: "duplicate ".repeat(20),
           score: 0.9,
@@ -601,7 +601,7 @@ describe("template budget fitting", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_template_phase2_strategy_ordering",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return [chunkA, chunkB];
           },
@@ -627,9 +627,9 @@ describe("template budget fitting", () => {
     expect(docs[0]!.content).toBe(chunkB.content);
 
     const docsRecord = trace.sources.find((s) => s.key === "docs");
-    if (docsRecord?.type === "chunks") {
-      const kept = docsRecord.chunks.find((c) => c.included);
-      const dropped = docsRecord.chunks.find((c) => !c.included);
+    if (docsRecord?.type === "rag") {
+      const kept = docsRecord.items.find((c) => c.included);
+      const dropped = docsRecord.items.find((c) => !c.included);
       expect(kept?.score).toBe(0.2);
       expect(dropped?.score).toBe(0.9);
       expect(dropped?.reason).toBe("chunk_trimmed_over_budget");
@@ -649,7 +649,7 @@ describe("template budget fitting", () => {
         transcript: polo.source(emptyInputSchema, {
           resolve: async () => "t".repeat(120),
         }),
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return items;
           },
@@ -671,12 +671,12 @@ describe("template budget fitting", () => {
     expect(prompt?.prompt).not.toContain("chunk-high");
 
     const docsRecord = trace.sources.find((source) => source.key === "docs");
-    expect(docsRecord?.type).toBe("chunks");
-    if (docsRecord?.type === "chunks") {
-      expect(docsRecord.chunks.every((chunk) => !chunk.included)).toBe(true);
-      expect(
-        docsRecord.chunks.every((chunk) => chunk.reason === "source_dropped_over_budget"),
-      ).toBe(true);
+    expect(docsRecord?.type).toBe("rag");
+    if (docsRecord?.type === "rag") {
+      expect(docsRecord.items.every((chunk) => !chunk.included)).toBe(true);
+      expect(docsRecord.items.every((chunk) => chunk.reason === "source_dropped_over_budget")).toBe(
+        true,
+      );
     }
 
     const droppedPolicy = trace.policies.find(

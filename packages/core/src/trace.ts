@@ -15,7 +15,7 @@ export interface SourceTiming {
   tags: SourceTag[];
   resolvedAt: Date;
   durationMs: number;
-  chunkRecords?: ChunkRecord[];
+  itemRecords?: ChunkRecord[];
 }
 
 export function buildTrace(options: {
@@ -54,8 +54,8 @@ export function buildTrace(options: {
       durationMs: t.durationMs,
       tags: t.tags,
     };
-    if (t.type === "chunks") {
-      return { ...base, type: "chunks" as const, chunks: t.chunkRecords ?? [] };
+    if (t.type === "rag") {
+      return { ...base, type: "rag" as const, items: t.itemRecords ?? [] };
     }
     return { ...base, type: t.type };
   });

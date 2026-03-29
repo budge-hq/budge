@@ -98,7 +98,7 @@ describe("trace", () => {
       sourceTimings: [
         {
           key: "docs",
-          type: "chunks",
+          type: "rag",
           tags: [],
           resolvedAt: now,
           durationMs: 0,
@@ -111,9 +111,9 @@ describe("trace", () => {
     });
 
     const docs = trace.sources.find((source) => source.key === "docs");
-    expect(docs?.type).toBe("chunks");
-    if (docs?.type === "chunks") {
-      expect(docs.chunks).toEqual([]);
+    expect(docs?.type).toBe("rag");
+    if (docs?.type === "rag") {
+      expect(docs.items).toEqual([]);
     }
   });
 });

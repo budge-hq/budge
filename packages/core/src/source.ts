@@ -1,11 +1,11 @@
-import { createChunks } from "./chunks.ts";
+import { createRagItems } from "./rag.ts";
 import type {
   AnyInput,
   AnySchema,
   Chunk,
-  ChunkSource,
-  ChunkSourceConfig,
-  DependentChunkSourceConfig,
+  RagSource,
+  RagSourceConfig,
+  DependentRagSourceConfig,
   DependentSourceConfig,
   FromInputSourceOptions,
   InferSchemaOutputObject,
@@ -107,14 +107,14 @@ export function createDependentValueSource<
   };
 }
 
-export function createChunkSource<TSchema extends AnySchema, TItem>(
+export function createRagSource<TSchema extends AnySchema, TItem>(
   inputSchema: TSchema,
-  config: ChunkSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
-): ChunkSource<InferSchemaOutputObject<TSchema>> {
+  config: RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
+): RagSource<InferSchemaOutputObject<TSchema>> {
   return {
     _type: "resolver",
     _internalId: createSourceInternalId(),
-    _sourceKind: "chunks",
+    _sourceKind: "rag",
     _dependencyRefs: [],
     _input: undefined,
     output: config.output,
@@ -125,29 +125,29 @@ export function createChunkSource<TSchema extends AnySchema, TItem>(
       const result = await config.resolve({ input: normalizedInput });
 
       if (config.normalize) {
-        return createChunks(Promise.resolve(result as TItem[]), config.normalize);
+        return createRagItems(Promise.resolve(result as TItem[]), config.normalize);
       }
 
-      return createChunks(Promise.resolve(result as Chunk[]));
+      return createRagItems(Promise.resolve(result as Chunk[]));
     },
   };
 }
 
-export function createDependentChunkSource<
+export function createDependentRagSource<
   TSchema extends AnySchema,
   TDeps extends Record<string, AnyResolverSource>,
   TItem,
 >(
   inputSchema: TSchema,
   deps: TDeps,
-  config: DependentChunkSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
-): ChunkSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>> {
+  config: DependentRagSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
+): RagSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>> {
   const dependencyKeys = Object.keys(deps) as Array<Extract<keyof TDeps, string>>;
 
   return {
     _type: "resolver",
     _internalId: createSourceInternalId(),
-    _sourceKind: "chunks",
+    _sourceKind: "rag",
     _dependencyRefs: [],
     _dependencySources: deps,
     _input: undefined,
@@ -165,10 +165,10 @@ export function createDependentChunkSource<
       const result = await config.resolve(args);
 
       if (config.normalize) {
-        return createChunks(Promise.resolve(result as TItem[]), config.normalize);
+        return createRagItems(Promise.resolve(result as TItem[]), config.normalize);
       }
 
-      return createChunks(Promise.resolve(result as Chunk[]));
+      return createRagItems(Promise.resolve(result as Chunk[]));
     },
   };
 }

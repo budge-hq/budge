@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vite-plus/test";
 import { estimateTokens, normalizeBudget, packChunks, serialize } from "../src/pack.ts";
 import { greedyScore, scorePerToken } from "../src/strategies.ts";
-import type { Chunks } from "../src/types.ts";
+import type { RagItems } from "../src/types.ts";
 
 describe("serialize", () => {
   test("strings pass through unchanged", () => {
@@ -92,8 +92,8 @@ describe("normalizeBudget", () => {
 });
 
 describe("packChunks", () => {
-  const makeChunks = (items: Array<{ content: string; score?: number }>): Chunks => ({
-    _type: "chunks",
+  const makeChunks = (items: Array<{ content: string; score?: number }>): RagItems => ({
+    _type: "rag",
     items,
   });
 

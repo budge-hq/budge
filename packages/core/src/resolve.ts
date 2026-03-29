@@ -15,7 +15,7 @@ import type {
   Resolution,
   TemplateContext,
 } from "./types.ts";
-import { isChunks } from "./chunks.ts";
+import { isRagItems } from "./rag.ts";
 import { buildWaves, executeWaves, validateSourceDependencies } from "./graph.ts";
 import { applyPolicies } from "./policies.ts";
 import { estimateTokens, normalizeBudget, packChunks, serialize } from "./pack.ts";
@@ -40,12 +40,12 @@ function isResolverSource(source: unknown): source is ResolverSource<unknown> {
   );
 }
 
-function isChunkEnvelope(value: unknown): value is { _type: "chunks" } {
+function isRagEnvelope(value: unknown): value is { _type: "rag" } {
   return (
     typeof value === "object" &&
     value !== null &&
     "_type" in value &&
-    (value as { _type?: unknown })._type === "chunks"
+    (value as { _type?: unknown })._type === "rag"
   );
 }
 
@@ -262,7 +262,7 @@ export async function resolveDefinition<
     taskId,
     (key, value, durationMs) => {
       const source = sourceMap[key]!;
-      const type = isInputSource(source) ? "input" : isChunks(value) ? "chunks" : "value";
+      const type = isInputSource(source) ? "input" : isRagItems(value) ? "rag" : "value";
 
       sourceTimings.push({
         key,
@@ -302,13 +302,13 @@ export async function resolveDefinition<
 
   for (const key of excludedChunkKeys) {
     const raw = resolvedRaw.get(key);
-    if (!isChunks(raw)) {
+    if (!isRagItems(raw)) {
       continue;
     }
 
     const timing = sourceTimings.find((t) => t.key === key);
-    if (timing && timing.chunkRecords === undefined) {
-      timing.chunkRecords = raw.items.map((chunk) => ({
+    if (timing && timing.itemRecords === undefined) {
+      timing.itemRecords = raw.items.map((chunk) => ({
         content: "",
         score: chunk.score,
         included: false,
@@ -319,9 +319,9 @@ export async function resolveDefinition<
 
   const requiredKeys = new Set((policies.require ?? []).map(String));
   const preferredKeys = new Set((policies.prefer ?? []).map(String));
-  const declaredChunkSourceKeys = new Set(
+  const declaredRagSourceKeys = new Set(
     Object.entries(sourceMap)
-      .filter(([, source]) => isResolverSource(source) && source._sourceKind === "chunks")
+      .filter(([, source]) => isResolverSource(source) && source._sourceKind === "rag")
       .map(([key]) => key),
   );
 
@@ -337,7 +337,7 @@ export async function resolveDefinition<
       sourceTimings,
       budget,
       strategyFn,
-      declaredChunkSourceKeys,
+      declaredRagSourceKeys,
       templateFn: templateFn as (args: { context: Record<string, unknown> }) => PromptOutput,
       taskId,
     });
@@ -401,7 +401,7 @@ export async function resolveDefinition<
   for (const key of orderedKeys) {
     const raw = resolvedRaw.get(key);
 
-    if (isChunks(raw)) {
+    if (isRagItems(raw)) {
       const packed = requiredKeys.has(key)
         ? packChunks(raw, Infinity, strategyFn)
         : packChunks(raw, budget === Infinity ? Infinity : budget - budgetUsed, strategyFn);
@@ -411,7 +411,7 @@ export async function resolveDefinition<
 
       // Attach chunk records to the source timing entry
       const timing = sourceTimings.find((t) => t.key === key);
-      if (timing) timing.chunkRecords = packed.records;
+      if (timing) timing.itemRecords = packed.records;
 
       if (!requiredKeys.has(key) && raw.items.length > 0 && packed.included.length === 0) {
         policyRecords.push({ source: key, action: "dropped", reason: "over_budget" });
@@ -421,9 +421,9 @@ export async function resolveDefinition<
       budgetUsed += packed.tokensUsed;
       context[key] = packed.included;
     } else {
-      if (declaredChunkSourceKeys.has(key) && isChunkEnvelope(raw)) {
+      if (declaredRagSourceKeys.has(key) && isRagEnvelope(raw)) {
         throw new TypeError(
-          `Source "${key}" resolved malformed chunks. Expected Chunk[] items with string content.`,
+          `Source "${key}" resolved malformed rag items. Expected Chunk[] items with string content.`,
         );
       }
 
@@ -484,7 +484,7 @@ interface TemplateResolutionResult {
  *   2. preferred sources
  *   Required sources are never dropped.
  *
- * After exhausting whole-source drops, trim the lowest-score chunks from chunk sources
+ * After exhausting whole-source drops, trim the lowest-score chunks from rag sources
  * one at a time until the prompt fits.
  */
 function resolveWithTemplate(options: {
@@ -497,7 +497,7 @@ function resolveWithTemplate(options: {
   sourceTimings: SourceTiming[];
   budget: number;
   strategyFn: BudgetStrategyFn;
-  declaredChunkSourceKeys: Set<string>;
+  declaredRagSourceKeys: Set<string>;
   templateFn: (args: { context: Record<string, unknown> }) => PromptOutput;
   taskId: string;
 }): TemplateResolutionResult {
@@ -511,7 +511,7 @@ function resolveWithTemplate(options: {
     sourceTimings,
     budget,
     strategyFn,
-    declaredChunkSourceKeys,
+    declaredRagSourceKeys,
     templateFn,
   } = options;
 
@@ -523,7 +523,7 @@ function resolveWithTemplate(options: {
 
   for (const key of allowed) {
     const raw = resolvedRaw.get(key);
-    if (isChunks(raw)) {
+    if (isRagItems(raw)) {
       templateCandidates += raw.items.length;
       chunkContextKeys.add(key);
 
@@ -532,7 +532,7 @@ function resolveWithTemplate(options: {
         context[key] = [...raw.items];
         const timing = sourceTimings.find((t) => t.key === key);
         if (timing) {
-          timing.chunkRecords = raw.items.map((c) => ({
+          timing.itemRecords = raw.items.map((c) => ({
             content: c.content,
             score: c.score,
             included: true,
@@ -545,13 +545,13 @@ function resolveWithTemplate(options: {
         context[key] = [...ranked.included];
         const timing = sourceTimings.find((t) => t.key === key);
         if (timing) {
-          timing.chunkRecords = ranked.records;
+          timing.itemRecords = ranked.records;
         }
       }
     } else {
-      if (declaredChunkSourceKeys.has(key) && isChunkEnvelope(raw)) {
+      if (declaredRagSourceKeys.has(key) && isRagEnvelope(raw)) {
         throw new TypeError(
-          `Source "${key}" resolved malformed chunks. Expected Chunk[] items with string content.`,
+          `Source "${key}" resolved malformed rag items. Expected Chunk[] items with string content.`,
         );
       }
 
@@ -608,8 +608,8 @@ function resolveWithTemplate(options: {
     prompt = renderTemplate(templateFn, context);
   }
 
-  // Phase 2: trim chunks one-at-a-time from chunk sources.
-  // Chunks are already pre-sorted by the budget strategy (most valuable first),
+  // Phase 2: trim chunks one-at-a-time from rag sources.
+  // Items are already pre-sorted by the budget strategy (most valuable first),
   // so dropping the last element removes the least-valuable-per-strategy chunk.
   if (renderTokens(prompt) > budget) {
     let trimmed = true;
@@ -629,8 +629,8 @@ function resolveWithTemplate(options: {
         // Update chunk records in timing — match by content + score, searching
         // from the end so that duplicates are marked in reverse strategy order
         const timing = sourceTimings.find((t) => t.key === key);
-        if (timing?.chunkRecords) {
-          const record = timing.chunkRecords.findLast(
+        if (timing?.itemRecords) {
+          const record = timing.itemRecords.findLast(
             (r) => r.included && r.content === dropped.content && r.score === dropped.score,
           );
           if (record) {
@@ -655,8 +655,8 @@ function resolveWithTemplate(options: {
       reason: "over_budget",
     });
     const timing = sourceTimings.find((t) => t.key === keyToDrop);
-    if (timing?.chunkRecords) {
-      for (const record of timing.chunkRecords) {
+    if (timing?.itemRecords) {
+      for (const record of timing.itemRecords) {
         record.included = false;
         record.reason = "source_dropped_over_budget";
       }

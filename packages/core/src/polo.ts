@@ -2,9 +2,9 @@ import type {
   AnyInput,
   AnySchema,
   AnyResolverSource,
-  ChunkSource,
-  ChunkSourceConfig,
-  DependentChunkSourceConfig,
+  RagSource,
+  RagSourceConfig,
+  DependentRagSourceConfig,
   DependentSourceConfig,
   Definition,
   DefinitionConfig,
@@ -31,8 +31,8 @@ import { createDefinition } from "./define.ts";
 import { buildWaves } from "./graph.ts";
 import { resolveDefinition } from "./resolve.ts";
 import {
-  createChunkSource,
-  createDependentChunkSource,
+  createDependentRagSource,
+  createRagSource,
   createDependentValueSource,
   createFromInputSource,
   createValueSource,
@@ -57,21 +57,21 @@ interface SourceFactory {
 
   fromInput<TKey extends string>(key: TKey, options?: FromInputSourceOptions): InputSource<TKey>;
 
-  chunks<TSchema extends AnySchema, TItem>(
+  rag<TSchema extends AnySchema, TItem>(
     input: TSchema,
-    config: ChunkSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
-  ): ChunkSource<InferSchemaOutputObject<TSchema>>;
+    config: RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
+  ): RagSource<InferSchemaOutputObject<TSchema>>;
 
-  chunks<TSchema extends AnySchema, const TDeps extends Record<string, AnyResolverSource>, TItem>(
+  rag<TSchema extends AnySchema, const TDeps extends Record<string, AnyResolverSource>, TItem>(
     input: TSchema,
     deps: TDeps,
-    config: DependentChunkSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
-  ): ChunkSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>>;
+    config: DependentRagSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
+  ): RagSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>>;
 }
 
 interface SourceSetFactory {
   value: SourceFactory;
-  chunks: SourceFactory["chunks"];
+  rag: SourceFactory["rag"];
 }
 
 let nextSourceSetOwnerId = 0;
@@ -176,24 +176,20 @@ function createSourceFactory(): SourceFactory {
       ): InputSource<TKey> {
         return createFromInputSource(key, options);
       },
-      chunks<
-        TSchema extends AnySchema,
-        const TDeps extends Record<string, AnyResolverSource>,
-        TItem,
-      >(
+      rag<TSchema extends AnySchema, const TDeps extends Record<string, AnyResolverSource>, TItem>(
         input: TSchema,
-        depsOrConfig: ChunkSourceConfig<InferSchemaOutputObject<TSchema>, TItem> | TDeps,
-        maybeConfig?: DependentChunkSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
+        depsOrConfig: RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem> | TDeps,
+        maybeConfig?: DependentRagSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
       ):
-        | ChunkSource<InferSchemaOutputObject<TSchema>>
-        | ChunkSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>> {
+        | RagSource<InferSchemaOutputObject<TSchema>>
+        | RagSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>> {
         if (maybeConfig) {
-          return createDependentChunkSource(input, depsOrConfig as TDeps, maybeConfig);
+          return createDependentRagSource(input, depsOrConfig as TDeps, maybeConfig);
         }
 
-        return createChunkSource(
+        return createRagSource(
           input,
-          depsOrConfig as ChunkSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
+          depsOrConfig as RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
         );
       },
     },
@@ -203,8 +199,8 @@ function createSourceFactory(): SourceFactory {
 function createSourceSetFactory(source: SourceFactory): SourceSetFactory {
   return {
     value: source,
-    chunks: ((...args: Parameters<SourceFactory["chunks"]>) =>
-      source.chunks(...args)) as unknown as SourceFactory["chunks"],
+    rag: ((...args: Parameters<SourceFactory["rag"]>) =>
+      source.rag(...args)) as unknown as SourceFactory["rag"],
   };
 }
 

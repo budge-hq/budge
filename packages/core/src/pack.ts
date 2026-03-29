@@ -1,7 +1,7 @@
 import { encode } from "@toon-format/toon";
 import { estimateTokenCount } from "tokenx";
 import { greedyScore, resolveStrategy } from "./strategies.ts";
-import type { BudgetConfig, BudgetStrategyFn, Chunks, PackedResult } from "./types.ts";
+import type { BudgetConfig, BudgetStrategyFn, PackedResult, RagItems } from "./types.ts";
 
 /**
  * Serialize a value to a token-efficient string for prompt construction.
@@ -53,11 +53,11 @@ export function normalizeBudget(field: number | BudgetConfig | undefined): Norma
 }
 
 /**
- * Pack chunks from a Chunks result into a token budget.
+ * Pack chunks from a RAG items result into a token budget.
  * Delegates to the provided strategy function (defaults to greedy-by-score).
  */
 export function packChunks(
-  chunks: Chunks,
+  chunks: RagItems,
   remainingBudget: number,
   strategy?: BudgetStrategyFn,
 ): PackedResult {

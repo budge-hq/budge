@@ -247,7 +247,7 @@ describe("policies.exclude", () => {
     const task = polo.define(emptyInputSchema, {
       id: "test_excluded_chunk_trace_records",
       sources: {
-        docs: polo.source.chunks(emptyInputSchema, {
+        docs: polo.source.rag(emptyInputSchema, {
           async resolve() {
             return [
               { content: "chunk A secret", score: 0.9 },
@@ -271,12 +271,12 @@ describe("policies.exclude", () => {
     expect("docs" in context).toBe(false);
 
     const docsRecord = trace.sources.find((source) => source.key === "docs");
-    expect(docsRecord?.type).toBe("chunks");
-    if (docsRecord?.type === "chunks") {
-      expect(docsRecord.chunks).toHaveLength(2);
-      expect(docsRecord.chunks.every((chunk) => chunk.included === false)).toBe(true);
-      expect(docsRecord.chunks.every((chunk) => chunk.reason === "excluded")).toBe(true);
-      expect(docsRecord.chunks.every((chunk) => chunk.content === "")).toBe(true);
+    expect(docsRecord?.type).toBe("rag");
+    if (docsRecord?.type === "rag") {
+      expect(docsRecord.items).toHaveLength(2);
+      expect(docsRecord.items.every((chunk) => chunk.included === false)).toBe(true);
+      expect(docsRecord.items.every((chunk) => chunk.reason === "excluded")).toBe(true);
+      expect(docsRecord.items.every((chunk) => chunk.content === "")).toBe(true);
     }
 
     expect(JSON.stringify(trace)).not.toContain("chunk A secret");

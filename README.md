@@ -51,18 +51,22 @@ const accountSourceSet = polo.sourceSet((sources) => {
     },
   });
 
-  const billingNotes = sources.value(accountSourceInputSchema, { account }, {
-    tags: ["billing"],
-    async resolve({ account }) {
-      return db.getBillingNotes(account.id);
+  const billingNotes = sources.value(
+    accountSourceInputSchema,
+    { account },
+    {
+      tags: ["billing"],
+      async resolve({ account }) {
+        return db.getBillingNotes(account.id);
+      },
     },
-  });
+  );
 
   return { account, billingNotes };
 });
 
 const ticketSourceSet = polo.sourceSet((sources) => {
-  const recentTickets = sources.chunks(
+  const recentTickets = sources.rag(
     transcriptSourceInputSchema,
     { account: accountSourceSet.account },
     {
@@ -90,7 +94,7 @@ Use `polo.sourceSet(...)` to author reusable resolver/chunk sources and `registe
 
 Dependencies are declared by referencing source handles like `{ account }` or `{ account: accountSourceSet.account }`. Polo validates that graph during source registration, then checks that every task selects a dependency-closed source set during `polo.define(...)`.
 
-Task definitions may alias selected source keys, but dependency declarations inside `polo.source(..., deps, config)` and `polo.source.chunks(..., deps, config)` must currently use the referenced source's own key.
+Task definitions may alias selected source keys, but dependency declarations inside `polo.source(..., deps, config)` and `polo.source.rag(..., deps, config)` must currently use the referenced source's own key.
 
 Source handles are single-owner objects: create them inside one `polo.sourceSet(...)`, then reference them from other sets as dependencies instead of re-exporting the same handle from multiple sets.
 
@@ -171,18 +175,18 @@ console.log(
 
 ## API
 
-| API | Description |
-| --- | --- |
-| `createPolo(options?)` | Create an isolated Polo runtime |
-| `polo.sourceSet(builder)` | Define a reusable shared source fragment |
-| `registerSources(...sourceSets)` | Register a composed shared source registry |
-| `polo.define(inputSchema, config)` | Declare the context contract for a task |
-| `polo.resolve(definition, input)` | Resolve context and prompt at runtime |
-| `polo.source.fromInput(key, options?)` | Passthrough from call-time input |
-| `polo.source(inputSchema, config)` | Resolve a single async value |
-| `polo.source(inputSchema, deps, config)` | Resolve a value that depends on other sources |
-| `polo.source.chunks(inputSchema, config)` | Resolve ranked multi-block context |
-| `polo.source.chunks(inputSchema, deps, config)` | Resolve ranked blocks with dependencies |
+| API                                          | Description                                   |
+| -------------------------------------------- | --------------------------------------------- |
+| `createPolo(options?)`                       | Create an isolated Polo runtime               |
+| `polo.sourceSet(builder)`                    | Define a reusable shared source fragment      |
+| `registerSources(...sourceSets)`             | Register a composed shared source registry    |
+| `polo.define(inputSchema, config)`           | Declare the context contract for a task       |
+| `polo.resolve(definition, input)`            | Resolve context and prompt at runtime         |
+| `polo.source.fromInput(key, options?)`       | Passthrough from call-time input              |
+| `polo.source(inputSchema, config)`           | Resolve a single async value                  |
+| `polo.source(inputSchema, deps, config)`     | Resolve a value that depends on other sources |
+| `polo.source.rag(inputSchema, config)`       | Resolve ranked multi-block context            |
+| `polo.source.rag(inputSchema, deps, config)` | Resolve ranked blocks with dependencies       |
 
 ---
 
@@ -240,29 +244,37 @@ account: polo.source(accountSourceInputSchema, {
   },
 });
 
-billingNotes: polo.source(accountSourceInputSchema, { account }, {
-  async resolve({ account }) {
-    return db.getBillingNotes(account.id);
+billingNotes: polo.source(
+  accountSourceInputSchema,
+  { account },
+  {
+    async resolve({ account }) {
+      return db.getBillingNotes(account.id);
+    },
   },
-});
+);
 ```
 
-## Chunks
+## RAG Sources
 
-`polo.source.chunks()` is for sources that return multiple ranked blocks. Polo fits as many as the token budget allows, drops the rest, and records each decision in the trace.
+`polo.source.rag()` is for sources that return multiple ranked blocks. Polo fits as many as the token budget allows, drops the rest, and records each decision in the trace.
 
 ```ts
-recentTickets: polo.source.chunks(transcriptSourceInputSchema, { account }, {
-  async resolve({ input, account }) {
-    return vectorDb.searchTickets(account.id, input.transcript);
+recentTickets: polo.source.rag(
+  transcriptSourceInputSchema,
+  { account },
+  {
+    async resolve({ input, account }) {
+      return vectorDb.searchTickets(account.id, input.transcript);
+    },
+    normalize(item) {
+      return {
+        content: item.pageContent,
+        score: item.relevanceScore,
+      };
+    },
   },
-  normalize(item) {
-    return {
-      content: item.pageContent,
-      score: item.relevanceScore,
-    };
-  },
-});
+);
 ```
 
 ## Derive
@@ -320,9 +332,9 @@ policies: {
     },
     {
       "key": "recentTickets",
-      "type": "chunks",
+      "type": "rag",
       "tags": ["internal"],
-      "chunks": [
+      "items": [
         { "included": true, "score": 0.91 },
         { "included": false, "score": 0.14, "reason": "over_budget" }
       ]

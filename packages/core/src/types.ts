@@ -30,7 +30,7 @@ export type InferSchemaOutputObject<TSchema extends AnySchema> =
 export type SourceTag = string;
 
 // ============================================================
-// Chunks
+// RAG items
 // ============================================================
 
 export interface Chunk {
@@ -39,8 +39,8 @@ export interface Chunk {
   metadata?: Record<string, unknown>;
 }
 
-export interface Chunks {
-  _type: "chunks";
+export interface RagItems {
+  _type: "rag";
   items: Chunk[];
 }
 
@@ -109,7 +109,7 @@ export interface DependentSourceConfig<
   resolve(args: SourceResolveArgs<TInput> & SourceDepValues<TDeps>): Promise<TOutput> | TOutput;
 }
 
-export interface ChunkSourceConfig<
+export interface RagSourceConfig<
   TInput extends AnyInput = AnyInput,
   TItem = Chunk,
 > extends SourceOptions {
@@ -118,7 +118,7 @@ export interface ChunkSourceConfig<
   resolve(args: SourceResolveArgs<TInput>): Promise<TItem[] | Chunk[]> | TItem[] | Chunk[];
 }
 
-export interface DependentChunkSourceConfig<
+export interface DependentRagSourceConfig<
   TInput extends AnyInput = AnyInput,
   TDeps extends Record<string, AnyResolverSource> = Record<string, AnyResolverSource>,
   TItem = Chunk,
@@ -146,7 +146,7 @@ export interface ResolverSource<
   _internalId: string;
   _ownerSetId?: string;
   _registeredId?: TSourceId;
-  _sourceKind?: "value" | "chunks";
+  _sourceKind?: "value" | "rag";
   _dependencyIdType?: TDependencyIds;
   _dependencyRefs?: readonly SourceDependencyRef[];
   _dependencySources?: Readonly<Record<string, AnyResolverSource>>;
@@ -163,17 +163,17 @@ export type ValueSource<
   TDependencyIds extends string = never,
 > = ResolverSource<TResult, TSourceInput, TSourceId, TDependencyIds>;
 
-export type ChunkSource<
+export type RagSource<
   TSourceInput extends AnyInput = AnyInput,
   TSourceId extends string = string,
   TDependencyIds extends string = never,
-> = ResolverSource<Chunks, TSourceInput, TSourceId, TDependencyIds>;
+> = ResolverSource<RagItems, TSourceInput, TSourceId, TDependencyIds>;
 
 export type AnyResolverSource = ResolverSource<unknown, AnyInput, string, string>;
 
 export type AnySource = InputSource<string> | AnyResolverSource;
 
-type InferResolvedValue<TResult> = Awaited<TResult> extends Chunks ? Chunk[] : Awaited<TResult>;
+type InferResolvedValue<TResult> = Awaited<TResult> extends RagItems ? Chunk[] : Awaited<TResult>;
 
 type SourceDependencies<TSource> =
   TSource extends ResolverSource<unknown, AnyInput, string, infer TDependencyIds>
@@ -398,7 +398,7 @@ export interface ChunkRecord {
 }
 
 /** Discriminant for each entry in `Trace.sources`. */
-export type SourceRecordType = "input" | "value" | "chunks";
+export type SourceRecordType = "input" | "value" | "rag";
 
 type SourceRecordBase = {
   key: string;
@@ -408,8 +408,8 @@ type SourceRecordBase = {
 };
 
 export type SourceRecord =
-  | (SourceRecordBase & { type: "input" | "value"; chunks?: never })
-  | (SourceRecordBase & { type: "chunks"; chunks: ChunkRecord[] });
+  | (SourceRecordBase & { type: "input" | "value"; items?: never })
+  | (SourceRecordBase & { type: "rag"; items: ChunkRecord[] });
 
 export interface PolicyRecord {
   source: string;
