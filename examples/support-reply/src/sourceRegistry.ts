@@ -1,4 +1,3 @@
-import { registerSources } from "@polo/core";
 import { z } from "zod";
 import { db, vectorDb } from "./data.ts";
 import { polo } from "./polo.ts";
@@ -12,14 +11,14 @@ const transcriptInputSchema = z.object({
 });
 
 const accountSourceSet = polo.sourceSet(({ source }) => {
-  const account = source(accountInputSchema, {
+  const account = source.value(accountInputSchema, {
     tags: ["internal"],
     async resolve({ input }) {
       return db.getAccount(input.accountId);
     },
   });
 
-  const billingNotes = source(
+  const billingNotes = source.value(
     accountInputSchema,
     { account },
     {
@@ -58,4 +57,4 @@ const ticketSourceSet = polo.sourceSet(({ source }) => {
   return { recentTickets };
 });
 
-export const supportReplySources = registerSources(accountSourceSet, ticketSourceSet);
+export const supportReplySources = polo.sources(accountSourceSet, ticketSourceSet);

@@ -1,8 +1,8 @@
 # @polo/core
 
-**The best context management framework for agents** — typed sources, policies, token budgets, templates, and traces for production agent systems.
+**The best context management framework for agents** — typed sources, policies, token budgets, rendering, and traces for production agent systems.
 
-`@polo/core` is the runtime that resolves context windows: where data comes from, how it is filtered, and how it must fit under a token ceiling. At runtime, Polo returns a typed `context`, optional `{ system, prompt }`, and detailed `traces`.
+`@polo/core` is the runtime that resolves context windows: where data comes from, how it is filtered, and how it must fit under a token ceiling. At runtime, Polo returns a typed `context`, optional top-level `system` and `prompt` strings, and a detailed `trace`.
 
 ## Install
 
@@ -28,7 +28,7 @@ const taskInput = z.object({
 const transcript = polo.input("transcript", { tags: ["restricted"] });
 
 const { account } = polo.sourceSet(({ source }) => ({
-  account: source(z.object({ accountId: z.string() }), {
+  account: source.value(z.object({ accountId: z.string() }), {
     tags: ["internal"],
     async resolve({ input }) {
       return db.getAccount(input.accountId);
@@ -44,13 +44,11 @@ const window = polo.window({
     require: ["transcript", "account"],
     budget: 300,
   },
-  template: (context) => ({
-    system: "You are a support engineer.",
-    prompt: `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}`,
-  }),
+  system: "You are a support engineer.",
+  prompt: (context) => `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}`,
 });
 
-const { context, prompt, traces } = await window({
+const { context, system, prompt, trace } = await window({
   accountId: "acc_123",
   transcript: "Our webhook deliveries are timing out.",
 });
@@ -60,18 +58,20 @@ const { context, prompt, traces } = await window({
 
 - `polo.window({ input, sources, … })` — declare one context window; the return value is an async function you call each turn with input.
 - `polo.input(key, options?)` — pass through a value from call-time input as a tagged source.
-- `polo.sourceSet(({ source }) => …)` — define reusable resolver/chunk sources; use `source` and `source.rag` inside the builder.
+- `polo.sourceSet(({ source }) => …)` — define reusable resolver/chunk sources; use `source.value` and `source.rag` inside the builder.
+- `polo.sources(...sourceSets)` — compose reusable source sets into a shared registry.
 - `derive()` adds computed values to the final context.
 - `policies: { require, prefer, exclude, budget }` controls inclusion, exclusions, and budgets.
-- `template` renders `{ system, prompt }` and enables exact prompt-token measurement.
+- `system` and `prompt` render model-ready strings and enable exact prompt-token measurement.
 
 ## Return Value
 
 Calling the function returned by `polo.window()` yields:
 
 - `context`: final typed context after source resolution and policy application.
-- `prompt`: rendered `{ system, prompt }` when a template is configured.
-- `traces`: source timings, budget decisions, policy records, and prompt token metrics.
+- `system`: rendered system string when configured.
+- `prompt`: rendered prompt string when configured.
+- `trace`: source timings, budget decisions, policy records, and prompt token metrics.
 
 `id` is required and should be stable for the logical window definition. Polo Cloud uses it to group runs of the same window.
 

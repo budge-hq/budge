@@ -1,7 +1,7 @@
 // Public API
-export { createPolo, registerSources } from "./polo.ts";
+export { createPolo } from "./polo.ts";
 export { PoloSourceSetBrand } from "./types.ts";
-export type { PoloInstance, SourceFactory } from "./polo.ts";
+export type { PoloInstance, RagSourceFactory, SourceFactory, ValueSourceFactory } from "./polo.ts";
 
 // Public types
 export type {
@@ -40,8 +40,10 @@ export type {
   PoloLogger,
   PoloOptions,
   PolicyRecord,
-  PromptOutput,
   PromptTrace,
+  RenderContext,
+  RenderFn,
+  RenderValue,
   RenderableValue,
   ResolverSource,
   Resolution,
@@ -58,8 +60,6 @@ export type {
   SourceOptions,
   SourceRecord,
   SourceRecordType,
-  TemplateFn,
-  TemplateContext,
   Trace,
   ValueSource,
 } from "./types.ts";

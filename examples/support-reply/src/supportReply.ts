@@ -41,18 +41,19 @@ export const supportReplyWindow = polo.window({
     budget: 110,
   },
 
-  template: (context) => ({
-    system: `You are a support engineer drafting a customer reply. Use a ${context.replyStyle} tone. ${
+  system: (context) =>
+    `You are a support engineer drafting a customer reply. Use a ${context.replyStyle} tone. ${
       context.isEnterprise
         ? "Prioritize urgency and ownership."
         : "Keep the reply practical and direct."
     }`,
-    prompt: `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}${
+
+  prompt: (context) =>
+    `Customer message:\n${context.transcript}\n\nAccount:\n${String(context.account)}${
       context.recentTickets?.length
         ? `\n\nRecent tickets:\n${context.recentTickets.map((ticket) => ticket.content).join("\n")}`
         : ""
-    }\n\nBilling notes:\n${context.billingNotes ?? "N/A"}`,
-  }),
+    }\n\nBilling notes:\n${context.billingNotes ? String(context.billingNotes) : "N/A"}`,
 });
 
 export type SupportReplyContext = InferContext<typeof supportReplyWindow>;
@@ -77,7 +78,7 @@ export function summarizeTrace(trace: Trace): string {
 
   if (trace.prompt) {
     lines.push(
-      `prompt tokens: ${trace.prompt.totalTokens} (system: ${trace.prompt.systemTokens}, user: ${trace.prompt.promptTokens})`,
+      `prompt tokens: ${trace.prompt.totalTokens} (system: ${trace.prompt.systemTokens}, prompt: ${trace.prompt.promptTokens})`,
       `raw context tokens: ${trace.prompt.rawContextTokens}`,
       `included context tokens: ${trace.prompt.includedContextTokens}`,
       `compression vs resolved context: ${(trace.prompt.compressionRatio * 100).toFixed(1)}% reduction`,

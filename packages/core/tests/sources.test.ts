@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
-import { createPolo, registerSources } from "../src/index.ts";
+import { createPolo } from "../src/index.ts";
 import type { AnyResolverSource } from "../src/types.ts";
 
 const polo = createPolo();
@@ -40,7 +40,7 @@ describe("sources", () => {
         input: emptyInputSchema,
         sources: {
           ...polo.sourceSet(({ source }) => ({
-            account: source(emptyInputSchema, {
+            account: source.value(emptyInputSchema, {
               async resolve() {
                 return { ok: true };
               },
@@ -58,7 +58,7 @@ describe("sources", () => {
         id: "   ",
         sources: {
           ...polo.sourceSet(({ source }) => ({
-            account: source(emptyInputSchema, {
+            account: source.value(emptyInputSchema, {
               async resolve() {
                 return { ok: true };
               },
@@ -75,7 +75,7 @@ describe("sources", () => {
       id: "test_source",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             async resolve() {
               return {
                 plan: "enterprise" as const,
@@ -114,7 +114,7 @@ describe("sources", () => {
       id: "test_source_input_validation",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(strictInput, {
+          account: source.value(strictInput, {
             async resolve() {
               return { ok: true };
             },
@@ -132,7 +132,7 @@ describe("sources", () => {
       id: "test_source_output_validation",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             output: z.object({ id: z.string() }),
             async resolve() {
               return { id: 123 };
@@ -162,11 +162,12 @@ describe("source sets", () => {
   test("rejects source handle reused under multiple keys", () => {
     expect(() =>
       polo.sourceSet(({ source }) => {
-        const shared = source(emptyInputSchema, {
+        const shared = source.value(emptyInputSchema, {
           async resolve() {
             return { id: "p1" };
           },
         });
+
         return { first: shared, second: shared };
       }),
     ).toThrowError(/reused under multiple keys/);
@@ -183,11 +184,12 @@ describe("source sets", () => {
   test("rejects source reused under a conflicting registered id", () => {
     expect(() =>
       polo.sourceSet(({ source }) => {
-        const s = source(emptyInputSchema, {
+        const s = source.value(emptyInputSchema, {
           async resolve() {
             return "ok";
           },
         });
+
         (s as AnyResolverSource)._registeredId = "existing";
         return { next: s };
       }),
@@ -197,15 +199,16 @@ describe("source sets", () => {
   test("rejects dependencies that are missing an internal id", () => {
     expect(() =>
       polo.sourceSet(({ source }) => {
-        const dep = source(emptyInputSchema, {
+        const dep = source.value(emptyInputSchema, {
           async resolve() {
             return { id: "dep" };
           },
         });
+
         (dep as AnyResolverSource)._internalId = undefined as unknown as string;
         return {
           dependency: dep,
-          child: source(
+          child: source.value(
             emptyInputSchema,
             { dependency: dep },
             {
@@ -219,44 +222,52 @@ describe("source sets", () => {
     ).toThrowError(/references an unregistered dependency/);
   });
 
-  test("rejects dependency aliases in sourceSet definitions", () => {
-    expect(() =>
-      polo.sourceSet(({ source }) => {
-        const dependency = source(emptyInputSchema, {
-          async resolve() {
-            return { id: "dep" };
-          },
-        });
-        (dependency as AnyResolverSource)._registeredId = "account";
-        return {
-          child: source(
-            emptyInputSchema,
-            { customer: dependency },
-            {
-              async resolve({ customer }) {
-                return { id: customer.id };
-              },
+  test("supports dependency aliases in sourceSet definitions", async () => {
+    const { account, child } = polo.sourceSet(({ source }) => {
+      const dependency = source.value(emptyInputSchema, {
+        async resolve() {
+          return { id: "dep" };
+        },
+      });
+
+      return {
+        account: dependency,
+        child: source.value(
+          emptyInputSchema,
+          { customer: dependency },
+          {
+            async resolve({ customer }) {
+              return { id: customer.id };
             },
-          ),
-        };
-      }),
-    ).toThrowError(/Dependency aliases are not supported yet/);
+          },
+        ),
+      };
+    });
+
+    const run = polo.window({
+      input: emptyInputSchema,
+      id: "test_dependency_aliases",
+      sources: { account, child },
+    });
+
+    const { context } = await run({});
+    expect(context.child).toEqual({ id: "dep" });
   });
 
-  test("registerSources rejects non-sourceSet arguments", () => {
-    expect(() => registerSources({ account: {} } as never)).toThrowError(/only accepts values/);
+  test("polo.sources rejects non-sourceSet arguments", () => {
+    expect(() => polo.sources({ account: {} } as never)).toThrowError(/only accepts values/);
   });
 
-  test("registerSources rejects duplicate keys across source sets", () => {
+  test("polo.sources rejects duplicate keys across source sets", () => {
     const one = polo.sourceSet(({ source }) => ({
-      account: source(emptyInputSchema, {
+      account: source.value(emptyInputSchema, {
         async resolve() {
           return { id: "one" };
         },
       }),
     }));
     const two = polo.sourceSet(({ source }) => ({
-      account: source(emptyInputSchema, {
+      account: source.value(emptyInputSchema, {
         async resolve() {
           return { id: "two" };
         },
@@ -267,9 +278,9 @@ describe("source sets", () => {
 
     if (typecheckOnly) {
       // @ts-expect-error duplicate source keys are rejected statically
-      registerSources(one, two);
+      polo.sources(one, two);
     }
 
-    expect(() => registerSources(...([one, two] as never))).toThrowError(/Duplicate source key/);
+    expect(() => polo.sources(...([one, two] as never))).toThrowError(/Duplicate source key/);
   });
 });

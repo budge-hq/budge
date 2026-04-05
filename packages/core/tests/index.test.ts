@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import { z } from "zod";
-import { createPolo, registerSources, type InferContext } from "../src/index.ts";
+import { createPolo, type InferContext } from "../src/index.ts";
 
 const polo = createPolo();
 
@@ -39,14 +39,14 @@ describe("integration", () => {
     };
 
     const accountSourceSet = polo.sourceSet(({ source }) => {
-      const account = source(accountSourceInputSchema, {
+      const account = source.value(accountSourceInputSchema, {
         tags: ["internal"],
         async resolve({ input }) {
           return mockDb.account(input.accountId);
         },
       });
 
-      const priorNote = source(
+      const priorNote = source.value(
         accountSourceInputSchema,
         { account },
         {
@@ -56,7 +56,7 @@ describe("integration", () => {
         },
       );
 
-      const sensitiveData = source(accountSourceInputSchema, {
+      const sensitiveData = source.value(accountSourceInputSchema, {
         tags: ["phi"],
         async resolve() {
           return { secret: "should be excluded" };
@@ -89,7 +89,7 @@ describe("integration", () => {
       return { guidelines };
     });
 
-    const sourceRegistry = registerSources(accountSourceSet, guidelineSourceSet);
+    const sourceRegistry = polo.sources(accountSourceSet, guidelineSourceSet);
 
     const run = polo.window({
       input: inputSchema,
@@ -119,7 +119,7 @@ describe("integration", () => {
       },
     });
 
-    const { context, traces } = await run({
+    const { context, trace } = await run({
       accountId: "acc_123",
       transcript: "patient says they feel better",
     });
@@ -140,14 +140,14 @@ describe("integration", () => {
     expect(Array.isArray(guidelines)).toBe(true);
     expect(guidelines.length).toBeGreaterThan(0);
 
-    expect(traces.windowId).toBe("e2e_test");
-    expect(traces.runId).toBeTruthy();
-    expect(traces.sources.length).toBeGreaterThan(0);
-    expect(traces.budget.max).toBe(500);
+    expect(trace.windowId).toBe("e2e_test");
+    expect(trace.runId).toBeTruthy();
+    expect(trace.sources.length).toBeGreaterThan(0);
+    expect(trace.budget.max).toBe(500);
 
-    const excl = traces.policies.find((p) => p.action === "excluded");
+    const excl = trace.policies.find((p) => p.action === "excluded");
     expect(excl?.source).toBe("sensitiveData");
 
-    expect(JSON.stringify(traces)).not.toContain("should be excluded");
+    expect(JSON.stringify(trace)).not.toContain("should be excluded");
   });
 });

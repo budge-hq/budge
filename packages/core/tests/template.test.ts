@@ -9,29 +9,27 @@ import type { AnyResolverSource } from "../src/types.ts";
 const polo = createPolo();
 const emptyInputSchema = z.object({});
 
-describe("template", () => {
+describe("rendering", () => {
   test("renders system and prompt from context", async () => {
     const run = polo.window({
       input: emptyInputSchema,
       id: "test_template_basic",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" as const }),
           }),
         })),
       },
-      template: (context) => ({
-        system: `You are helping ${context.account?.name}.`,
-        prompt: `account:\n${context.account}`,
-      }),
+      system: (context) => `You are helping ${context.account?.name}.`,
+      prompt: (context) => `account:\n${context.account}`,
     });
 
     const result = await run({});
     expect(result.prompt).toBeDefined();
-    expect(result.prompt?.system).toContain("Acme");
-    expect(result.prompt?.prompt).toContain("account:");
-    expect(result.prompt?.prompt).toContain("name: Acme");
+    expect(result.system).toContain("Acme");
+    expect(result.prompt).toContain("account:");
+    expect(result.prompt).toContain("name: Acme");
   });
 
   test("no template means prompt is absent from resolution", async () => {
@@ -40,7 +38,7 @@ describe("template", () => {
       id: "test_no_template",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          data: source(emptyInputSchema, {
+          data: source.value(emptyInputSchema, {
             resolve: async () => "hello",
           }),
         })),
@@ -57,28 +55,26 @@ describe("template", () => {
       id: "test_template_trace",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" }),
           }),
         })),
       },
-      template: (context) => ({
-        system: `You are a helpful assistant for ${context.account}.`,
-        prompt: "done",
-      }),
+      system: (context) => `You are a helpful assistant for ${context.account}.`,
+      prompt: "done",
     });
 
-    const { traces } = await run({});
-    expect(traces.prompt).toBeDefined();
-    expect(traces.prompt?.systemTokens).toBeGreaterThan(0);
-    expect(traces.prompt?.promptTokens).toBeGreaterThan(0);
-    expect(traces.prompt?.totalTokens).toBe(
-      (traces.prompt?.systemTokens ?? 0) + (traces.prompt?.promptTokens ?? 0),
+    const { trace } = await run({});
+    expect(trace.prompt).toBeDefined();
+    expect(trace.prompt?.systemTokens).toBeGreaterThan(0);
+    expect(trace.prompt?.promptTokens).toBeGreaterThan(0);
+    expect(trace.prompt?.totalTokens).toBe(
+      (trace.prompt?.systemTokens ?? 0) + (trace.prompt?.promptTokens ?? 0),
     );
-    expect(traces.prompt?.rawContextTokens).toBeGreaterThan(0);
-    expect(traces.prompt?.includedContextTokens).toBeGreaterThan(0);
-    expect(typeof traces.prompt?.compressionRatio).toBe("number");
-    expect(typeof traces.prompt?.includedCompressionRatio).toBe("number");
+    expect(trace.prompt?.rawContextTokens).toBeGreaterThan(0);
+    expect(trace.prompt?.includedContextTokens).toBeGreaterThan(0);
+    expect(typeof trace.prompt?.compressionRatio).toBe("number");
+    expect(typeof trace.prompt?.includedCompressionRatio).toBe("number");
   });
 
   test("trace token accounting does not throw for BigInt source values", async () => {
@@ -87,21 +83,19 @@ describe("template", () => {
       id: "test_template_trace_bigint",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          data: source(emptyInputSchema, {
+          data: source.value(emptyInputSchema, {
             resolve: async () => 1n,
           }),
         })),
       },
-      template: () => ({
-        system: "System prompt.",
-        prompt: "ok",
-      }),
+      system: "System prompt.",
+      prompt: "ok",
     });
 
-    const { traces } = await run({});
-    expect(traces.prompt).toBeDefined();
-    expect(typeof traces.prompt?.rawContextTokens).toBe("number");
-    expect(typeof traces.prompt?.includedContextTokens).toBe("number");
+    const { trace } = await run({});
+    expect(trace.prompt).toBeDefined();
+    expect(typeof trace.prompt?.rawContextTokens).toBe("number");
+    expect(typeof trace.prompt?.includedContextTokens).toBe("number");
   });
 
   test("trace token accounting does not throw for circular source values", async () => {
@@ -113,28 +107,26 @@ describe("template", () => {
       id: "test_template_trace_circular",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          data: source(emptyInputSchema, {
+          data: source.value(emptyInputSchema, {
             resolve: async () => circular,
           }),
         })),
       },
-      template: () => ({
-        system: "System prompt.",
-        prompt: "ok",
-      }),
+      system: "System prompt.",
+      prompt: "ok",
     });
 
-    const { traces } = await run({});
-    expect(traces.prompt).toBeDefined();
-    expect(typeof traces.prompt?.rawContextTokens).toBe("number");
-    expect(typeof traces.prompt?.includedContextTokens).toBe("number");
+    const { trace } = await run({});
+    expect(trace.prompt).toBeDefined();
+    expect(typeof trace.prompt?.rawContextTokens).toBe("number");
+    expect(typeof trace.prompt?.includedContextTokens).toBe("number");
   });
 
   test("raw is reserved as a selected source key at type level", () => {
     const typecheckOnly = Date.now() < 0;
 
     if (typecheckOnly) {
-      // @ts-expect-error raw is reserved for template contexts
+      // @ts-expect-error raw is reserved for render contexts
       polo.window({
         input: z.object({ raw: z.string() }),
         id: "typecheck_reserved_raw_source",
@@ -153,10 +145,10 @@ describe("template", () => {
       id: "test_template_included_metrics",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          visible: source(emptyInputSchema, {
+          visible: source.value(emptyInputSchema, {
             resolve: async () => ({ text: "short" }),
           }),
-          hidden: source(emptyInputSchema, {
+          hidden: source.value(emptyInputSchema, {
             resolve: async () => "x".repeat(2_000),
           }),
         })),
@@ -164,18 +156,16 @@ describe("template", () => {
       policies: {
         exclude: [() => ({ source: "hidden", reason: "hidden from prompt" })],
       },
-      template: (context) => ({
-        system: "System prompt.",
-        prompt: `${context.visible}`,
-      }),
+      system: "System prompt.",
+      prompt: (context) => `${context.visible}`,
     });
 
-    const { traces } = await run({});
-    expect(traces.prompt?.rawContextTokens).toBeGreaterThan(
-      traces.prompt?.includedContextTokens ?? 0,
+    const { trace } = await run({});
+    expect(trace.prompt?.rawContextTokens).toBeGreaterThan(
+      trace.prompt?.includedContextTokens ?? 0,
     );
-    expect(traces.prompt?.compressionRatio).toBeGreaterThan(
-      traces.prompt?.includedCompressionRatio ?? 0,
+    expect(trace.prompt?.compressionRatio).toBeGreaterThan(
+      trace.prompt?.includedCompressionRatio ?? 0,
     );
   });
 
@@ -185,20 +175,18 @@ describe("template", () => {
       id: "test_template_clamped_compression_ratio",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          brief: source(emptyInputSchema, {
+          brief: source.value(emptyInputSchema, {
             resolve: async () => "ok",
           }),
         })),
       },
-      template: (context) => ({
-        system: `Instructions:\n${"Always be careful. ".repeat(100)}`,
-        prompt: `${context.brief}`,
-      }),
+      system: `Instructions:\n${"Always be careful. ".repeat(100)}`,
+      prompt: (context) => `${context.brief}`,
     });
 
-    const { traces } = await run({});
-    expect(traces.prompt?.compressionRatio).toBe(0);
-    expect(traces.prompt?.includedCompressionRatio).toBe(0);
+    const { trace } = await run({});
+    expect(trace.prompt?.compressionRatio).toBe(0);
+    expect(trace.prompt?.includedCompressionRatio).toBe(0);
   });
 
   test("trace has no prompt key when no template is defined", async () => {
@@ -207,24 +195,24 @@ describe("template", () => {
       id: "test_no_template_trace",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          data: source(emptyInputSchema, {
+          data: source.value(emptyInputSchema, {
             resolve: async () => ({ value: 1 }),
           }),
         })),
       },
     });
 
-    const { traces } = await run({});
-    expect(traces.prompt).toBeUndefined();
+    const { trace } = await run({});
+    expect(trace.prompt).toBeUndefined();
   });
 
-  test("template receives derived values in context", async () => {
+  test("prompt receives derived values in context", async () => {
     const run = polo.window({
       input: emptyInputSchema,
       id: "test_template_derived",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             resolve: async () => ({ plan: "enterprise" as const }),
           }),
         })),
@@ -232,38 +220,34 @@ describe("template", () => {
       derive: (ctx) => ({
         isEnterprise: ctx.account!.plan === "enterprise",
       }),
-      template: (context) => ({
-        system: context.isEnterprise ? "Enterprise mode." : "Standard mode.",
-        prompt: "",
-      }),
+      system: (context) => (context.isEnterprise ? "Enterprise mode." : "Standard mode."),
+      prompt: "",
     });
 
-    const { prompt } = await run({});
-    expect(prompt?.system).toBe("Enterprise mode.");
+    const { system } = await run({});
+    expect(system).toBe("Enterprise mode.");
   });
 
-  test("template handles undefined optional sources gracefully", async () => {
+  test("prompt handles undefined optional sources gracefully", async () => {
     const run = polo.window({
       input: emptyInputSchema,
       id: "test_template_optional",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          required: source(emptyInputSchema, {
+          required: source.value(emptyInputSchema, {
             resolve: async () => "present",
           }),
-          optional: source(emptyInputSchema, {
+          optional: source.value(emptyInputSchema, {
             resolve: async () => null,
           }),
         })),
       },
-      template: (context) => ({
-        system: "System prompt.",
-        prompt: `${context.required}${context.optional ? `\n${context.optional}` : ""}`,
-      }),
+      system: "System prompt.",
+      prompt: (context) => `${context.required}${context.optional ? `\n${context.optional}` : ""}`,
     });
 
     const { prompt } = await run({});
-    expect(prompt?.prompt).toBe("present");
+    expect(prompt).toBe("present");
   });
 
   test("system prompt can interpolate objects under the hood", async () => {
@@ -272,20 +256,18 @@ describe("template", () => {
       id: "test_template_system_object",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" as const }),
           }),
         })),
       },
-      template: (context) => ({
-        system: `System account:\n${context.account}`,
-        prompt: "ok",
-      }),
+      system: (context) => `System account:\n${context.account}`,
+      prompt: "ok",
     });
 
-    const { prompt } = await run({});
-    expect(prompt?.system).toContain("name: Acme");
-    expect(prompt?.system).toContain("plan: enterprise");
+    const { system } = await run({});
+    expect(system).toContain("name: Acme");
+    expect(system).toContain("plan: enterprise");
   });
 
   test("context.raw exposes original values for custom formatting", async () => {
@@ -294,20 +276,18 @@ describe("template", () => {
       id: "test_template_raw_escape_hatch",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" as const }),
           }),
         })),
       },
-      template: (context) => ({
-        system: `${context.account}`,
-        prompt: JSON.stringify(context.raw.account),
-      }),
+      system: (context) => `${context.account}`,
+      prompt: (context) => JSON.stringify(context.raw.account),
     });
 
-    const { prompt } = await run({});
-    expect(prompt?.system).toContain("name: Acme");
-    expect(prompt?.prompt).toBe('{"name":"Acme","plan":"enterprise"}');
+    const { system, prompt } = await run({});
+    expect(system).toContain("name: Acme");
+    expect(prompt).toBe('{"name":"Acme","plan":"enterprise"}');
   });
 
   test("literal slot-like text is not rewritten during materialization", async () => {
@@ -316,80 +296,77 @@ describe("template", () => {
       id: "test_template_slot_collision",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" as const }),
           }),
-          notes: source(emptyInputSchema, {
+          notes: source.value(emptyInputSchema, {
             resolve: async () => "\u001fPOLO_SLOT_0\u001f",
           }),
         })),
       },
-      template: (context) => ({
-        system: "System prompt.",
-        prompt: `${context.account}\n${context.notes}`,
-      }),
+      system: "System prompt.",
+      prompt: (context) => `${context.account}\n${context.notes}`,
     });
 
     const { prompt } = await run({});
-    expect(prompt?.prompt).toContain("name: Acme");
-    expect(prompt?.prompt).toContain("\u001fPOLO_SLOT_0\u001f");
+    expect(prompt).toContain("name: Acme");
+    expect(prompt).toContain("\u001fPOLO_SLOT_0\u001f");
   });
 
-  test("template proxy supports ownKeys and descriptor access for context.raw", async () => {
+  test("render context supports ownKeys and descriptor access for context.raw", async () => {
     const run = polo.window({
       input: emptyInputSchema,
       id: "test_template_proxy_raw_own_keys",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme" }),
           }),
         })),
       },
-      template: (context) => {
+      system: (context) => {
         const keys = Object.keys(context).sort().join(",");
         const hasRaw = "raw" in context;
         const rawDescriptor = Object.getOwnPropertyDescriptor(context, "raw");
 
-        return {
-          system: `keys=${keys} hasRaw=${hasRaw}`,
-          prompt:
-            rawDescriptor && rawDescriptor.enumerable === false ? "raw-hidden" : "raw-missing",
-        };
+        void rawDescriptor;
+        return `keys=${keys} hasRaw=${hasRaw}`;
+      },
+      prompt: (context) => {
+        const rawDescriptor = Object.getOwnPropertyDescriptor(context, "raw");
+        return rawDescriptor && rawDescriptor.enumerable === false ? "raw-hidden" : "raw-missing";
       },
     });
 
-    const { prompt } = await run({});
-    expect(prompt?.system).toContain("keys=account");
-    expect(prompt?.system).toContain("hasRaw=true");
-    expect(prompt?.prompt).toBe("raw-hidden");
+    const { system, prompt } = await run({});
+    expect(system).toContain("keys=account");
+    expect(system).toContain("hasRaw=true");
+    expect(prompt).toBe("raw-hidden");
   });
 
-  test("template proxy materializes objects via toString/valueOf coercion", async () => {
+  test("render context materializes objects via toString/valueOf coercion", async () => {
     const run = polo.window({
       input: emptyInputSchema,
       id: "test_template_proxy_to_string_and_value_of",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" as const }),
           }),
         })),
       },
-      template: (context) => ({
-        system: `${context.account}`,
-        prompt: String(context.account?.valueOf()),
-      }),
+      system: (context) => `${context.account}`,
+      prompt: (context) => String(context.account?.valueOf()),
     });
 
-    const { prompt } = await run({});
-    expect(prompt?.system).toContain("name: Acme");
-    expect(prompt?.prompt).toContain("plan: enterprise");
+    const { system, prompt } = await run({});
+    expect(system).toContain("name: Acme");
+    expect(prompt).toContain("plan: enterprise");
   });
 
-  test("template path throws for malformed chunk envelopes", async () => {
+  test("render path throws for malformed chunk envelopes", async () => {
     const ragLikeSet = polo.sourceSet(({ source }) => ({
-      docs: source(emptyInputSchema, {
+      docs: source.value(emptyInputSchema, {
         async resolve() {
           return {
             _type: "rag",
@@ -406,28 +383,26 @@ describe("template", () => {
       sources: {
         docs: ragLikeSet.docs,
       },
-      template: (context) => ({
-        system: "",
-        prompt: `${context.docs ?? "none"}`,
-      }),
+      system: "",
+      prompt: (context) => `${context.docs ?? "none"}`,
     });
 
     await expect(run({})).rejects.toThrow(/resolved malformed rag items/);
   });
 });
 
-describe("template budget fitting", () => {
-  test("drops lowest-priority source when template output exceeds budget", async () => {
+describe("render budget fitting", () => {
+  test("drops lowest-priority source when prompt output exceeds budget", async () => {
     const droppedLog: string[] = [];
     const run = polo.window({
       input: emptyInputSchema,
       id: "test_template_drop_default",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          required: source(emptyInputSchema, {
+          required: source.value(emptyInputSchema, {
             resolve: async () => "short required text",
           }),
-          extra: source(emptyInputSchema, {
+          extra: source.value(emptyInputSchema, {
             resolve: async () => "x".repeat(500),
           }),
         })),
@@ -436,19 +411,17 @@ describe("template budget fitting", () => {
         require: ["required"],
         budget: 5,
       },
-      template: (context) => {
+      system: "sys",
+      prompt: (context) => {
         if (!("extra" in context)) droppedLog.push("extra");
-        return {
-          system: "sys",
-          prompt: context.required + (context.extra ? String(context.extra) : ""),
-        };
+        return context.required + (context.extra ? String(context.extra) : "");
       },
     });
 
-    const { prompt, traces } = await run({});
+    const { prompt, trace } = await run({});
     expect(droppedLog).toContain("extra");
-    expect(prompt?.prompt).toContain("short required text");
-    const dropped = traces.policies.find(
+    expect(prompt).toContain("short required text");
+    const dropped = trace.policies.find(
       (p) => p.source === "extra" && p.action === "dropped" && p.reason === "over_budget",
     );
     expect(dropped).toBeDefined();
@@ -461,13 +434,13 @@ describe("template budget fitting", () => {
       id: "test_template_drop_order",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          required: source(emptyInputSchema, {
+          required: source.value(emptyInputSchema, {
             resolve: async () => "req",
           }),
-          preferred: source(emptyInputSchema, {
+          preferred: source.value(emptyInputSchema, {
             resolve: async () => "p".repeat(200),
           }),
-          defaultIncluded: source(emptyInputSchema, {
+          defaultIncluded: source.value(emptyInputSchema, {
             resolve: async () => "d".repeat(200),
           }),
         })),
@@ -477,19 +450,17 @@ describe("template budget fitting", () => {
         prefer: ["preferred"],
         budget: 10,
       },
-      template: (context) => {
+      system: "",
+      prompt: (context) => {
         if (!("defaultIncluded" in context)) droppedSources.push("defaultIncluded");
         if (!("preferred" in context)) droppedSources.push("preferred");
-        return {
-          system: "",
-          prompt: [
-            context.required,
-            "defaultIncluded" in context ? String(context.defaultIncluded) : "",
-            "preferred" in context ? String(context.preferred) : "",
-          ]
-            .filter(Boolean)
-            .join(" "),
-        };
+        return [
+          context.required,
+          "defaultIncluded" in context ? String(context.defaultIncluded) : "",
+          "preferred" in context ? String(context.preferred) : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
       },
     });
 
@@ -509,7 +480,7 @@ describe("template budget fitting", () => {
       id: "test_template_required_never_dropped",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          critical: source(emptyInputSchema, {
+          critical: source.value(emptyInputSchema, {
             resolve: async () => "c".repeat(1000),
           }),
         })),
@@ -518,15 +489,13 @@ describe("template budget fitting", () => {
         require: ["critical"],
         budget: 1,
       },
-      template: (context) => ({
-        system: "",
-        prompt: String(context.critical),
-      }),
+      system: "",
+      prompt: (context) => String(context.critical),
     });
 
     const { context, prompt } = await run({});
     expect(context.critical).toBeDefined();
-    expect(prompt?.prompt).toContain("c".repeat(100));
+    expect(prompt).toContain("c".repeat(100));
   });
 
   test("required chunk sources are never trimmed when over budget", async () => {
@@ -553,26 +522,24 @@ describe("template budget fitting", () => {
         require: ["docs"],
         budget: 1,
       },
-      template: (context) => ({
-        system: "",
-        prompt: (context.docs ?? []).map((chunk) => chunk.content).join("\n"),
-      }),
+      system: "",
+      prompt: (context) => (context.docs ?? []).map((chunk) => chunk.content).join("\n"),
     });
 
-    const { context, prompt, traces } = await run({});
+    const { context, prompt, trace } = await run({});
     expect(context.docs).toHaveLength(3);
-    expect(prompt?.prompt).toContain("chunk-high");
-    expect(prompt?.prompt).toContain("chunk-mid");
-    expect(prompt?.prompt).toContain("chunk-low");
+    expect(prompt).toContain("chunk-high");
+    expect(prompt).toContain("chunk-mid");
+    expect(prompt).toContain("chunk-low");
 
-    const docsRecord = traces.sources.find((source) => source.key === "docs");
+    const docsRecord = trace.sources.find((source) => source.key === "docs");
     expect(docsRecord?.type).toBe("rag");
     if (docsRecord?.type === "rag") {
       expect(docsRecord.items).toHaveLength(3);
       expect(docsRecord.items.every((chunk) => chunk.included)).toBe(true);
     }
 
-    const droppedPolicy = traces.policies.find(
+    const droppedPolicy = trace.policies.find(
       (policy) => policy.source === "docs" && policy.action === "dropped",
     );
     expect(droppedPolicy).toBeUndefined();
@@ -602,10 +569,8 @@ describe("template budget fitting", () => {
         prefer: ["docs"],
         budget: 30,
       },
-      template: (context) => ({
-        system: "",
-        prompt: (context.docs ?? []).map((c) => c.content).join("\n"),
-      }),
+      system: "",
+      prompt: (context) => (context.docs ?? []).map((c) => c.content).join("\n"),
     });
 
     const { context } = await run({});
@@ -639,17 +604,15 @@ describe("template budget fitting", () => {
         prefer: ["docs"],
         budget,
       },
-      template: (context) => ({
-        system: "",
-        prompt: (context.docs ?? []).map((chunk) => chunk.content).join("\n"),
-      }),
+      system: "",
+      prompt: (context) => (context.docs ?? []).map((chunk) => chunk.content).join("\n"),
     });
 
-    const { context, traces } = await run({});
+    const { context, trace } = await run({});
     expect(context.docs).toHaveLength(1);
     expect(context.docs?.[0]?.score).toBe(0.9);
 
-    const docsRecord = traces.sources.find((source) => source.key === "docs");
+    const docsRecord = trace.sources.find((source) => source.key === "docs");
     expect(docsRecord?.type).toBe("rag");
     if (docsRecord?.type === "rag") {
       expect(docsRecord.items).toEqual([
@@ -692,19 +655,17 @@ describe("template budget fitting", () => {
         prefer: ["docs"],
         budget: { maxTokens: budget, strategy: { type: "score_per_token" } },
       },
-      template: (context) => ({
-        system: "",
-        prompt: (context.docs ?? []).map((chunk) => chunk.content).join("\n"),
-      }),
+      system: "",
+      prompt: (context) => (context.docs ?? []).map((chunk) => chunk.content).join("\n"),
     });
 
-    const { context, traces } = await run({});
+    const { context, trace } = await run({});
 
     const docs = context.docs as Array<{ content: string; score?: number }>;
     expect(docs).toHaveLength(1);
     expect(docs[0]!.content).toBe(chunkB.content);
 
-    const docsRecord = traces.sources.find((s) => s.key === "docs");
+    const docsRecord = trace.sources.find((s) => s.key === "docs");
     if (docsRecord?.type === "rag") {
       const kept = docsRecord.items.find((c) => c.included);
       const dropped = docsRecord.items.find((c) => !c.included);
@@ -726,7 +687,7 @@ describe("template budget fitting", () => {
       id: "test_template_chunk_whole_drop_trace",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          transcript: source(emptyInputSchema, {
+          transcript: source.value(emptyInputSchema, {
             resolve: async () => "t".repeat(120),
           }),
           docs: source.rag(emptyInputSchema, {
@@ -742,16 +703,14 @@ describe("template budget fitting", () => {
         prefer: ["docs"],
         budget: 25,
       },
-      template: (context) => ({
-        system: "",
-        prompt: `Transcript:\n${context.transcript}\n\nDocs:\n${context.docs ?? "N/A"}`,
-      }),
+      system: "",
+      prompt: (context) => `Transcript:\n${context.transcript}\n\nDocs:\n${context.docs ?? "N/A"}`,
     });
 
-    const { prompt, traces } = await run({});
-    expect(prompt?.prompt).not.toContain("chunk-high");
+    const { prompt, trace } = await run({});
+    expect(prompt).not.toContain("chunk-high");
 
-    const docsRecord = traces.sources.find((source) => source.key === "docs");
+    const docsRecord = trace.sources.find((source) => source.key === "docs");
     expect(docsRecord?.type).toBe("rag");
     if (docsRecord?.type === "rag") {
       expect(docsRecord.items.every((chunk) => !chunk.included)).toBe(true);
@@ -760,7 +719,7 @@ describe("template budget fitting", () => {
       );
     }
 
-    const droppedPolicy = traces.policies.find(
+    const droppedPolicy = trace.policies.find(
       (policy) => policy.source === "docs" && policy.action === "dropped",
     );
     expect(droppedPolicy?.reason).toBe("over_budget");

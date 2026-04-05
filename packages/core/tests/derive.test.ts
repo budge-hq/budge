@@ -8,7 +8,7 @@ const emptyInputSchema = z.object({});
 describe("derive", () => {
   test("merges derived values onto context", async () => {
     const { account } = polo.sourceSet(({ source }) => ({
-      account: source(emptyInputSchema, {
+      account: source.value(emptyInputSchema, {
         resolve: async () => ({ plan: "enterprise" as const }),
       }),
     }));
@@ -28,7 +28,7 @@ describe("derive", () => {
 
   test("derived values are available alongside source data", async () => {
     const { user } = polo.sourceSet(({ source }) => ({
-      user: source(emptyInputSchema, {
+      user: source.value(emptyInputSchema, {
         resolve: async () => ({ name: "Alice" }),
       }),
     }));
@@ -49,7 +49,7 @@ describe("derive", () => {
 
   test("derived values cannot overwrite source keys", async () => {
     const { account } = polo.sourceSet(({ source }) => ({
-      account: source(emptyInputSchema, {
+      account: source.value(emptyInputSchema, {
         resolve: async () => ({ plan: "enterprise" as const }),
       }),
     }));
@@ -78,7 +78,7 @@ describe("derive", () => {
 
   test("derived values cannot use the reserved raw key", async () => {
     const { account } = polo.sourceSet(({ source }) => ({
-      account: source(emptyInputSchema, {
+      account: source.value(emptyInputSchema, {
         resolve: async () => ({ plan: "enterprise" as const }),
       }),
     }));
@@ -86,7 +86,7 @@ describe("derive", () => {
     const typecheckOnly = Date.now() < 0;
 
     if (typecheckOnly) {
-      // @ts-expect-error raw is reserved for template contexts
+      // @ts-expect-error raw is reserved for render contexts
       polo.window({
         input: emptyInputSchema,
         id: "typecheck_derive_raw",

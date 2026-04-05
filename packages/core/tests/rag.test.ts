@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
-import { createPolo, registerSources } from "../src/index.ts";
+import { createPolo } from "../src/index.ts";
 import { createRagItems } from "../src/rag.ts";
 import { estimateTokens } from "../src/pack.ts";
 import type { AnyResolverSource, BudgetStrategyFn } from "../src/types.ts";
@@ -37,11 +37,11 @@ describe("polo.source.rag", () => {
       policies: { budget: 40 },
     });
 
-    const { context, traces } = await run({});
+    const { context, trace } = await run({});
     const chunks = context.guidelines as Array<{ content: string }>;
     expect(chunks.length).toBe(2);
 
-    const chunkSource_ = traces.sources.find((s) => s.key === "guidelines");
+    const chunkSource_ = trace.sources.find((s) => s.key === "guidelines");
     expect(chunkSource_?.type).toBe("rag");
     const dropped =
       chunkSource_?.type === "rag" ? chunkSource_.items.filter((c) => !c.included) : [];
@@ -80,7 +80,7 @@ describe("polo.source.rag", () => {
     expect(chunks.length).toBe(2);
   });
 
-  test("required chunk sources are never trimmed in non-template mode", async () => {
+  test("required chunk sources are never trimmed in non-render mode", async () => {
     const items = [
       { content: "high ".repeat(30), score: 0.9 },
       { content: "mid ".repeat(30), score: 0.5 },
@@ -111,17 +111,17 @@ describe("polo.source.rag", () => {
       },
     });
 
-    const { context, traces } = await run({});
+    const { context, trace } = await run({});
     expect(context.docs).toHaveLength(3);
 
-    const docsRecord = traces.sources.find((source) => source.key === "docs");
+    const docsRecord = trace.sources.find((source) => source.key === "docs");
     expect(docsRecord?.type).toBe("rag");
     if (docsRecord?.type === "rag") {
       expect(docsRecord.items).toHaveLength(3);
       expect(docsRecord.items.every((chunk) => chunk.included)).toBe(true);
     }
 
-    const droppedPolicy = traces.policies.find(
+    const droppedPolicy = trace.policies.find(
       (policy) => policy.source === "docs" && policy.action === "dropped",
     );
     expect(droppedPolicy).toBeUndefined();
@@ -146,15 +146,15 @@ describe("polo.source.rag", () => {
       policies: { budget: 1 },
     });
 
-    const { context, traces } = await run({});
+    const { context, trace } = await run({});
     expect("guidelines" in context).toBe(false);
 
-    const droppedPolicy = traces.policies.find(
+    const droppedPolicy = trace.policies.find(
       (policy) => policy.source === "guidelines" && policy.action === "dropped",
     );
     expect(droppedPolicy?.reason).toBe("over_budget");
 
-    const guidelinesRecord = traces.sources.find((source) => source.key === "guidelines");
+    const guidelinesRecord = trace.sources.find((source) => source.key === "guidelines");
     expect(guidelinesRecord?.type).toBe("rag");
     if (guidelinesRecord?.type === "rag") {
       expect(guidelinesRecord.items.every((chunk) => chunk.included === false)).toBe(true);
@@ -178,10 +178,10 @@ describe("polo.source.rag", () => {
       policies: { budget: 1 },
     });
 
-    const { context, traces } = await run({});
+    const { context, trace } = await run({});
     expect(context.docs).toEqual([]);
 
-    const droppedPolicy = traces.policies.find(
+    const droppedPolicy = trace.policies.find(
       (policy) => policy.source === "docs" && policy.action === "dropped",
     );
     expect(droppedPolicy).toBeUndefined();
@@ -254,7 +254,7 @@ describe("polo.source.rag", () => {
 
   test("dependent chunk sources also reject invalid normalize output", async () => {
     const sharedSourceSet = polo.sourceSet(({ source }) => {
-      const account = source(emptyInputSchema, {
+      const account = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "acc_1" };
         },
@@ -278,7 +278,7 @@ describe("polo.source.rag", () => {
       return { account, docs };
     });
 
-    const sourceRegistry = registerSources(sharedSourceSet);
+    const sourceRegistry = polo.sources(sharedSourceSet);
     const run = polo.window({
       input: emptyInputSchema,
       id: "test_dep_chunks_invalid_normalize",
@@ -301,7 +301,7 @@ describe("polo.source.rag", () => {
         },
       });
 
-      const summary = source(
+      const summary = source.value(
         emptyInputSchema,
         { docs },
         {
@@ -329,7 +329,7 @@ describe("polo.source.rag", () => {
 
   test("throws when a chunk source resolves malformed chunk envelopes", async () => {
     const ragLikeSet = polo.sourceSet(({ source }) => ({
-      docs: source(emptyInputSchema, {
+      docs: source.value(emptyInputSchema, {
         async resolve() {
           return {
             _type: "rag",
@@ -469,10 +469,10 @@ describe("polo.source.rag", () => {
       policies: { budget: { maxTokens: 40, strategy: { type: "score_per_token" } } },
     });
 
-    const { traces } = await run({});
-    expect(traces.budget.strategy).toBe("score_per_token");
-    expect(traces.budget.candidates).toBe(3);
-    expect(typeof traces.budget.selected).toBe("number");
+    const { trace } = await run({});
+    expect(trace.budget.strategy).toBe("score_per_token");
+    expect(trace.budget.candidates).toBe(3);
+    expect(typeof trace.budget.selected).toBe("number");
   });
 
   test("backward compat: budget as number still populates trace strategy", async () => {
@@ -491,10 +491,10 @@ describe("polo.source.rag", () => {
       policies: { budget: 100 },
     });
 
-    const { traces } = await run({});
-    expect(traces.budget.strategy).toBe("greedy_score");
-    expect(traces.budget.candidates).toBe(1);
-    expect(traces.budget.selected).toBe(1);
+    const { trace } = await run({});
+    expect(trace.budget.strategy).toBe("greedy_score");
+    expect(trace.budget.candidates).toBe(1);
+    expect(trace.budget.selected).toBe(1);
   });
 
   test("non-chunk sources over budget produce dropped policy records", async () => {
@@ -503,10 +503,10 @@ describe("polo.source.rag", () => {
       id: "test_non_chunk_over_budget_drop",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          requiredText: source(emptyInputSchema, {
+          requiredText: source.value(emptyInputSchema, {
             resolve: async () => "keep me",
           }),
-          extraText: source(emptyInputSchema, {
+          extraText: source.value(emptyInputSchema, {
             resolve: async () => "x".repeat(2_000),
           }),
         })),
@@ -517,11 +517,11 @@ describe("polo.source.rag", () => {
       },
     });
 
-    const { context, traces } = await run({});
+    const { context, trace } = await run({});
     expect(context.requiredText).toBe("keep me");
     expect("extraText" in context).toBe(false);
 
-    const dropped = traces.policies.find(
+    const dropped = trace.policies.find(
       (policy) => policy.source === "extraText" && policy.action === "dropped",
     );
     expect(dropped?.reason).toBe("over_budget");

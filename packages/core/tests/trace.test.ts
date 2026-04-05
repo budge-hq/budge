@@ -13,7 +13,7 @@ describe("trace", () => {
       id: "test_trace_sources",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             resolve: async () => ({ id: "acc_1" }),
             tags: ["internal"],
           }),
@@ -21,8 +21,8 @@ describe("trace", () => {
       },
     });
 
-    const { traces } = await run({});
-    const sourceRecord = traces.sources.find((s) => s.key === "account");
+    const { trace } = await run({});
+    const sourceRecord = trace.sources.find((s) => s.key === "account");
     expect(sourceRecord).toBeDefined();
     expect(sourceRecord?.tags).toEqual(["internal"]);
     expect(typeof sourceRecord?.durationMs).toBe("number");
@@ -34,7 +34,7 @@ describe("trace", () => {
       id: "test_trace_budget",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          data: source(emptyInputSchema, {
+          data: source.value(emptyInputSchema, {
             resolve: async () => ({ value: "hello" }),
           }),
         })),
@@ -42,9 +42,9 @@ describe("trace", () => {
       policies: { budget: 10_000 },
     });
 
-    const { traces } = await run({});
-    expect(traces.budget.max).toBe(10_000);
-    expect(traces.budget.used).toBeGreaterThanOrEqual(0);
+    const { trace } = await run({});
+    expect(trace.budget.max).toBe(10_000);
+    expect(trace.budget.used).toBeGreaterThanOrEqual(0);
   });
 
   test("trace contains derived values", async () => {
@@ -53,7 +53,7 @@ describe("trace", () => {
       id: "test_trace_derived",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          account: source(emptyInputSchema, {
+          account: source.value(emptyInputSchema, {
             resolve: async () => ({ plan: "enterprise" as const }),
           }),
         })),
@@ -63,8 +63,8 @@ describe("trace", () => {
       }),
     });
 
-    const { traces } = await run({});
-    expect(traces.derived["isEnterprise"]).toBe(true);
+    const { trace } = await run({});
+    expect(trace.derived["isEnterprise"]).toBe(true);
   });
 
   test("each run gets a unique runId", async () => {
@@ -73,7 +73,7 @@ describe("trace", () => {
       id: "test_run_id",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          data: source(emptyInputSchema, {
+          data: source.value(emptyInputSchema, {
             resolve: async () => "x",
           }),
         })),
@@ -82,7 +82,7 @@ describe("trace", () => {
 
     const [r1, r2] = await Promise.all([run({}), run({})]);
 
-    expect(r1.traces.runId).not.toBe(r2.traces.runId);
+    expect(r1.trace.runId).not.toBe(r2.trace.runId);
   });
 
   test("trace does not contain raw resolved data", async () => {
@@ -91,7 +91,7 @@ describe("trace", () => {
       id: "test_trace_no_data",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          secret: source(emptyInputSchema, {
+          secret: source.value(emptyInputSchema, {
             resolve: async () => ({ ssn: "123-45-6789" }),
             tags: ["phi"],
           }),
@@ -99,14 +99,14 @@ describe("trace", () => {
       },
     });
 
-    const { traces } = await run({});
-    const raw = JSON.stringify(traces);
+    const { trace } = await run({});
+    const raw = JSON.stringify(trace);
     expect(raw).not.toContain("123-45-6789");
   });
 
   test("buildTrace falls back to empty chunks when chunkRecords are missing", () => {
     const now = new Date();
-    const traces = buildTrace({
+    const trace = buildTrace({
       windowId: "test_trace_chunk_fallback",
       startedAt: now,
       completedAt: now,
@@ -125,7 +125,7 @@ describe("trace", () => {
       budgetUsed: 0,
     });
 
-    const docs = traces.sources.find((source) => source.key === "docs");
+    const docs = trace.sources.find((source) => source.key === "docs");
     expect(docs?.type).toBe("rag");
     if (docs?.type === "rag") {
       expect(docs.items).toEqual([]);

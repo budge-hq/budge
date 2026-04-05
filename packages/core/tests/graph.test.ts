@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import { z } from "zod";
-import { createPolo, registerSources } from "../src/index.ts";
+import { createPolo } from "../src/index.ts";
 import {
   CircularSourceDependencyError,
   MissingSourceDependencyError,
@@ -19,14 +19,14 @@ describe("graph", () => {
     const parentSchema = z.object({ id: z.string() });
     const childSchema = z.object({ parentId: z.string() });
     const { parent, child } = polo.sourceSet(({ source }) => {
-      const p = source(emptyInputSchema, {
+      const p = source.value(emptyInputSchema, {
         output: parentSchema,
         async resolve() {
           order.push("parent");
           return { id: "p1" };
         },
       });
-      const c = source(
+      const c = source.value(
         emptyInputSchema,
         { parent: p },
         {
@@ -55,13 +55,13 @@ describe("graph", () => {
     const parentSchema = z.object({ id: z.string() });
     const childSchema = z.object({ parentId: z.string() });
     const { parent, child } = polo.sourceSet(({ source }) => {
-      const p = source(emptyInputSchema, {
+      const p = source.value(emptyInputSchema, {
         output: parentSchema,
         async resolve() {
           return { id: "p1" };
         },
       });
-      const c = source(
+      const c = source.value(
         emptyInputSchema,
         { parent: p },
         {
@@ -86,7 +86,7 @@ describe("graph", () => {
 
   test("missing source dependency throws during context window declaration", () => {
     const accountSourceSet = polo.sourceSet(({ source }) => {
-      const account = source(emptyInputSchema, {
+      const account = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
         },
@@ -96,7 +96,7 @@ describe("graph", () => {
     });
 
     const childSourceSet = polo.sourceSet(({ source }) => {
-      const child = source(
+      const child = source.value(
         emptyInputSchema,
         { account: accountSourceSet.account },
         {
@@ -109,7 +109,7 @@ describe("graph", () => {
       return { child };
     });
 
-    const sourceRegistry = registerSources(accountSourceSet, childSourceSet);
+    const sourceRegistry = polo.sources(accountSourceSet, childSourceSet);
 
     const typecheckOnly = Date.now() < 0;
 
@@ -137,13 +137,13 @@ describe("graph", () => {
 
   test("dependent sources can be selected under aliased window keys", async () => {
     const sharedSourceSet = polo.sourceSet(({ source }) => {
-      const account = source(emptyInputSchema, {
+      const account = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
         },
       });
 
-      const child = source(
+      const child = source.value(
         emptyInputSchema,
         { account },
         {
@@ -156,7 +156,7 @@ describe("graph", () => {
       return { account, child };
     });
 
-    const sourceRegistry = registerSources(sharedSourceSet);
+    const sourceRegistry = polo.sources(sharedSourceSet);
     const run = polo.window({
       input: emptyInputSchema,
       id: "aliased_source_keys",
@@ -173,12 +173,12 @@ describe("graph", () => {
 
   test("local source reuse after aliased selection does not affect later dependencies", async () => {
     const { account, child } = polo.sourceSet(({ source }) => {
-      const acc = source(emptyInputSchema, {
+      const acc = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
         },
       });
-      const ch = source(
+      const ch = source.value(
         emptyInputSchema,
         { account: acc },
         {
@@ -214,31 +214,38 @@ describe("graph", () => {
     expect(dependentContext.child).toEqual({ parentId: "p1" });
   });
 
-  test("local dependency aliases are not supported", () => {
-    expect(() =>
-      polo.sourceSet(({ source }) => {
-        const acc = source(emptyInputSchema, {
-          async resolve() {
-            return { id: "p1" };
+  test("local dependency aliases are supported", async () => {
+    const { account, child } = polo.sourceSet(({ source }) => {
+      const acc = source.value(emptyInputSchema, {
+        async resolve() {
+          return { id: "p1" };
+        },
+      });
+      const ch = source.value(
+        emptyInputSchema,
+        { customer: acc },
+        {
+          async resolve({ customer }) {
+            return { parentId: customer.id };
           },
-        });
-        const ch = source(
-          emptyInputSchema,
-          { customer: acc },
-          {
-            async resolve({ customer }) {
-              return { parentId: customer.id };
-            },
-          },
-        );
-        return { account: acc, child: ch };
-      }),
-    ).toThrowError(/Dependency aliases are not supported yet/);
+        },
+      );
+      return { account: acc, child: ch };
+    });
+
+    const run = polo.window({
+      input: emptyInputSchema,
+      id: "local_dependency_aliases",
+      sources: { account, child },
+    });
+
+    const { context } = await run({});
+    expect(context.child).toEqual({ parentId: "p1" });
   });
 
   test("reusing a source handle across source sets throws", () => {
     const shared = polo.sourceSet(({ source }) => {
-      const account = source(emptyInputSchema, {
+      const account = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
         },
@@ -256,12 +263,12 @@ describe("graph", () => {
 
   test("circular dependencies throw during context window declaration", () => {
     const { first, second } = polo.sourceSet(({ source }) => ({
-      first: source(emptyInputSchema, {
+      first: source.value(emptyInputSchema, {
         async resolve() {
           return "first";
         },
       }),
-      second: source(emptyInputSchema, {
+      second: source.value(emptyInputSchema, {
         async resolve() {
           return "second";
         },
@@ -285,7 +292,7 @@ describe("graph", () => {
 
   test("throws when selected source is missing an internal id", () => {
     const { account } = polo.sourceSet(({ source }) => ({
-      account: source(emptyInputSchema, {
+      account: source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
         },
@@ -304,12 +311,12 @@ describe("graph", () => {
 
   test("throws when dependency source is missing an internal id", () => {
     const { account, child } = polo.sourceSet(({ source }) => {
-      const acc = source(emptyInputSchema, {
+      const acc = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
         },
       });
-      const ch = source(
+      const ch = source.value(
         emptyInputSchema,
         { account: acc },
         {
@@ -334,12 +341,12 @@ describe("graph", () => {
 
   test("throws when two selected sources share the same internal id", () => {
     const { first, second } = polo.sourceSet(({ source }) => ({
-      first: source(emptyInputSchema, {
+      first: source.value(emptyInputSchema, {
         async resolve() {
           return "first";
         },
       }),
-      second: source(emptyInputSchema, {
+      second: source.value(emptyInputSchema, {
         async resolve() {
           return "second";
         },
@@ -360,7 +367,7 @@ describe("graph", () => {
   test("buildWaves rethrows non-cycle dependency-graph errors", () => {
     const sourceMap = {
       ...polo.sourceSet(({ source }) => ({
-        a: source(emptyInputSchema, {
+        a: source.value(emptyInputSchema, {
           async resolve() {
             return "a";
           },
@@ -396,14 +403,14 @@ describe("graph", () => {
       id: "test_parallel",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          a: source(emptyInputSchema, {
+          a: source.value(emptyInputSchema, {
             async resolve() {
               started.push("a");
               await new Promise((r) => setTimeout(r, 10));
               return "a_value";
             },
           }),
-          b: source(emptyInputSchema, {
+          b: source.value(emptyInputSchema, {
             async resolve() {
               started.push("b");
               await new Promise((r) => setTimeout(r, 10));
@@ -431,10 +438,10 @@ describe("graph", () => {
       id: "test_string_literal_false_positive",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          first: source(emptyInputSchema, {
+          first: source.value(emptyInputSchema, {
             resolve: async () => "sources.second should stay literal",
           }),
-          second: source(emptyInputSchema, {
+          second: source.value(emptyInputSchema, {
             resolve: async () => "ready",
           }),
         })),
@@ -452,13 +459,13 @@ describe("graph", () => {
       id: "test_comment_false_positive",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          first: source(emptyInputSchema, {
+          first: source.value(emptyInputSchema, {
             resolve: async () => {
               // sources.second is intentionally mentioned here as a comment
               return "ok";
             },
           }),
-          second: source(emptyInputSchema, {
+          second: source.value(emptyInputSchema, {
             resolve: async () => "ready",
           }),
         })),

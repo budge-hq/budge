@@ -16,7 +16,7 @@ describe("policies.require", () => {
       id: "test_require_null",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          encounter: source(emptyInputSchema, {
+          encounter: source.value(emptyInputSchema, {
             resolve: async () => null,
           }),
         })),
@@ -33,7 +33,7 @@ describe("policies.require", () => {
       id: "test_require_undefined",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          encounter: source(emptyInputSchema, {
+          encounter: source.value(emptyInputSchema, {
             resolve: async () => undefined,
           }),
         })),
@@ -50,7 +50,7 @@ describe("policies.require", () => {
       id: "test_require_ok",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          encounter: source(emptyInputSchema, {
+          encounter: source.value(emptyInputSchema, {
             resolve: async () => ({ id: "enc_1" }),
           }),
         })),
@@ -71,10 +71,10 @@ describe("policies.exclude", () => {
       id: "test_exclude",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          intake: source(emptyInputSchema, {
+          intake: source.value(emptyInputSchema, {
             resolve: async () => ({ medications: ["aspirin"] }),
           }),
-          priorNote: source(emptyInputSchema, {
+          priorNote: source.value(emptyInputSchema, {
             resolve: async () => ({ text: "prior note" }),
           }),
         })),
@@ -106,10 +106,10 @@ describe("policies.exclude", () => {
       id: "test_no_exclude",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          intake: source(emptyInputSchema, {
+          intake: source.value(emptyInputSchema, {
             resolve: async () => ({ medications: ["aspirin"] }),
           }),
-          priorNote: source(emptyInputSchema, {
+          priorNote: source.value(emptyInputSchema, {
             resolve: async () => null,
           }),
         })),
@@ -140,10 +140,10 @@ describe("policies.exclude", () => {
       id: "test_exclude_trace",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          intake: source(emptyInputSchema, {
+          intake: source.value(emptyInputSchema, {
             resolve: async () => ({ medications: [] }),
           }),
-          priorNote: source(emptyInputSchema, {
+          priorNote: source.value(emptyInputSchema, {
             resolve: async () => ({ text: "note" }),
           }),
         })),
@@ -164,8 +164,8 @@ describe("policies.exclude", () => {
       },
     });
 
-    const { traces } = await run({});
-    const excluded = traces.policies.find((p) => p.action === "excluded");
+    const { trace } = await run({});
+    const excluded = trace.policies.find((p) => p.action === "excluded");
     expect(excluded?.source).toBe("intake");
     expect(excluded?.reason).toBe("follow-up visits exclude patient intake");
   });
@@ -176,7 +176,7 @@ describe("policies.exclude", () => {
       id: "test_require_exclude_conflict",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          intake: source(emptyInputSchema, {
+          intake: source.value(emptyInputSchema, {
             resolve: async () => ({ medications: ["aspirin"] }),
           }),
         })),
@@ -203,10 +203,10 @@ describe("policies.exclude", () => {
       id: "test_exclude_called_once",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          sourceA: source(emptyInputSchema, {
+          sourceA: source.value(emptyInputSchema, {
             resolve: async () => "a",
           }),
-          sourceB: source(emptyInputSchema, {
+          sourceB: source.value(emptyInputSchema, {
             resolve: async () => "b",
           }),
         })),
@@ -233,10 +233,10 @@ describe("policies.exclude", () => {
       id: "test_exclude_no_second_call",
       sources: {
         ...polo.sourceSet(({ source }) => ({
-          sourceA: source(emptyInputSchema, {
+          sourceA: source.value(emptyInputSchema, {
             resolve: async () => "a",
           }),
-          sourceB: source(emptyInputSchema, {
+          sourceB: source.value(emptyInputSchema, {
             resolve: async () => "b",
           }),
         })),
@@ -290,11 +290,11 @@ describe("policies.exclude", () => {
       },
     });
 
-    const { context, traces } = await run({});
+    const { context, trace } = await run({});
 
     expect("docs" in context).toBe(false);
 
-    const docsRecord = traces.sources.find((source) => source.key === "docs");
+    const docsRecord = trace.sources.find((source) => source.key === "docs");
     expect(docsRecord?.type).toBe("rag");
     if (docsRecord?.type === "rag") {
       expect(docsRecord.items).toHaveLength(2);
@@ -303,7 +303,7 @@ describe("policies.exclude", () => {
       expect(docsRecord.items.every((chunk) => chunk.content === "")).toBe(true);
     }
 
-    expect(JSON.stringify(traces)).not.toContain("chunk A secret");
-    expect(JSON.stringify(traces)).not.toContain("chunk B secret");
+    expect(JSON.stringify(trace)).not.toContain("chunk A secret");
+    expect(JSON.stringify(trace)).not.toContain("chunk B secret");
   });
 });

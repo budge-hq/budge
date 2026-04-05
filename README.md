@@ -4,7 +4,7 @@
 
 **The best context management framework for agents.**
 
-Polo is the typed runtime that decides what goes into the model’s context window on every turn: which sources to fetch, how they compose, how policy shapes visibility, how a token budget is satisfied, and how the result is serialized into prompts. Each resolution returns a fully typed `context`, optional `{ system, prompt }`, and a `traces` receipt so you can see what the model saw and why.
+Polo is the typed runtime that decides what goes into the model’s context window on every turn: which sources to fetch, how they compose, how policy shapes visibility, how a token budget is satisfied, and how the result is serialized into prompts. Each resolution returns a fully typed `context`, optional top-level `system` and `prompt` strings, and a `trace` receipt so you can see what the model saw and why.
 
 ## The context layer
 
@@ -22,7 +22,7 @@ Polo is the typed runtime that decides what goes into the model’s context wind
 
 7. **Traces** — Every resolution produces a receipt: timing, token counts, compression ratios, policy decisions, inclusion and exclusion reasons. The base for observability and, eventually, closed-loop improvement.
 
-8. **Template** — How resolved context becomes a prompt: proxy-based auto-serialization, TOON encoding, system vs user structure. Poor serialization wastes budget even when sourcing and policy are perfect.
+8. **Rendering** — How resolved context becomes `system` and `prompt` strings: proxy-based auto-serialization, TOON encoding, and model-ready structure. Poor serialization wastes budget even when sourcing and policy are perfect.
 
 ---
 
@@ -49,7 +49,6 @@ export const polo = createPolo();
 ### Create source sets
 
 ```ts
-import { registerSources } from "@polo/core";
 import { z } from "zod";
 
 const supportReplyInputSchema = z.object({
@@ -66,14 +65,14 @@ const transcriptSourceInputSchema = z.object({
 });
 
 const accountSourceSet = polo.sourceSet(({ source }) => {
-  const account = source(accountSourceInputSchema, {
+  const account = source.value(accountSourceInputSchema, {
     tags: ["internal"],
     async resolve({ input }) {
       return db.getAccount(input.accountId);
     },
   });
 
-  const billingNotes = source(
+  const billingNotes = source.value(
     accountSourceInputSchema,
     { account },
     {
@@ -109,20 +108,18 @@ const ticketSourceSet = polo.sourceSet(({ source }) => {
   return { recentTickets };
 });
 
-const supportReplySources = registerSources(accountSourceSet, ticketSourceSet);
+const supportReplySources = polo.sources(accountSourceSet, ticketSourceSet);
 ```
 
-Use `polo.sourceSet(...)` to author reusable resolver/chunk sources and `registerSources(...)` to assemble the final shared registry. Input passthroughs like `transcript` stay local to each window declaration.
+Use `polo.sourceSet(...)` to author reusable resolver/chunk sources and `polo.sources(...)` to assemble the final shared registry. Input passthroughs like `transcript` stay local to each window declaration.
 
-Dependencies are declared by referencing source handles like `{ account }` or `{ account: accountSourceSet.account }`. Polo validates that graph during source registration, then checks that every `polo.window(...)` selects a dependency-closed source set.
-
-Window declarations may alias selected source keys, but dependency declarations inside `source(..., deps, config)` and `source.rag(..., deps, config)` (within `polo.sourceSet`) must currently use the referenced source’s own key.
+Dependencies are declared by referencing source handles like `{ account }` or `{ account: accountSourceSet.account }`. Polo validates that graph during source composition, then checks that every `polo.window(...)` selects a dependency-closed source set.
 
 Source handles are single-owner objects: create them inside one `polo.sourceSet(...)`, then reference them from other sets as dependencies instead of re-exporting the same handle from multiple sets.
 
 ### Declare a context window
 
-The core API is `polo.window({ input, id, sources, policies, … })`: one object describes a stable window identifier, sources, optional `derive` / `template`, and a nested `policies` block (`require`, `prefer`, `exclude`, `budget`) for a single context window. The return value is an async function you call each turn with validated input.
+The core API is `polo.window({ input, id, sources, policies, … })`: one object describes a stable window identifier, sources, optional `derive`, optional `system` / `prompt`, and a nested `policies` block (`require`, `prefer`, `exclude`, `budget`) for a single context window. The return value is an async function you call each turn with validated input.
 
 ```ts
 const transcript = polo.input("transcript", { tags: ["restricted"] });
@@ -158,29 +155,30 @@ const runSupportReply = polo.window({
     budget: 110,
   },
 
-  template: (context) => ({
-    system: `You are a support engineer drafting a customer reply. Use a ${context.replyStyle} tone. ${
+  system: (context) =>
+    `You are a support engineer drafting a customer reply. Use a ${context.replyStyle} tone. ${
       context.isEnterprise
         ? "Prioritize urgency and ownership."
         : "Keep the reply practical and direct."
     }`,
-    prompt: `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}${
+
+  prompt: (context) =>
+    `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}${
       context.recentTickets?.length
         ? `\n\nRecent tickets:\n${context.recentTickets.map((ticket) => ticket.content).join("\n")}`
         : ""
     }\n\nBilling notes:\n${context.billingNotes ?? "N/A"}`,
-  }),
 });
 ```
 
 `id` is required and should remain stable for the logical window definition. Polo Cloud uses this value to group runs under the same window.
 
-The `template` function receives the fully resolved, policy-gated template context and returns plain `{ system, prompt }` strings. When you interpolate objects or arrays like `${context.account}`, Polo intercepts that coercion under the hood, serializes the raw value with [TOON](https://github.com/toon-format/toon), and only then measures the final prompt. For chunk sources, direct interpolation serializes the full chunk objects; map to `chunk.content` when you only want the text. If you need the original value for custom formatting, use `context.raw`.
+`system` and `prompt` can each be a plain string or a function that receives the fully resolved, policy-gated render context. When you interpolate objects or arrays like `${context.account}`, Polo intercepts that coercion under the hood, serializes the raw value with [TOON](https://github.com/toon-format/toon), and only then measures the final rendered output. For chunk sources, direct interpolation serializes the full chunk objects; map to `chunk.content` when you only want the text. If you need the original value for custom formatting, use `context.raw`.
 
 ### Resolve prompt and context
 
 ```ts
-const { context, prompt, traces } = await runSupportReply({
+const { context, system, prompt, trace } = await runSupportReply({
   accountId: "acc_123",
   transcript: "Our webhook deliveries have been timing out in production since yesterday's deploy.",
 });
@@ -188,48 +186,46 @@ const { context, prompt, traces } = await runSupportReply({
 // Pass directly to your model
 const { text } = await generateText({
   model: "openai/gpt-5.4",
-  system: prompt.system,
-  prompt: prompt.prompt,
+  system,
+  prompt,
 });
 
 // Inspect the compression
 console.log(
-  `Compressed to ${((traces.prompt?.includedCompressionRatio ?? 0) * 100).toFixed(1)}% fewer tokens than the final included context`,
+  `Compressed to ${((trace.prompt?.includedCompressionRatio ?? 0) * 100).toFixed(1)}% fewer tokens than the final included context`,
 );
 ```
 
-`prompt` is absent when no `template` is configured — the resolved `context` object is still available for manual prompt construction.
+`system` and `prompt` are absent when no renderer is configured — the resolved `context` object is still available for manual prompt construction.
 
 ---
 
 ## API
 
-| API                                     | Description                                                          |
-| --------------------------------------- | -------------------------------------------------------------------- |
-| `createPolo(options?)`                  | Create an isolated Polo runtime                                      |
-| `polo.input(key, options?)`             | Passthrough from call-time input                                     |
-| `polo.sourceSet(({ source }) => …)`     | Define reusable resolver/chunk sources (`source`, `source.rag`)      |
-| `registerSources(...sourceSets)`        | Register a composed shared source registry                           |
-| `polo.window({ input, sources, policies, … })` | Declare a window; returns async `(input) => result`          |
-| `source(inputSchema, config)`           | Resolve a single async value                                         |
-| `source(inputSchema, deps, config)`     | Resolve a value that depends on other sources                        |
-| `source.rag(inputSchema, config)`       | Resolve ranked multi-block context                                   |
-| `source.rag(inputSchema, deps, config)` | Resolve ranked blocks with dependencies                              |
+| API                                            | Description                                                           |
+| ---------------------------------------------- | --------------------------------------------------------------------- |
+| `createPolo(options?)`                         | Create an isolated Polo runtime                                       |
+| `polo.input(key, options?)`                    | Passthrough from call-time input                                      |
+| `polo.sourceSet(({ source }) => …)`            | Define reusable resolver/chunk sources (`source.value`, `source.rag`) |
+| `polo.sources(...sourceSets)`                  | Compose a shared source registry                                      |
+| `polo.window({ input, sources, policies, … })` | Declare a window; returns async `(input) => result`                   |
+| `source.value(inputSchema, config)`            | Resolve a single async value                                          |
+| `source.value(inputSchema, deps, config)`      | Resolve a value that depends on other sources                         |
+| `source.rag(inputSchema, config)`              | Resolve ranked multi-block context                                    |
+| `source.rag(inputSchema, deps, config)`        | Resolve ranked blocks with dependencies                               |
 
 ---
 
-## Templates
+## Rendering
 
-Add a `template` function to any window to have Polo construct the prompt:
+Add `system` and `prompt` fields to any window to have Polo construct model-ready strings:
 
 ```ts
-template: (context) => ({
-  system: `System instructions for ${context.account}`,
-  prompt: `User-facing content:\n${context.transcript}`,
-}),
+system: (context) => `System instructions for ${context.account}`,
+prompt: (context) => `User-facing content:\n${context.transcript}`,
 ```
 
-`context` inside templates is render-aware:
+`context` inside render functions is render-aware:
 
 - interpolate objects and arrays directly: `${context.account}`, `${context.recentTickets}`
 - access fields normally for logic: `context.account.plan`, `context.recentTickets?.length`
@@ -238,7 +234,7 @@ template: (context) => ({
 
 ### Budget fitting
 
-When a budget is set, Polo renders the template, counts exact tokens, and if over budget:
+When a budget is set, Polo renders the configured `system` and `prompt`, counts exact tokens, and if over budget:
 
 1. **Drop default-included non-chunk sources** (lowest priority, dropped whole)
 2. **Drop preferred non-chunk sources** (dropped whole)
@@ -249,14 +245,14 @@ Required sources are never dropped. Each dropped source is recorded in the trace
 
 ## Sources
 
-Use `polo.input()` for call-time input passthroughs. Inside `polo.sourceSet(({ source }) => …)`, `source()` wraps any async resolver: database queries, HTTP requests, file reads, whatever you already have.
+Use `polo.input()` for call-time input passthroughs. Inside `polo.sourceSet(({ source }) => …)`, `source.value()` wraps any async resolver: database queries, HTTP requests, file reads, whatever you already have.
 
 Resolvers receive a single argument object with:
 
 - `input`: window input narrowed by the source’s schema
 - direct dependency values, flattened onto the resolver args
 
-Polo builds the dependency graph from the source handles you pass in the `deps` object and validates it during source registration and window declaration.
+Polo builds the dependency graph from the source handles you pass in the `deps` object and validates it during source composition and window declaration.
 
 That gives you two safety nets:
 
@@ -266,13 +262,13 @@ That gives you two safety nets:
 Dependency validation follows the referenced source handles’ internal ids, not the window’s selected key names.
 
 ```ts
-account: source(accountSourceInputSchema, {
+account: source.value(accountSourceInputSchema, {
   async resolve({ input }) {
     return db.getAccount(input.accountId);
   },
 });
 
-billingNotes: source(
+billingNotes: source.value(
   accountSourceInputSchema,
   { account },
   {
@@ -339,13 +335,13 @@ policies: {
 `policies.require` — must resolve or the window’s async call throws.  
 `policies.prefer` — included if it fits in budget.  
 `policies.exclude` — excludes a source with a reason, recorded in the trace.  
-`policies.budget` — token ceiling. Without a template, tokens are estimated per-source using TOON serialization at 96% accuracy via [tokenx](https://github.com/johannschopplich/tokenx). With a template, Polo measures the exact rendered token count.
+`policies.budget` — token ceiling. Without `system` or `prompt`, tokens are estimated per-source using TOON serialization at 96% accuracy via [tokenx](https://github.com/johannschopplich/tokenx). With rendering enabled, Polo measures the exact rendered token count.
 
 > **v0:** policies operate on top-level source keys only. If nested data needs separate treatment, promote it to its own source.
 
 ## Trace
 
-Calling the async function returned by `polo.window()` yields `traces` alongside `context` and `prompt`. The trace records source resolution timing, tags, policy decisions, chunk inclusion, budget usage, and — when a template is used — exact prompt-level token metrics. Raw resolved values are not stored.
+Calling the async function returned by `polo.window()` yields `trace` alongside `context`, optional `system`, and optional `prompt`. The trace records source resolution timing, tags, policy decisions, chunk inclusion, budget usage, and — when rendering is enabled — exact prompt-level token metrics. Raw resolved values are not stored.
 
 ```json
 {
@@ -391,7 +387,7 @@ Calling the async function returned by `polo.window()` yields `traces` alongside
 
 `prompt.rawContextTokens` measures the naive JSON baseline for all resolved sources before policy exclusions or budget fitting.
 
-`prompt.includedContextTokens` measures the naive JSON baseline for the final template context after policy exclusions and budget fitting.
+`prompt.includedContextTokens` measures the naive JSON baseline for the final rendered context after policy exclusions and budget fitting.
 
 `prompt.compressionRatio` is `max(0, 1 - totalTokens / rawContextTokens)` — the clamped fraction of tokens saved versus all resolved sources.
 
@@ -410,7 +406,7 @@ Polo gives you:
 - **typed context** — `context` is fully typed from your source definitions, no casting
 - **validated dependency graphs** — sources run in parallel waves; missing prerequisites are caught before runtime work starts
 - **token-efficient serialization** — TOON encoding delivers ~40% fewer tokens than JSON on structured data, with equal or better model accuracy
-- **measurable optimization** — traces include full-resolution and final-included compression metrics for comparing strategies
+- **measurable optimization** — trace metrics include full-resolution and final-included compression metrics for comparing strategies
 - **debuggable runs** — when outputs go wrong, the trace shows what the model saw and why
 
 ---
@@ -419,10 +415,10 @@ Polo gives you:
 
 Polo is the context layer in front of your existing AI stack — not a replacement for it.
 
-- **AI SDK** — pass `context` (or `prompt.system` / `prompt.prompt` when using a template) directly to `generateText`, `generateObject`, or streaming APIs
+- **AI SDK** — pass `context`, `system`, and `prompt` directly to `generateText`, `generateObject`, or streaming APIs
 - **LangChain / LangGraph** — call your window’s async runner inside `dynamicSystemPromptMiddleware` or `wrapModelCall`; Polo owns context, your framework owns the loop
-- **Prisma / Drizzle / any ORM** — `source(inputSchema, { resolve })` (inside `sourceSet`) wraps any async resolver with minimal ceremony
-- **LangSmith / Braintrust** — forward `traces` into your observability pipeline; it carries timings, policy decisions, chunk records, and prompt compression metrics
+- **Prisma / Drizzle / any ORM** — `source.value(inputSchema, { resolve })` (inside `sourceSet`) wraps any async resolver with minimal ceremony
+- **LangSmith / Braintrust** — forward `trace` into your observability pipeline; it carries timings, policy decisions, chunk records, and prompt compression metrics
 
 ---
 

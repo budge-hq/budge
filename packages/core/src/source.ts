@@ -97,7 +97,8 @@ export function createDependentValueSource<
   Awaited<TOutput>,
   InferSchemaOutputObject<TSchema>,
   string,
-  Extract<keyof TDeps, string>
+  Extract<keyof TDeps, string>,
+  TDeps
 > {
   const dependencyKeys = Object.keys(deps) as Array<Extract<keyof TDeps, string>>;
 
@@ -162,7 +163,7 @@ export function createDependentRagSource<
   inputSchema: TSchema,
   deps: TDeps,
   config: DependentRagSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
-): RagSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>> {
+): RagSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>, TDeps> {
   const dependencyKeys = Object.keys(deps) as Array<Extract<keyof TDeps, string>>;
 
   return {

@@ -49,8 +49,6 @@ function hydrateSelectedSourceMetadata<TSourceMap extends Record<string, unknown
   sourceMap: TSourceMap,
   ownerLabel: string,
 ): void {
-  const selectedKeysByInternalId = new Map<string, string>();
-
   for (const [selectedKey, source] of Object.entries(sourceMap)) {
     if (!isResolverSource(source)) {
       continue;
@@ -59,8 +57,6 @@ function hydrateSelectedSourceMetadata<TSourceMap extends Record<string, unknown
     if (!source._internalId) {
       throw new Error(`Source "${selectedKey}" is missing an internal id in ${ownerLabel}.`);
     }
-
-    selectedKeysByInternalId.set(source._internalId, selectedKey);
   }
 
   for (const [selectedKey, source] of Object.entries(sourceMap)) {
@@ -79,15 +75,6 @@ function hydrateSelectedSourceMetadata<TSourceMap extends Record<string, unknown
       if (!dependencyId) {
         throw new Error(
           `Source "${selectedKey}" references an unresolved dependency in ${ownerLabel}.`,
-        );
-      }
-
-      const expectedDependencyKey =
-        dependencySource._registeredId ?? selectedKeysByInternalId.get(dependencyId);
-
-      if (expectedDependencyKey && alias !== expectedDependencyKey) {
-        throw new Error(
-          `Dependency aliases are not supported yet. Source "${selectedKey}" must reference dependency "${expectedDependencyKey}" under its own key.`,
         );
       }
 

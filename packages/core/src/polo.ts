@@ -23,12 +23,12 @@ import type {
   Policies,
   PoloOptions,
   Resolution,
+  RenderValue,
   ResolverSource,
   SourceSet,
   SourceSetBrand,
   SourceConfig,
   SourceShape,
-  TemplateFn,
 } from "./types.ts";
 import { PoloSourceSetBrand } from "./types.ts";
 import { createDefinition } from "./define.ts";
@@ -42,7 +42,7 @@ import {
   createValueSource,
 } from "./source.ts";
 
-export interface SourceFactory {
+export interface ValueSourceFactory {
   <TSchema extends AnySchema, TOutput>(
     input: TSchema,
     config: SourceConfig<InferSchemaOutputObject<TSchema>, TOutput>,
@@ -56,9 +56,12 @@ export interface SourceFactory {
     Awaited<TOutput>,
     InferSchemaOutputObject<TSchema>,
     string,
-    Extract<keyof TDeps, string>
+    Extract<keyof TDeps, string>,
+    TDeps
   >;
+}
 
+export interface RagSourceFactory {
   rag<TSchema extends AnySchema, TItem>(
     input: TSchema,
     config: RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
@@ -68,7 +71,12 @@ export interface SourceFactory {
     input: TSchema,
     deps: TDeps,
     config: DependentRagSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
-  ): RagSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>>;
+  ): RagSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>, TDeps>;
+}
+
+export interface SourceFactory {
+  value: ValueSourceFactory;
+  rag: RagSourceFactory["rag"];
 }
 
 let nextSourceSetOwnerId = 0;
@@ -118,7 +126,12 @@ export interface PoloInstance {
         TRequired,
         TPrefer
       >;
-      template?: TemplateFn<
+      system?: RenderValue<
+        InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>,
+        NoInfer<TDerived>,
+        TRequired
+      >;
+      prompt?: RenderValue<
         InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>,
         NoInfer<TDerived>,
         TRequired
@@ -136,57 +149,67 @@ export interface PoloInstance {
 
   input<TKey extends string>(key: TKey, options?: InputOptions): InputSource<TKey>;
 
+  source: SourceFactory;
+
   sourceSet<TSources extends Record<string, AnyResolverSource>>(
     builder: (factories: { source: SourceFactory }) => TSources,
   ): SourceSet<TSources>;
+
+  sources<const TSourceSets extends readonly SourceSet<any>[]>(
+    ...sourceSets: TSourceSets & EnforceUniqueSourceSetKeys<TSourceSets>
+  ): MergeSourceSets<TSourceSets>;
 }
 
 function createSourceFactory(): SourceFactory {
-  return Object.assign(
-    function source<
-      TSchema extends AnySchema,
-      const TDeps extends Record<string, AnyResolverSource>,
-      TOutput,
-    >(
-      input: TSchema,
-      depsOrConfig: SourceConfig<InferSchemaOutputObject<TSchema>, TOutput> | TDeps,
-      maybeConfig?: DependentSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TOutput>,
-    ):
-      | ResolverSource<Awaited<TOutput>, InferSchemaOutputObject<TSchema>>
-      | ResolverSource<
-          Awaited<TOutput>,
-          InferSchemaOutputObject<TSchema>,
-          string,
-          Extract<keyof TDeps, string>
-        > {
-      if (maybeConfig) {
-        return createDependentValueSource(input, depsOrConfig as TDeps, maybeConfig);
-      }
+  const value = function value<
+    TSchema extends AnySchema,
+    const TDeps extends Record<string, AnyResolverSource>,
+    TOutput,
+  >(
+    input: TSchema,
+    depsOrConfig: SourceConfig<InferSchemaOutputObject<TSchema>, TOutput> | TDeps,
+    maybeConfig?: DependentSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TOutput>,
+  ):
+    | ResolverSource<Awaited<TOutput>, InferSchemaOutputObject<TSchema>>
+    | ResolverSource<
+        Awaited<TOutput>,
+        InferSchemaOutputObject<TSchema>,
+        string,
+        Extract<keyof TDeps, string>,
+        TDeps
+      > {
+    if (maybeConfig) {
+      return createDependentValueSource(input, depsOrConfig as TDeps, maybeConfig);
+    }
 
-      return createValueSource(
-        input,
-        depsOrConfig as SourceConfig<InferSchemaOutputObject<TSchema>, TOutput>,
-      );
-    },
-    {
-      rag<TSchema extends AnySchema, const TDeps extends Record<string, AnyResolverSource>, TItem>(
-        input: TSchema,
-        depsOrConfig: RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem> | TDeps,
-        maybeConfig?: DependentRagSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
-      ):
-        | RagSource<InferSchemaOutputObject<TSchema>>
-        | RagSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>> {
-        if (maybeConfig) {
-          return createDependentRagSource(input, depsOrConfig as TDeps, maybeConfig);
-        }
+    return createValueSource(
+      input,
+      depsOrConfig as SourceConfig<InferSchemaOutputObject<TSchema>, TOutput>,
+    );
+  } as unknown as ValueSourceFactory;
 
-        return createRagSource(
-          input,
-          depsOrConfig as RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
-        );
-      },
-    },
-  ) as SourceFactory;
+  const rag = function rag<
+    TSchema extends AnySchema,
+    const TDeps extends Record<string, AnyResolverSource>,
+    TItem,
+  >(
+    input: TSchema,
+    depsOrConfig: RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem> | TDeps,
+    maybeConfig?: DependentRagSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
+  ):
+    | RagSource<InferSchemaOutputObject<TSchema>>
+    | RagSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>, TDeps> {
+    if (maybeConfig) {
+      return createDependentRagSource(input, depsOrConfig as TDeps, maybeConfig);
+    }
+
+    return createRagSource(
+      input,
+      depsOrConfig as RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
+    );
+  } as RagSourceFactory["rag"];
+
+  return { value, rag };
 }
 
 function finalizeSourceSet<TSources extends Record<string, AnyResolverSource>>(
@@ -233,12 +256,6 @@ function finalizeSourceSet<TSources extends Record<string, AnyResolverSource>>(
         );
       }
 
-      if (dependencySource._registeredId && alias !== dependencySource._registeredId) {
-        throw new Error(
-          `Dependency aliases are not supported yet. Source "${key}" must reference dependency "${dependencySource._registeredId}" under its own key.`,
-        );
-      }
-
       return {
         alias,
         internalId: dependencyId,
@@ -263,14 +280,14 @@ function isSourceSet(value: unknown): value is SourceSetBrand<Record<string, Any
   return typeof value === "object" && value !== null && PoloSourceSetBrand in value;
 }
 
-export function registerSources<const TSourceSets extends readonly SourceSet<any>[]>(
+function composeSources<const TSourceSets extends readonly SourceSet<any>[]>(
   ...sourceSets: TSourceSets & EnforceUniqueSourceSetKeys<TSourceSets>
 ): MergeSourceSets<TSourceSets> {
   const merged: Record<string, AnyResolverSource> = {};
 
   for (const sourceSet of sourceSets) {
     if (!isSourceSet(sourceSet)) {
-      throw new TypeError("registerSources() only accepts values created with polo.sourceSet().");
+      throw new TypeError("polo.sources() only accepts values created with polo.sourceSet().");
     }
 
     for (const [key, source] of Object.entries(sourceSet)) {
@@ -282,7 +299,7 @@ export function registerSources<const TSourceSets extends readonly SourceSet<any
     }
   }
 
-  buildWaves(merged, "registered sources");
+  buildWaves(merged, "composed sources");
   return merged as MergeSourceSets<TSourceSets>;
 }
 
@@ -316,7 +333,12 @@ export function createPolo(options: PoloOptions = {}): PoloInstance {
           TRequired,
           TPrefer
         >;
-        template?: TemplateFn<
+        system?: RenderValue<
+          InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>,
+          NoInfer<TDerived>,
+          TRequired
+        >;
+        prompt?: RenderValue<
           InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>,
           NoInfer<TDerived>,
           TRequired
@@ -347,7 +369,8 @@ export function createPolo(options: PoloOptions = {}): PoloInstance {
           sources: config.sources,
           derive: config.derive,
           policies: config.policies,
-          template: config.template,
+          system: config.system,
+          prompt: config.prompt,
         } as DefinitionConfig<
           InferSchemaOutputObject<TSchema>,
           TSourceMap,
@@ -359,8 +382,8 @@ export function createPolo(options: PoloOptions = {}): PoloInstance {
 
       return async (input: InferSchemaInputObject<TSchema>) => {
         const resolution = await resolveDefinition(definition, input as AnyInput);
-        options.onTrace?.(resolution.traces);
-        options.logger?.info?.({ traces: resolution.traces });
+        options.onTrace?.(resolution.trace);
+        options.logger?.info?.({ trace: resolution.trace });
         return resolution;
       };
     },
@@ -369,8 +392,16 @@ export function createPolo(options: PoloOptions = {}): PoloInstance {
       return createInputSource(key, options);
     },
 
+    source,
+
     sourceSet(builder) {
       return finalizeSourceSet(builder({ source }));
+    },
+
+    sources<const TSourceSets extends readonly SourceSet<any>[]>(
+      ...sourceSets: TSourceSets & EnforceUniqueSourceSetKeys<TSourceSets>
+    ) {
+      return composeSources(...sourceSets) as MergeSourceSets<TSourceSets>;
     },
   } satisfies PoloInstance;
 }

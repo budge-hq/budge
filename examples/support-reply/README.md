@@ -15,7 +15,7 @@ It demonstrates:
 ## Files
 
 - `src/sourceRegistry.ts` defines reusable sources
-- `src/supportReply.ts` declares the context window, policies, template, and trace summary helper
+- `src/supportReply.ts` declares the context window, policies, rendering, and trace summary helper
 - `src/index.ts` runs the demo and prints context/prompt/trace output
 
 ## Run
@@ -31,7 +31,7 @@ The demo resolves an input transcript and prints:
 
 - the final authoritative context keys
 - a sample system prompt
-- a sample user prompt
+- a sample prompt
 - a human-readable trace summary
 - the full trace JSON
 
