@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import { z } from "zod";
-import { createPolo } from "../src/index.ts";
+import { createBudge } from "../src/index.ts";
 import {
   CircularSourceDependencyError,
   MissingSourceDependencyError,
@@ -10,7 +10,7 @@ import { buildWaves, executeWaves } from "../src/graph.ts";
 import { DepGraph } from "dependency-graph";
 import type { AnyResolverSource } from "../src/types.ts";
 
-const polo = createPolo();
+const budge = createBudge();
 const emptyInputSchema = z.object({});
 
 describe("graph", () => {
@@ -18,7 +18,7 @@ describe("graph", () => {
     const order: string[] = [];
     const parentSchema = z.object({ id: z.string() });
     const childSchema = z.object({ parentId: z.string() });
-    const { parent, child } = polo.sourceSet(({ source }) => {
+    const { parent, child } = budge.sourceSet(({ source }) => {
       const p = source.value(emptyInputSchema, {
         output: parentSchema,
         async resolve() {
@@ -40,7 +40,7 @@ describe("graph", () => {
       return { parent: p, child: c };
     });
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_dep",
       sources: { parent, child },
@@ -54,7 +54,7 @@ describe("graph", () => {
   test("dependent source waits for parent when sources are destructured", async () => {
     const parentSchema = z.object({ id: z.string() });
     const childSchema = z.object({ parentId: z.string() });
-    const { parent, child } = polo.sourceSet(({ source }) => {
+    const { parent, child } = budge.sourceSet(({ source }) => {
       const p = source.value(emptyInputSchema, {
         output: parentSchema,
         async resolve() {
@@ -74,7 +74,7 @@ describe("graph", () => {
       return { parent: p, child: c };
     });
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_dep_destructured",
       sources: { parent, child },
@@ -85,7 +85,7 @@ describe("graph", () => {
   });
 
   test("missing source dependency throws during context window declaration", () => {
-    const accountSourceSet = polo.sourceSet(({ source }) => {
+    const accountSourceSet = budge.sourceSet(({ source }) => {
       const account = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
@@ -95,7 +95,7 @@ describe("graph", () => {
       return { account };
     });
 
-    const childSourceSet = polo.sourceSet(({ source }) => {
+    const childSourceSet = budge.sourceSet(({ source }) => {
       const child = source.value(
         emptyInputSchema,
         { account: accountSourceSet.account },
@@ -109,12 +109,12 @@ describe("graph", () => {
       return { child };
     });
 
-    const sourceRegistry = polo.sources(accountSourceSet, childSourceSet);
+    const sourceRegistry = budge.sources(accountSourceSet, childSourceSet);
 
     const typecheckOnly = Date.now() < 0;
 
     if (typecheckOnly) {
-      polo.window({
+      budge.window({
         input: emptyInputSchema,
         id: "typecheck_missing_dep",
         // @ts-expect-error child depends on account
@@ -125,7 +125,7 @@ describe("graph", () => {
     }
 
     expect(() =>
-      polo.window({
+      budge.window({
         input: emptyInputSchema,
         id: "runtime_missing_dep",
         sources: {
@@ -136,7 +136,7 @@ describe("graph", () => {
   });
 
   test("dependent sources can be selected under aliased window keys", async () => {
-    const sharedSourceSet = polo.sourceSet(({ source }) => {
+    const sharedSourceSet = budge.sourceSet(({ source }) => {
       const account = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
@@ -156,8 +156,8 @@ describe("graph", () => {
       return { account, child };
     });
 
-    const sourceRegistry = polo.sources(sharedSourceSet);
-    const run = polo.window({
+    const sourceRegistry = budge.sources(sharedSourceSet);
+    const run = budge.window({
       input: emptyInputSchema,
       id: "aliased_source_keys",
       sources: {
@@ -172,7 +172,7 @@ describe("graph", () => {
   });
 
   test("local source reuse after aliased selection does not affect later dependencies", async () => {
-    const { account, child } = polo.sourceSet(({ source }) => {
+    const { account, child } = budge.sourceSet(({ source }) => {
       const acc = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
@@ -190,14 +190,14 @@ describe("graph", () => {
       return { account: acc, child: ch };
     });
 
-    const aliasedRun = polo.window({
+    const aliasedRun = budge.window({
       input: emptyInputSchema,
       id: "local_alias_first",
       sources: {
         customer: account,
       },
     });
-    const dependentRun = polo.window({
+    const dependentRun = budge.window({
       input: emptyInputSchema,
       id: "local_alias_second",
       sources: {
@@ -215,7 +215,7 @@ describe("graph", () => {
   });
 
   test("local dependency aliases are supported", async () => {
-    const { account, child } = polo.sourceSet(({ source }) => {
+    const { account, child } = budge.sourceSet(({ source }) => {
       const acc = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
@@ -233,7 +233,7 @@ describe("graph", () => {
       return { account: acc, child: ch };
     });
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "local_dependency_aliases",
       sources: { account, child },
@@ -244,7 +244,7 @@ describe("graph", () => {
   });
 
   test("reusing a source handle across source sets throws", () => {
-    const shared = polo.sourceSet(({ source }) => {
+    const shared = budge.sourceSet(({ source }) => {
       const account = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
@@ -255,14 +255,14 @@ describe("graph", () => {
     });
 
     expect(() =>
-      polo.sourceSet((_f) => ({
+      budge.sourceSet((_f) => ({
         account: shared.account,
       })),
     ).toThrowError(/already owned by another sourceSet/);
   });
 
   test("circular dependencies throw during context window declaration", () => {
-    const { first, second } = polo.sourceSet(({ source }) => ({
+    const { first, second } = budge.sourceSet(({ source }) => ({
       first: source.value(emptyInputSchema, {
         async resolve() {
           return "first";
@@ -279,7 +279,7 @@ describe("graph", () => {
     (second as AnyResolverSource)._dependencySources = { first };
 
     expect(() =>
-      polo.window({
+      budge.window({
         input: emptyInputSchema,
         id: "test_circular",
         sources: {
@@ -291,7 +291,7 @@ describe("graph", () => {
   });
 
   test("throws when selected source is missing an internal id", () => {
-    const { account } = polo.sourceSet(({ source }) => ({
+    const { account } = budge.sourceSet(({ source }) => ({
       account: source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
@@ -301,7 +301,7 @@ describe("graph", () => {
     (account as AnyResolverSource)._internalId = undefined as unknown as string;
 
     expect(() =>
-      polo.window({
+      budge.window({
         input: emptyInputSchema,
         id: "missing_internal_id",
         sources: { account },
@@ -310,7 +310,7 @@ describe("graph", () => {
   });
 
   test("throws when dependency source is missing an internal id", () => {
-    const { account, child } = polo.sourceSet(({ source }) => {
+    const { account, child } = budge.sourceSet(({ source }) => {
       const acc = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "p1" };
@@ -331,7 +331,7 @@ describe("graph", () => {
     (account as AnyResolverSource)._internalId = undefined as unknown as string;
 
     expect(() =>
-      polo.window({
+      budge.window({
         input: emptyInputSchema,
         id: "missing_dependency_internal_id",
         sources: { child } as never,
@@ -340,7 +340,7 @@ describe("graph", () => {
   });
 
   test("throws when two selected sources share the same internal id", () => {
-    const { first, second } = polo.sourceSet(({ source }) => ({
+    const { first, second } = budge.sourceSet(({ source }) => ({
       first: source.value(emptyInputSchema, {
         async resolve() {
           return "first";
@@ -356,7 +356,7 @@ describe("graph", () => {
     (second as AnyResolverSource)._internalId = (first as AnyResolverSource)._internalId;
 
     expect(() =>
-      polo.window({
+      budge.window({
         input: emptyInputSchema,
         id: "duplicate_internal_ids",
         sources: { first, second },
@@ -366,7 +366,7 @@ describe("graph", () => {
 
   test("buildWaves rethrows non-cycle dependency-graph errors", () => {
     const sourceMap = {
-      ...polo.sourceSet(({ source }) => ({
+      ...budge.sourceSet(({ source }) => ({
         a: source.value(emptyInputSchema, {
           async resolve() {
             return "a";
@@ -398,11 +398,11 @@ describe("graph", () => {
   test("independent sources resolve in parallel", async () => {
     const started: string[] = [];
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_parallel",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           a: source.value(emptyInputSchema, {
             async resolve() {
               started.push("a");
@@ -433,11 +433,11 @@ describe("graph", () => {
   });
 
   test("string literals mentioning sources do not create fake dependencies", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_string_literal_false_positive",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           first: source.value(emptyInputSchema, {
             resolve: async () => "sources.second should stay literal",
           }),
@@ -454,11 +454,11 @@ describe("graph", () => {
   });
 
   test("comments mentioning sources do not create fake dependencies", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_comment_false_positive",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           first: source.value(emptyInputSchema, {
             resolve: async () => {
               // sources.second is intentionally mentioned here as a comment

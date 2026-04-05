@@ -38,7 +38,7 @@ importers:
 
   examples/support-reply:
     dependencies:
-      '@polo/core':
+      '@budge/core':
         specifier: workspace:*
         version: link:../../packages/core
       zod:

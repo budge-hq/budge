@@ -1,5 +1,5 @@
 {
-  "name": "polo",
+  "name": "budge",
   "private": true,
   "scripts": {
     "build": "turbo run build",

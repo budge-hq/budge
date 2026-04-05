@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import { z } from "zod";
-import { createPolo, type InferContext } from "../src/index.ts";
+import { createBudge, type InferContext } from "../src/index.ts";
 
-const polo = createPolo();
+const budge = createBudge();
 
 describe("integration", () => {
   test("full workflow: input + source + derive + exclude + chunks + trace", async () => {
@@ -38,7 +38,7 @@ describe("integration", () => {
       ] as Array<{ pageContent: string; score: number }>),
     };
 
-    const accountSourceSet = polo.sourceSet(({ source }) => {
+    const accountSourceSet = budge.sourceSet(({ source }) => {
       const account = source.value(accountSourceInputSchema, {
         tags: ["internal"],
         async resolve({ input }) {
@@ -70,7 +70,7 @@ describe("integration", () => {
       };
     });
 
-    const guidelineSourceSet = polo.sourceSet(({ source }) => {
+    const guidelineSourceSet = budge.sourceSet(({ source }) => {
       const guidelines = source.rag(transcriptSourceInputSchema, {
         tags: ["internal"],
         async resolve({ input }) {
@@ -89,13 +89,13 @@ describe("integration", () => {
       return { guidelines };
     });
 
-    const sourceRegistry = polo.sources(accountSourceSet, guidelineSourceSet);
+    const sourceRegistry = budge.sources(accountSourceSet, guidelineSourceSet);
 
-    const run = polo.window({
+    const run = budge.window({
       input: inputSchema,
       id: "e2e_test",
       sources: {
-        transcript: polo.input("transcript", { tags: ["restricted"] }),
+        transcript: budge.input("transcript", { tags: ["restricted"] }),
         account: sourceRegistry.account,
         priorNote: sourceRegistry.priorNote,
         guidelines: sourceRegistry.guidelines,

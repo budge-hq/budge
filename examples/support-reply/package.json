@@ -1,5 +1,5 @@
 {
-  "name": "@polo/example-support-reply",
+  "name": "@budge/example-support-reply",
   "private": true,
   "files": [
     "dist"
@@ -16,7 +16,7 @@
     "demo": "node dist/index.mjs"
   },
   "dependencies": {
-    "@polo/core": "workspace:*",
+    "@budge/core": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {

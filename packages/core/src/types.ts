@@ -64,13 +64,13 @@ export interface SourceResolveArgs<TInput extends AnyInput> {
   input: TInput;
 }
 
-/** Runtime marker for values created with `polo.sourceSet()` (non-enumerable). */
-export const PoloSourceSetBrand = Symbol.for("polo.sourceSet");
-declare const PoloSourceSetSourcesBrand: unique symbol;
+/** Runtime marker for values created with `budge.sourceSet()` (non-enumerable). */
+export const BudgeSourceSetBrand = Symbol.for("budge.sourceSet");
+declare const BudgeSourceSetSourcesBrand: unique symbol;
 
 export type SourceSetBrand<TSources extends Record<string, AnyResolverSource>> = {
-  readonly [PoloSourceSetBrand]: true;
-  readonly [PoloSourceSetSourcesBrand]?: TSources;
+  readonly [BudgeSourceSetBrand]: true;
+  readonly [BudgeSourceSetSourcesBrand]?: TSources;
 };
 
 type FinalizeSourceId<
@@ -260,7 +260,7 @@ export type EnforceSourceDependencies<TSourceMap extends Record<string, unknown>
   MissingDependencies<TSourceMap>,
 ] extends [never]
   ? unknown
-  : { __polo_missing_source_dependencies__: MissingDependencies<TSourceMap> };
+  : { __budge_missing_source_dependencies__: MissingDependencies<TSourceMap> };
 
 export type SourceSetSources<TSourceSet> =
   TSourceSet extends SourceSetBrand<infer TSources extends Record<string, AnyResolverSource>>
@@ -282,7 +282,7 @@ export type EnforceUniqueSourceSetKeys<TSourceSets extends readonly unknown[]> =
   DuplicateSourceSetKeys<TSourceSets>,
 ] extends [never]
   ? unknown
-  : { __polo_duplicate_source_keys__: DuplicateSourceSetKeys<TSourceSets> };
+  : { __budge_duplicate_source_keys__: DuplicateSourceSetKeys<TSourceSets> };
 
 type MergeSourceSetsUnchecked<
   TSourceSets extends readonly unknown[],
@@ -295,7 +295,7 @@ export type MergeSourceSets<TSourceSets extends readonly unknown[]> = [
   DuplicateSourceSetKeys<TSourceSets>,
 ] extends [never]
   ? MergeSourceSetsUnchecked<TSourceSets>
-  : { __polo_duplicate_source_keys__: DuplicateSourceSetKeys<TSourceSets> };
+  : { __budge_duplicate_source_keys__: DuplicateSourceSetKeys<TSourceSets> };
 
 type CompatibleSource<TInput extends AnyInput, TSource> =
   TSource extends InputSource<infer TKey>
@@ -324,7 +324,7 @@ export type EnforceReservedContextKeys<
   TDerived extends Record<string, unknown>,
 > = [ContextKeyCollisions<TSources, TDerived>] extends [never]
   ? unknown
-  : { __polo_reserved_context_keys__: ContextKeyCollisions<TSources, TDerived> };
+  : { __budge_reserved_context_keys__: ContextKeyCollisions<TSources, TDerived> };
 
 type ConflictingDerivedKeys<
   TSources extends Record<string, unknown>,
@@ -336,7 +336,7 @@ export type EnforceDerivedKeys<
   TDerived extends Record<string, unknown>,
 > = [ConflictingDerivedKeys<TSources, TDerived>] extends [never]
   ? unknown
-  : { __polo_conflicting_derived_keys__: ConflictingDerivedKeys<TSources, TDerived> };
+  : { __budge_conflicting_derived_keys__: ConflictingDerivedKeys<TSources, TDerived> };
 
 // ============================================================
 // Infer resolved type from a source
@@ -574,7 +574,7 @@ export interface Resolution<
 
 // ============================================================
 // Context window (Definition)
-// Built by polo.window(); call the returned function with input each turn.
+// Built by budge.window(); call the returned function with input each turn.
 // ============================================================
 
 export type DefinitionConfig<
@@ -615,12 +615,12 @@ export interface Definition<
   _resolveInput?: TResolveInput; // phantom type for inference only
 }
 
-export interface PoloLogger {
+export interface BudgeLogger {
   info?: (...args: unknown[]) => void;
 }
 
-export interface PoloOptions {
-  logger?: PoloLogger;
+export interface BudgeOptions {
+  logger?: BudgeLogger;
   onTrace?: (trace: Trace) => void;
 }
 

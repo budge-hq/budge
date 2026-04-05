@@ -21,7 +21,7 @@ import type {
   InputSource,
   MergeSourceSets,
   Policies,
-  PoloOptions,
+  BudgeOptions,
   Resolution,
   RenderValue,
   ResolverSource,
@@ -30,7 +30,7 @@ import type {
   SourceConfig,
   SourceShape,
 } from "./types.ts";
-import { PoloSourceSetBrand } from "./types.ts";
+import { BudgeSourceSetBrand } from "./types.ts";
 import { createDefinition } from "./define.ts";
 import { buildWaves } from "./graph.ts";
 import { resolveDefinition } from "./resolve.ts";
@@ -83,7 +83,7 @@ let nextSourceSetOwnerId = 0;
 
 function validateWindowId(id: unknown): string {
   if (typeof id !== "string" || id.trim() === "") {
-    throw new TypeError("polo.window() requires a non-empty string id.");
+    throw new TypeError("budge.window() requires a non-empty string id.");
   }
 
   return id;
@@ -91,11 +91,11 @@ function validateWindowId(id: unknown): string {
 
 function validateReservedWindowSourceKeys(sources: Record<string, AnySource>): void {
   if ("raw" in sources) {
-    throw new TypeError('polo.window() reserves "raw" as a context key.');
+    throw new TypeError('budge.window() reserves "raw" as a context key.');
   }
 }
 
-export interface PoloInstance {
+export interface BudgeInstance {
   /**
    * Declare a context window and return an async function: call it each turn with input.
    */
@@ -221,7 +221,7 @@ function finalizeSourceSet<TSources extends Record<string, AnyResolverSource>>(
   for (const [key, source] of Object.entries(sources)) {
     if (source._type !== "resolver") {
       throw new TypeError(
-        `polo.sourceSet() only accepts resolver or rag sources. Use polo.input() for "${key}".`,
+        `budge.sourceSet() only accepts resolver or rag sources. Use budge.input() for "${key}".`,
       );
     }
 
@@ -267,7 +267,7 @@ function finalizeSourceSet<TSources extends Record<string, AnyResolverSource>>(
   }
 
   return Object.defineProperties(sources, {
-    [PoloSourceSetBrand]: {
+    [BudgeSourceSetBrand]: {
       configurable: false,
       enumerable: false,
       value: true,
@@ -277,7 +277,7 @@ function finalizeSourceSet<TSources extends Record<string, AnyResolverSource>>(
 }
 
 function isSourceSet(value: unknown): value is SourceSetBrand<Record<string, AnyResolverSource>> {
-  return typeof value === "object" && value !== null && PoloSourceSetBrand in value;
+  return typeof value === "object" && value !== null && BudgeSourceSetBrand in value;
 }
 
 function composeSources<const TSourceSets extends readonly SourceSet<any>[]>(
@@ -287,7 +287,7 @@ function composeSources<const TSourceSets extends readonly SourceSet<any>[]>(
 
   for (const sourceSet of sourceSets) {
     if (!isSourceSet(sourceSet)) {
-      throw new TypeError("polo.sources() only accepts values created with polo.sourceSet().");
+      throw new TypeError("budge.sources() only accepts values created with budge.sourceSet().");
     }
 
     for (const [key, source] of Object.entries(sourceSet)) {
@@ -303,7 +303,7 @@ function composeSources<const TSourceSets extends readonly SourceSet<any>[]>(
   return merged as MergeSourceSets<TSourceSets>;
 }
 
-export function createPolo(options: PoloOptions = {}): PoloInstance {
+export function createBudge(options: BudgeOptions = {}): BudgeInstance {
   const source = createSourceFactory();
 
   return {
@@ -403,5 +403,5 @@ export function createPolo(options: PoloOptions = {}): PoloInstance {
     ) {
       return composeSources(...sourceSets) as MergeSourceSets<TSourceSets>;
     },
-  } satisfies PoloInstance;
+  } satisfies BudgeInstance;
 }

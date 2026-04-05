@@ -128,7 +128,7 @@ function createSlotToken(state: RenderState, value: object): string {
     return existing;
   }
 
-  const token = `\u001fPOLO_SLOT_${state.slotNonce}_${state.slotCounter++}\u001f`;
+  const token = `\u001fBUDGE_SLOT_${state.slotNonce}_${state.slotCounter++}\u001f`;
   state.slotCache.set(value, token);
   state.slotValues.set(token, value);
   return token;

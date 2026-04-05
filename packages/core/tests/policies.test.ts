@@ -1,21 +1,21 @@
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
-import { createPolo, RequiredSourceMissingError } from "../src/index.ts";
+import { createBudge, RequiredSourceMissingError } from "../src/index.ts";
 
 function expectType<T>(_value: T): void {
   // compile-time only
 }
 
-const polo = createPolo();
+const budge = createBudge();
 const emptyInputSchema = z.object({});
 
 describe("policies.require", () => {
   test("throws when required source resolves to null", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_require_null",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           encounter: source.value(emptyInputSchema, {
             resolve: async () => null,
           }),
@@ -28,11 +28,11 @@ describe("policies.require", () => {
   });
 
   test("throws when required source resolves to undefined", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_require_undefined",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           encounter: source.value(emptyInputSchema, {
             resolve: async () => undefined,
           }),
@@ -45,11 +45,11 @@ describe("policies.require", () => {
   });
 
   test("does not throw when required source has a value", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_require_ok",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           encounter: source.value(emptyInputSchema, {
             resolve: async () => ({ id: "enc_1" }),
           }),
@@ -66,11 +66,11 @@ describe("policies.require", () => {
 
 describe("policies.exclude", () => {
   test("excluded source is absent from context", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_exclude",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           intake: source.value(emptyInputSchema, {
             resolve: async () => ({ medications: ["aspirin"] }),
           }),
@@ -101,11 +101,11 @@ describe("policies.exclude", () => {
   });
 
   test("source is present when exclude returns false", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_no_exclude",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           intake: source.value(emptyInputSchema, {
             resolve: async () => ({ medications: ["aspirin"] }),
           }),
@@ -135,11 +135,11 @@ describe("policies.exclude", () => {
   });
 
   test("exclude decision is recorded in trace", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_exclude_trace",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           intake: source.value(emptyInputSchema, {
             resolve: async () => ({ medications: [] }),
           }),
@@ -171,11 +171,11 @@ describe("policies.exclude", () => {
   });
 
   test("required source cannot be excluded", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_require_exclude_conflict",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           intake: source.value(emptyInputSchema, {
             resolve: async () => ({ medications: ["aspirin"] }),
           }),
@@ -198,11 +198,11 @@ describe("policies.exclude", () => {
   test("exclude callback runs once per resolution", async () => {
     let callCount = 0;
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_exclude_called_once",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           sourceA: source.value(emptyInputSchema, {
             resolve: async () => "a",
           }),
@@ -228,11 +228,11 @@ describe("policies.exclude", () => {
   test("exclude callback that would throw on second call does not throw", async () => {
     let callCount = 0;
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_exclude_no_second_call",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           sourceA: source.value(emptyInputSchema, {
             resolve: async () => "a",
           }),
@@ -265,11 +265,11 @@ describe("policies.exclude", () => {
   });
 
   test("excluded chunk source keeps redacted exclusion records in trace", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_excluded_chunk_trace_records",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return [

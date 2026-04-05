@@ -42,7 +42,7 @@ export async function createRagItems<T>(
 
     if (!isChunkArray(normalizedItems)) {
       throw new TypeError(
-        "polo.source.rag() normalize() must return Chunk objects with string content.",
+        "budge.source.rag() normalize() must return Chunk objects with string content.",
       );
     }
 
@@ -53,7 +53,9 @@ export async function createRagItems<T>(
   }
 
   if (!isChunkArray(items)) {
-    throw new TypeError("polo.source.rag() requires either Chunk[] input or a normalize function.");
+    throw new TypeError(
+      "budge.source.rag() requires either Chunk[] input or a normalize function.",
+    );
   }
 
   return { _type: "rag", items };

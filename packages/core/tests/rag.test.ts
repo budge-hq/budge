@@ -1,14 +1,14 @@
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
-import { createPolo } from "../src/index.ts";
+import { createBudge } from "../src/index.ts";
 import { createRagItems } from "../src/rag.ts";
 import { estimateTokens } from "../src/pack.ts";
 import type { AnyResolverSource, BudgetStrategyFn } from "../src/types.ts";
 
-const polo = createPolo();
+const budge = createBudge();
 const emptyInputSchema = z.object({});
 
-describe("polo.source.rag", () => {
+describe("budge.source.rag", () => {
   test("packs chunks within budget", async () => {
     const items = [
       { content: "a".repeat(100), score: 0.9 },
@@ -16,11 +16,11 @@ describe("polo.source.rag", () => {
       { content: "c".repeat(100), score: 0.7 },
     ];
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_chunks_budget",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           guidelines: source.rag(emptyInputSchema, {
             async resolve() {
               return items;
@@ -55,11 +55,11 @@ describe("polo.source.rag", () => {
       { content: "y".repeat(10), score: 0.8 },
     ];
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_chunks_no_budget",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return items;
@@ -87,11 +87,11 @@ describe("polo.source.rag", () => {
       { content: "low ".repeat(30), score: 0.1 },
     ];
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_required_chunks_non_template",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return items;
@@ -128,11 +128,11 @@ describe("polo.source.rag", () => {
   });
 
   test("non-required chunk source gets dropped policy when all chunks are over budget", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_chunks_full_drop_policy_record",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           guidelines: source.rag(emptyInputSchema, {
             async resolve() {
               return [
@@ -163,11 +163,11 @@ describe("polo.source.rag", () => {
   });
 
   test("empty chunk source is not marked dropped", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_empty_chunks_not_dropped",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return [];
@@ -194,11 +194,11 @@ describe("polo.source.rag", () => {
       { content: "mid", score: 0.6 },
     ];
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_chunks_order",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return items;
@@ -222,11 +222,11 @@ describe("polo.source.rag", () => {
   });
 
   test("throws when normalize returns invalid chunks", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_chunks_invalid_normalize",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return [{ value: "not-content" }];
@@ -253,7 +253,7 @@ describe("polo.source.rag", () => {
   });
 
   test("dependent chunk sources also reject invalid normalize output", async () => {
-    const sharedSourceSet = polo.sourceSet(({ source }) => {
+    const sharedSourceSet = budge.sourceSet(({ source }) => {
       const account = source.value(emptyInputSchema, {
         async resolve() {
           return { id: "acc_1" };
@@ -278,8 +278,8 @@ describe("polo.source.rag", () => {
       return { account, docs };
     });
 
-    const sourceRegistry = polo.sources(sharedSourceSet);
-    const run = polo.window({
+    const sourceRegistry = budge.sources(sharedSourceSet);
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_dep_chunks_invalid_normalize",
       sources: {
@@ -294,7 +294,7 @@ describe("polo.source.rag", () => {
   });
 
   test("dependent resolvers receive rag dependencies as chunk arrays", async () => {
-    const sharedSourceSet = polo.sourceSet(({ source }) => {
+    const sharedSourceSet = budge.sourceSet(({ source }) => {
       const docs = source.rag(emptyInputSchema, {
         async resolve() {
           return [{ content: "alpha" }, { content: "beta" }];
@@ -314,7 +314,7 @@ describe("polo.source.rag", () => {
       return { docs, summary };
     });
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_rag_dependency_shape",
       sources: {
@@ -328,7 +328,7 @@ describe("polo.source.rag", () => {
   });
 
   test("throws when a chunk source resolves malformed chunk envelopes", async () => {
-    const ragLikeSet = polo.sourceSet(({ source }) => ({
+    const ragLikeSet = budge.sourceSet(({ source }) => ({
       docs: source.value(emptyInputSchema, {
         async resolve() {
           return {
@@ -340,7 +340,7 @@ describe("polo.source.rag", () => {
     }));
     (ragLikeSet.docs as AnyResolverSource)._sourceKind = "rag";
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_chunks_malformed_envelope",
       sources: {
@@ -363,11 +363,11 @@ describe("polo.source.rag", () => {
         | number
         | { maxTokens: number; strategy: { type: "greedy_score" | "score_per_token" } },
     ) =>
-      polo.window({
+      budge.window({
         input: emptyInputSchema,
         id: `test_strategy_${typeof budget === "number" ? "number" : budget.strategy.type}`,
         sources: {
-          ...polo.sourceSet(({ source }) => ({
+          ...budge.sourceSet(({ source }) => ({
             docs: source.rag(emptyInputSchema, {
               async resolve() {
                 return items;
@@ -419,11 +419,11 @@ describe("polo.source.rag", () => {
       };
     };
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_custom_strategy",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return [
@@ -451,11 +451,11 @@ describe("polo.source.rag", () => {
       { content: "c".repeat(100), score: 0.7 },
     ];
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_trace_strategy",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return items;
@@ -476,11 +476,11 @@ describe("polo.source.rag", () => {
   });
 
   test("backward compat: budget as number still populates trace strategy", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_trace_compat",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return [{ content: "hello", score: 1 }];
@@ -498,11 +498,11 @@ describe("polo.source.rag", () => {
   });
 
   test("non-chunk sources over budget produce dropped policy records", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_non_chunk_over_budget_drop",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           requiredText: source.value(emptyInputSchema, {
             resolve: async () => "keep me",
           }),

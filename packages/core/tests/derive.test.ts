@@ -1,19 +1,19 @@
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
-import { createPolo } from "../src/index.ts";
+import { createBudge } from "../src/index.ts";
 
-const polo = createPolo();
+const budge = createBudge();
 const emptyInputSchema = z.object({});
 
 describe("derive", () => {
   test("merges derived values onto context", async () => {
-    const { account } = polo.sourceSet(({ source }) => ({
+    const { account } = budge.sourceSet(({ source }) => ({
       account: source.value(emptyInputSchema, {
         resolve: async () => ({ plan: "enterprise" as const }),
       }),
     }));
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_derive",
       sources: { account },
@@ -27,13 +27,13 @@ describe("derive", () => {
   });
 
   test("derived values are available alongside source data", async () => {
-    const { user } = polo.sourceSet(({ source }) => ({
+    const { user } = budge.sourceSet(({ source }) => ({
       user: source.value(emptyInputSchema, {
         resolve: async () => ({ name: "Alice" }),
       }),
     }));
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_derive_coexist",
       sources: { user },
@@ -48,7 +48,7 @@ describe("derive", () => {
   });
 
   test("derived values cannot overwrite source keys", async () => {
-    const { account } = polo.sourceSet(({ source }) => ({
+    const { account } = budge.sourceSet(({ source }) => ({
       account: source.value(emptyInputSchema, {
         resolve: async () => ({ plan: "enterprise" as const }),
       }),
@@ -58,7 +58,7 @@ describe("derive", () => {
 
     if (typecheckOnly) {
       // @ts-expect-error derived keys cannot overwrite source keys
-      polo.window({
+      budge.window({
         input: emptyInputSchema,
         id: "typecheck_derive_overlap",
         sources: { account },
@@ -66,7 +66,7 @@ describe("derive", () => {
       });
     }
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_derive_overlap",
       sources: { account },
@@ -77,7 +77,7 @@ describe("derive", () => {
   });
 
   test("derived values cannot use the reserved raw key", async () => {
-    const { account } = polo.sourceSet(({ source }) => ({
+    const { account } = budge.sourceSet(({ source }) => ({
       account: source.value(emptyInputSchema, {
         resolve: async () => ({ plan: "enterprise" as const }),
       }),
@@ -87,7 +87,7 @@ describe("derive", () => {
 
     if (typecheckOnly) {
       // @ts-expect-error raw is reserved for render contexts
-      polo.window({
+      budge.window({
         input: emptyInputSchema,
         id: "typecheck_derive_raw",
         sources: { account },
@@ -95,7 +95,7 @@ describe("derive", () => {
       });
     }
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_derive_raw",
       sources: { account },

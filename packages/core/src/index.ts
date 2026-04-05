@@ -1,7 +1,12 @@
 // Public API
-export { createPolo } from "./polo.ts";
-export { PoloSourceSetBrand } from "./types.ts";
-export type { PoloInstance, RagSourceFactory, SourceFactory, ValueSourceFactory } from "./polo.ts";
+export { createBudge } from "./budge.ts";
+export { BudgeSourceSetBrand } from "./types.ts";
+export type {
+  BudgeInstance,
+  RagSourceFactory,
+  SourceFactory,
+  ValueSourceFactory,
+} from "./budge.ts";
 
 // Public types
 export type {
@@ -37,8 +42,8 @@ export type {
   PackedResult,
   Policies,
   PolicyExcludeFn,
-  PoloLogger,
-  PoloOptions,
+  BudgeLogger,
+  BudgeOptions,
   PolicyRecord,
   PromptTrace,
   RenderContext,

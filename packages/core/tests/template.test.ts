@@ -1,21 +1,21 @@
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
-import { createPolo } from "../src/index.ts";
+import { createBudge } from "../src/index.ts";
 import { estimateTokens } from "../src/pack.ts";
 import type { AnyResolverSource } from "../src/types.ts";
 
 /* eslint-disable @typescript-eslint/restrict-template-expressions -- Tests intentionally interpolate render-aware context proxies. */
 
-const polo = createPolo();
+const budge = createBudge();
 const emptyInputSchema = z.object({});
 
 describe("rendering", () => {
   test("renders system and prompt from context", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_basic",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" as const }),
           }),
@@ -33,11 +33,11 @@ describe("rendering", () => {
   });
 
   test("no template means prompt is absent from resolution", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_no_template",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           data: source.value(emptyInputSchema, {
             resolve: async () => "hello",
           }),
@@ -50,11 +50,11 @@ describe("rendering", () => {
   });
 
   test("trace includes prompt metrics when template is used", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_trace",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" }),
           }),
@@ -78,11 +78,11 @@ describe("rendering", () => {
   });
 
   test("trace token accounting does not throw for BigInt source values", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_trace_bigint",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           data: source.value(emptyInputSchema, {
             resolve: async () => 1n,
           }),
@@ -102,11 +102,11 @@ describe("rendering", () => {
     const circular: { self?: unknown } = {};
     circular.self = circular;
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_trace_circular",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           data: source.value(emptyInputSchema, {
             resolve: async () => circular,
           }),
@@ -127,11 +127,11 @@ describe("rendering", () => {
 
     if (typecheckOnly) {
       // @ts-expect-error raw is reserved for render contexts
-      polo.window({
+      budge.window({
         input: z.object({ raw: z.string() }),
         id: "typecheck_reserved_raw_source",
         sources: {
-          raw: polo.input("raw"),
+          raw: budge.input("raw"),
         },
       });
     }
@@ -140,11 +140,11 @@ describe("rendering", () => {
   });
 
   test("included prompt metrics exclude policy-gated sources", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_included_metrics",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           visible: source.value(emptyInputSchema, {
             resolve: async () => ({ text: "short" }),
           }),
@@ -170,11 +170,11 @@ describe("rendering", () => {
   });
 
   test("compression ratios are clamped at zero when templates add fixed overhead", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_clamped_compression_ratio",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           brief: source.value(emptyInputSchema, {
             resolve: async () => "ok",
           }),
@@ -190,11 +190,11 @@ describe("rendering", () => {
   });
 
   test("trace has no prompt key when no template is defined", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_no_template_trace",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           data: source.value(emptyInputSchema, {
             resolve: async () => ({ value: 1 }),
           }),
@@ -207,11 +207,11 @@ describe("rendering", () => {
   });
 
   test("prompt receives derived values in context", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_derived",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           account: source.value(emptyInputSchema, {
             resolve: async () => ({ plan: "enterprise" as const }),
           }),
@@ -229,11 +229,11 @@ describe("rendering", () => {
   });
 
   test("prompt handles undefined optional sources gracefully", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_optional",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           required: source.value(emptyInputSchema, {
             resolve: async () => "present",
           }),
@@ -251,11 +251,11 @@ describe("rendering", () => {
   });
 
   test("system prompt can interpolate objects under the hood", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_system_object",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" as const }),
           }),
@@ -271,11 +271,11 @@ describe("rendering", () => {
   });
 
   test("context.raw exposes original values for custom formatting", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_raw_escape_hatch",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" as const }),
           }),
@@ -291,16 +291,16 @@ describe("rendering", () => {
   });
 
   test("literal slot-like text is not rewritten during materialization", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_slot_collision",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" as const }),
           }),
           notes: source.value(emptyInputSchema, {
-            resolve: async () => "\u001fPOLO_SLOT_0\u001f",
+            resolve: async () => "\u001fBUDGE_SLOT_0\u001f",
           }),
         })),
       },
@@ -310,15 +310,15 @@ describe("rendering", () => {
 
     const { prompt } = await run({});
     expect(prompt).toContain("name: Acme");
-    expect(prompt).toContain("\u001fPOLO_SLOT_0\u001f");
+    expect(prompt).toContain("\u001fBUDGE_SLOT_0\u001f");
   });
 
   test("render context supports ownKeys and descriptor access for context.raw", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_proxy_raw_own_keys",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme" }),
           }),
@@ -345,11 +345,11 @@ describe("rendering", () => {
   });
 
   test("render context materializes objects via toString/valueOf coercion", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_proxy_to_string_and_value_of",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           account: source.value(emptyInputSchema, {
             resolve: async () => ({ name: "Acme", plan: "enterprise" as const }),
           }),
@@ -365,7 +365,7 @@ describe("rendering", () => {
   });
 
   test("render path throws for malformed chunk envelopes", async () => {
-    const ragLikeSet = polo.sourceSet(({ source }) => ({
+    const ragLikeSet = budge.sourceSet(({ source }) => ({
       docs: source.value(emptyInputSchema, {
         async resolve() {
           return {
@@ -377,7 +377,7 @@ describe("rendering", () => {
     }));
     (ragLikeSet.docs as AnyResolverSource)._sourceKind = "rag";
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_malformed_chunk_envelope",
       sources: {
@@ -394,11 +394,11 @@ describe("rendering", () => {
 describe("render budget fitting", () => {
   test("drops lowest-priority source when prompt output exceeds budget", async () => {
     const droppedLog: string[] = [];
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_drop_default",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           required: source.value(emptyInputSchema, {
             resolve: async () => "short required text",
           }),
@@ -429,11 +429,11 @@ describe("render budget fitting", () => {
 
   test("prefers to drop default-included before preferred sources", async () => {
     const droppedSources: string[] = [];
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_drop_order",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           required: source.value(emptyInputSchema, {
             resolve: async () => "req",
           }),
@@ -475,11 +475,11 @@ describe("render budget fitting", () => {
   });
 
   test("required sources are never dropped even when over budget", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_required_never_dropped",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           critical: source.value(emptyInputSchema, {
             resolve: async () => "c".repeat(1000),
           }),
@@ -505,11 +505,11 @@ describe("render budget fitting", () => {
       { content: "chunk-low ".repeat(10), score: 0.1 },
     ];
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_required_chunk_never_trimmed",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return items;
@@ -552,11 +552,11 @@ describe("render budget fitting", () => {
       { content: "chunk-low ".repeat(10), score: 0.1 },
     ];
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_chunk_trim",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return items;
@@ -587,11 +587,11 @@ describe("render budget fitting", () => {
     ];
     const budget = estimateTokens(items.map((item) => item.content).join("\n")) - 1;
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_chunk_trim_duplicate_content",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return items;
@@ -638,11 +638,11 @@ describe("render budget fitting", () => {
     const bothRendered = [chunkA.content, chunkB.content].join("\n");
     const budget = estimateTokens(bothRendered) - 1;
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_phase2_strategy_ordering",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           docs: source.rag(emptyInputSchema, {
             async resolve() {
               return [chunkA, chunkB];
@@ -682,11 +682,11 @@ describe("render budget fitting", () => {
       { content: "chunk-low ".repeat(10), score: 0.1 },
     ];
 
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_template_chunk_whole_drop_trace",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           transcript: source.value(emptyInputSchema, {
             resolve: async () => "t".repeat(120),
           }),

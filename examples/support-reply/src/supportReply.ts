@@ -1,6 +1,6 @@
-import { type InferContext, type Trace } from "@polo/core";
+import { type InferContext, type Trace } from "@budge/core";
 import { z } from "zod";
-import { polo } from "./polo.ts";
+import { budge } from "./budge.ts";
 import { supportReplySources } from "./sourceRegistry.ts";
 
 const supportReplyInputSchema = z.object({
@@ -8,9 +8,9 @@ const supportReplyInputSchema = z.object({
   transcript: z.string(),
 });
 
-const transcript = polo.input("transcript", { tags: ["restricted"] });
+const transcript = budge.input("transcript", { tags: ["restricted"] });
 
-export const supportReplyWindow = polo.window({
+export const supportReplyWindow = budge.window({
   input: supportReplyInputSchema,
   id: "support_reply",
   sources: {

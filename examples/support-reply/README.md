@@ -1,11 +1,11 @@
 # Support Reply Example
 
-This example shows a practical, end-to-end `@polo/core` context window for
+This example shows a practical, end-to-end `@budge/core` context window for
 generating a support reply prompt under a strict token budget.
 
 It demonstrates:
 
-- passthrough input sources via `polo.input()`
+- passthrough input sources via `budge.input()`
 - resolver sources for account and billing context
 - chunk sources for ranked ticket retrieval
 - `derive()` for prompt-ready flags (`isEnterprise`, `replyStyle`, `mentionsBilling`)

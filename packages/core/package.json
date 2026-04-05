@@ -1,16 +1,16 @@
 {
-  "name": "@polo/core",
+  "name": "@budge/core",
   "version": "0.0.0",
   "description": "The best context management framework for agents — typed sources, policies, budgets, and traces.",
-  "homepage": "https://github.com/polo-hq/polo#readme",
+  "homepage": "https://github.com/budge-hq/budge#readme",
   "bugs": {
-    "url": "https://github.com/polo-hq/polo/issues"
+    "url": "https://github.com/budge-hq/budge/issues"
   },
   "license": "MIT",
-  "author": "Ethan Cohen <ethan@polo.dev>",
+  "author": "Ethan Cohen <ethan@budge.sh>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/polo-hq/polo.git"
+    "url": "git+https://github.com/budge-hq/budge.git"
   },
   "files": [
     "dist"

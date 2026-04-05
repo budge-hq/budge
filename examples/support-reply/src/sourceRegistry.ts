@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db, vectorDb } from "./data.ts";
-import { polo } from "./polo.ts";
+import { budge } from "./budge.ts";
 
 const accountInputSchema = z.object({
   accountId: z.string(),
@@ -10,7 +10,7 @@ const transcriptInputSchema = z.object({
   transcript: z.string(),
 });
 
-const accountSourceSet = polo.sourceSet(({ source }) => {
+const accountSourceSet = budge.sourceSet(({ source }) => {
   const account = source.value(accountInputSchema, {
     tags: ["internal"],
     async resolve({ input }) {
@@ -35,7 +35,7 @@ const accountSourceSet = polo.sourceSet(({ source }) => {
   };
 });
 
-const ticketSourceSet = polo.sourceSet(({ source }) => {
+const ticketSourceSet = budge.sourceSet(({ source }) => {
   const recentTickets = source.rag(
     transcriptInputSchema,
     { account: accountSourceSet.account },
@@ -57,4 +57,4 @@ const ticketSourceSet = polo.sourceSet(({ source }) => {
   return { recentTickets };
 });
 
-export const supportReplySources = polo.sources(accountSourceSet, ticketSourceSet);
+export const supportReplySources = budge.sources(accountSourceSet, ticketSourceSet);

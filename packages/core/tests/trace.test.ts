@@ -1,18 +1,18 @@
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
-import { createPolo } from "../src/index.ts";
+import { createBudge } from "../src/index.ts";
 import { buildTrace } from "../src/trace.ts";
 
-const polo = createPolo();
+const budge = createBudge();
 const emptyInputSchema = z.object({});
 
 describe("trace", () => {
   test("trace contains source timing records", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_trace_sources",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           account: source.value(emptyInputSchema, {
             resolve: async () => ({ id: "acc_1" }),
             tags: ["internal"],
@@ -29,11 +29,11 @@ describe("trace", () => {
   });
 
   test("trace contains budget usage", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_trace_budget",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           data: source.value(emptyInputSchema, {
             resolve: async () => ({ value: "hello" }),
           }),
@@ -48,11 +48,11 @@ describe("trace", () => {
   });
 
   test("trace contains derived values", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_trace_derived",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           account: source.value(emptyInputSchema, {
             resolve: async () => ({ plan: "enterprise" as const }),
           }),
@@ -68,11 +68,11 @@ describe("trace", () => {
   });
 
   test("each run gets a unique runId", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_run_id",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           data: source.value(emptyInputSchema, {
             resolve: async () => "x",
           }),
@@ -86,11 +86,11 @@ describe("trace", () => {
   });
 
   test("trace does not contain raw resolved data", async () => {
-    const run = polo.window({
+    const run = budge.window({
       input: emptyInputSchema,
       id: "test_trace_no_data",
       sources: {
-        ...polo.sourceSet(({ source }) => ({
+        ...budge.sourceSet(({ source }) => ({
           secret: source.value(emptyInputSchema, {
             resolve: async () => ({ ssn: "123-45-6789" }),
             tags: ["phi"],
