@@ -1,21 +1,21 @@
 # Support Reply Example
 
-This example shows a practical, end-to-end `@polo/core` task definition for
+This example shows a practical, end-to-end `@polo/core` context window for
 generating a support reply prompt under a strict token budget.
 
 It demonstrates:
 
-- passthrough input sources via `polo.source.fromInput()`
+- passthrough input sources via `polo.input()`
 - resolver sources for account and billing context
 - chunk sources for ranked ticket retrieval
 - `derive()` for prompt-ready flags (`isEnterprise`, `replyStyle`, `mentionsBilling`)
-- policy controls (`require`, `prefer`, `exclude`, `budget`)
+- nested policy controls via `policies: { require, prefer, exclude, budget }`
 - trace inspection for policy decisions and compression metrics
 
 ## Files
 
 - `src/sourceRegistry.ts` defines reusable sources
-- `src/supportReply.ts` defines the task, policies, template, and trace summary helper
+- `src/supportReply.ts` declares the context window, policies, template, and trace summary helper
 - `src/index.ts` runs the demo and prints context/prompt/trace output
 
 ## Run

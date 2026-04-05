@@ -7,7 +7,7 @@ import type {
   RagSourceConfig,
   DependentRagSourceConfig,
   DependentSourceConfig,
-  FromInputSourceOptions,
+  InputOptions,
   InferSchemaOutputObject,
   InputSource,
   AnyResolverSource,
@@ -36,9 +36,26 @@ async function validateSourceInput<TSchema extends AnySchema>(
   return result.value as InferSchemaOutputObject<TSchema>;
 }
 
-export function createFromInputSource<TKey extends string>(
+async function validateSourceOutput<TOutput>(
+  schema: AnySchema | undefined,
+  value: TOutput,
+): Promise<TOutput> {
+  if (!schema) {
+    return value;
+  }
+
+  const result = await schema["~standard"].validate(value);
+  if (result.issues !== undefined) {
+    const details = result.issues.map((issue) => issue.message).join("; ");
+    throw new Error(`Source output validation failed: ${details}`);
+  }
+
+  return value;
+}
+
+export function createInputSource<TKey extends string>(
   key: TKey,
-  options?: FromInputSourceOptions,
+  options?: InputOptions,
 ): InputSource<TKey> {
   return {
     _type: "input",
@@ -62,7 +79,8 @@ export function createValueSource<TSchema extends AnySchema, TOutput>(
     async resolve(runtimeInput, context): Promise<Awaited<TOutput>> {
       const normalizedInput = await validateSourceInput(inputSchema, runtimeInput);
       void context;
-      return await config.resolve({ input: normalizedInput });
+      const resolved = await config.resolve({ input: normalizedInput });
+      return await validateSourceOutput(config.output, resolved as Awaited<TOutput>);
     },
   };
 }
@@ -102,7 +120,8 @@ export function createDependentValueSource<
         ...(resolvedDeps as Record<string, unknown>),
       } as SourceResolveArgs<InferSchemaOutputObject<TSchema>> & SourceDepValues<TDeps>;
 
-      return await config.resolve(args);
+      const resolved = await config.resolve(args);
+      return await validateSourceOutput(config.output, resolved as Awaited<TOutput>);
     },
   };
 }
@@ -124,11 +143,13 @@ export function createRagSource<TSchema extends AnySchema, TItem>(
       void context;
       const result = await config.resolve({ input: normalizedInput });
 
+      const validated = await validateSourceOutput(config.output, result);
+
       if (config.normalize) {
-        return createRagItems(Promise.resolve(result as TItem[]), config.normalize);
+        return createRagItems(Promise.resolve(validated as TItem[]), config.normalize);
       }
 
-      return createRagItems(Promise.resolve(result as Chunk[]));
+      return createRagItems(Promise.resolve(validated as Chunk[]));
     },
   };
 }
@@ -164,11 +185,13 @@ export function createDependentRagSource<
       } as SourceResolveArgs<InferSchemaOutputObject<TSchema>> & SourceDepValues<TDeps>;
       const result = await config.resolve(args);
 
+      const validated = await validateSourceOutput(config.output, result);
+
       if (config.normalize) {
-        return createRagItems(Promise.resolve(result as TItem[]), config.normalize);
+        return createRagItems(Promise.resolve(validated as TItem[]), config.normalize);
       }
 
-      return createRagItems(Promise.resolve(result as Chunk[]));
+      return createRagItems(Promise.resolve(validated as Chunk[]));
     },
   };
 }

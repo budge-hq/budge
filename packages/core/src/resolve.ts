@@ -52,12 +52,12 @@ function isRagEnvelope(value: unknown): value is { _type: "rag" } {
 async function validateInput<TResolveInput extends AnyInput, TInput extends AnyInput>(
   schema: InputSchema<TResolveInput, TInput>,
   input: TResolveInput,
-  taskId: string,
+  windowId: string,
 ): Promise<TInput> {
   const result = await schema["~standard"].validate(input);
   if (result.issues !== undefined) {
     const details = result.issues.map((issue) => issue.message).join("; ");
-    throw new Error(`Input validation failed for task "${taskId}": ${details}`);
+    throw new Error(`Input validation failed for context window "${windowId}": ${details}`);
   }
 
   return result.value;
@@ -200,7 +200,7 @@ function materializeText(text: string, slotValues: Map<string, unknown>): string
 }
 
 function renderTemplate(
-  templateFn: (args: { context: Record<string, unknown> }) => PromptOutput,
+  templateFn: (context: Record<string, unknown>) => PromptOutput,
   rawContext: Record<string, unknown>,
 ): PromptOutput {
   const state: TemplateRenderState = {
@@ -217,12 +217,27 @@ function renderTemplate(
     Record<string, unknown>,
     []
   >;
-  const prompt = templateFn({ context: renderContext as Record<string, unknown> });
+  const prompt = templateFn(renderContext as Record<string, unknown>);
 
   return {
     system: materializeText(prompt.system, state.slotValues),
     prompt: materializeText(prompt.prompt, state.slotValues),
   };
+}
+
+function validateDerivedContextKeys(
+  sources: Record<string, unknown>,
+  derived: Record<string, unknown>,
+): void {
+  for (const key of Object.keys(derived)) {
+    if (key === "raw") {
+      throw new TypeError('derive() cannot return the reserved context key "raw".');
+    }
+
+    if (key in sources) {
+      throw new TypeError(`derive() cannot overwrite source key "${key}".`);
+    }
+  }
 }
 
 export async function resolveDefinition<
@@ -238,14 +253,14 @@ export async function resolveDefinition<
 ): Promise<Resolution<InferSources<TInput, TSourceMap>, TDerived, TRequired>> {
   const startedAt = new Date();
   const {
-    _id: taskId,
+    _id: windowId,
     _inputSchema: inputSchema,
     _sources: sourceMap,
     _derive: deriveFn,
     _policies: policies,
     _template: templateFn,
   } = definition;
-  const normalizedInput = await validateInput(inputSchema, input, taskId);
+  const normalizedInput = await validateInput(inputSchema, input, windowId);
 
   // --- build execution plan ---
   const sourceKeysById = validateSourceDependencies(sourceMap, "source map");
@@ -259,7 +274,7 @@ export async function resolveDefinition<
     normalizedInput,
     waves,
     sourceKeysById,
-    taskId,
+    windowId,
     (key, value, durationMs) => {
       const source = sourceMap[key]!;
       const type = isInputSource(source) ? "input" : isRagItems(value) ? "rag" : "value";
@@ -280,7 +295,8 @@ export async function resolveDefinition<
 
   // --- derive ---
   const resolvedForDerive = Object.fromEntries(resolvedRaw) as InferSources<TInput, TSourceMap>;
-  const derived: TDerived = deriveFn ? deriveFn({ context: resolvedForDerive }) : ({} as TDerived);
+  const derived: TDerived = deriveFn ? deriveFn(resolvedForDerive) : ({} as TDerived);
+  validateDerivedContextKeys(resolvedForDerive, derived);
 
   // --- apply policies ---
   const { maxTokens: budget, strategyFn, strategyName } = normalizeBudget(policies.budget);
@@ -291,7 +307,7 @@ export async function resolveDefinition<
     TDerived,
     TRequired,
     TPrefer
-  >(resolvedRaw, derived, policies, taskId);
+  >(resolvedRaw, derived, policies, windowId);
 
   // Excluded chunk sources are resolved before policies run. Attach redacted
   // chunk records so source-level trace entries remain self-contained and
@@ -338,8 +354,8 @@ export async function resolveDefinition<
       budget,
       strategyFn,
       declaredRagSourceKeys,
-      templateFn: templateFn as (args: { context: Record<string, unknown> }) => PromptOutput,
-      taskId,
+      templateFn: templateFn as (context: Record<string, unknown>) => PromptOutput,
+      windowId,
     });
 
     const rawContextTokens = computeRawContextTokens(resolvedRaw);
@@ -359,8 +375,8 @@ export async function resolveDefinition<
     };
 
     const completedAt = new Date();
-    const trace = buildTrace({
-      taskId,
+    const traces = buildTrace({
+      windowId,
       startedAt,
       completedAt,
       sourceTimings: resolution.sourceTimings,
@@ -381,7 +397,7 @@ export async function resolveDefinition<
         TRequired
       >,
       prompt: resolution.prompt,
-      trace,
+      traces,
     };
   }
 
@@ -446,8 +462,8 @@ export async function resolveDefinition<
 
   // --- build trace ---
   const completedAt = new Date();
-  const trace = buildTrace({
-    taskId,
+  const traces = buildTrace({
+    windowId,
     startedAt,
     completedAt,
     sourceTimings,
@@ -462,7 +478,7 @@ export async function resolveDefinition<
 
   return {
     context: context as AllowedContext<InferSources<TInput, TSourceMap>, TDerived, TRequired>,
-    trace,
+    traces,
   };
 }
 
@@ -498,8 +514,8 @@ function resolveWithTemplate(options: {
   budget: number;
   strategyFn: BudgetStrategyFn;
   declaredRagSourceKeys: Set<string>;
-  templateFn: (args: { context: Record<string, unknown> }) => PromptOutput;
-  taskId: string;
+  templateFn: (context: Record<string, unknown>) => PromptOutput;
+  windowId: string;
 }): TemplateResolutionResult {
   const {
     resolvedRaw,

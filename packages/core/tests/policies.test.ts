@@ -11,51 +11,54 @@ const emptyInputSchema = z.object({});
 
 describe("policies.require", () => {
   test("throws when required source resolves to null", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_require_null",
       sources: {
-        encounter: polo.source(emptyInputSchema, {
-          resolve: async () => null,
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          encounter: source(emptyInputSchema, {
+            resolve: async () => null,
+          }),
+        })),
       },
-      policies: {
-        require: ["encounter"],
-      },
+      policies: { require: ["encounter"] },
     });
 
-    await expect(polo.resolve(task, {})).rejects.toThrow(RequiredSourceMissingError);
+    await expect(run({})).rejects.toThrow(RequiredSourceMissingError);
   });
 
   test("throws when required source resolves to undefined", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_require_undefined",
       sources: {
-        encounter: polo.source(emptyInputSchema, {
-          resolve: async () => undefined,
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          encounter: source(emptyInputSchema, {
+            resolve: async () => undefined,
+          }),
+        })),
       },
-      policies: {
-        require: ["encounter"],
-      },
+      policies: { require: ["encounter"] },
     });
 
-    await expect(polo.resolve(task, {})).rejects.toThrow(RequiredSourceMissingError);
+    await expect(run({})).rejects.toThrow(RequiredSourceMissingError);
   });
 
   test("does not throw when required source has a value", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_require_ok",
       sources: {
-        encounter: polo.source(emptyInputSchema, {
-          resolve: async () => ({ id: "enc_1" }),
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          encounter: source(emptyInputSchema, {
+            resolve: async () => ({ id: "enc_1" }),
+          }),
+        })),
       },
-      policies: {
-        require: ["encounter"],
-      },
+      policies: { require: ["encounter"] },
     });
 
-    const { context } = await polo.resolve(task, {});
+    const { context } = await run({});
     expectType<{ id: string }>(context.encounter);
     expect(context.encounter).toEqual({ id: "enc_1" });
   });
@@ -63,23 +66,26 @@ describe("policies.require", () => {
 
 describe("policies.exclude", () => {
   test("excluded source is absent from context", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_exclude",
       sources: {
-        intake: polo.source(emptyInputSchema, {
-          resolve: async () => ({ medications: ["aspirin"] }),
-        }),
-        priorNote: polo.source(emptyInputSchema, {
-          resolve: async () => ({ text: "prior note" }),
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          intake: source(emptyInputSchema, {
+            resolve: async () => ({ medications: ["aspirin"] }),
+          }),
+          priorNote: source(emptyInputSchema, {
+            resolve: async () => ({ text: "prior note" }),
+          }),
+        })),
       },
-      derive: ({ context }) => ({
-        includeIntake: !context.priorNote,
+      derive: (ctx) => ({
+        includeIntake: !ctx.priorNote,
       }),
       policies: {
         exclude: [
-          ({ context }) =>
-            !context.includeIntake
+          (ctx) =>
+            !ctx.includeIntake
               ? {
                   source: "intake",
                   reason: "follow-up visits exclude patient intake",
@@ -89,29 +95,32 @@ describe("policies.exclude", () => {
       },
     });
 
-    const { context } = await polo.resolve(task, {});
+    const { context } = await run({});
     expect("intake" in context).toBe(false);
     expect(context.priorNote).toBeDefined();
   });
 
   test("source is present when exclude returns false", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_no_exclude",
       sources: {
-        intake: polo.source(emptyInputSchema, {
-          resolve: async () => ({ medications: ["aspirin"] }),
-        }),
-        priorNote: polo.source(emptyInputSchema, {
-          resolve: async () => null,
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          intake: source(emptyInputSchema, {
+            resolve: async () => ({ medications: ["aspirin"] }),
+          }),
+          priorNote: source(emptyInputSchema, {
+            resolve: async () => null,
+          }),
+        })),
       },
-      derive: ({ context }) => ({
-        includeIntake: !context.priorNote,
+      derive: (ctx) => ({
+        includeIntake: !ctx.priorNote,
       }),
       policies: {
         exclude: [
-          ({ context }) =>
-            !context.includeIntake
+          (ctx) =>
+            !ctx.includeIntake
               ? {
                   source: "intake",
                   reason: "follow-up visits exclude patient intake",
@@ -121,28 +130,31 @@ describe("policies.exclude", () => {
       },
     });
 
-    const { context } = await polo.resolve(task, {});
+    const { context } = await run({});
     expect(context.intake).toEqual({ medications: ["aspirin"] });
   });
 
   test("exclude decision is recorded in trace", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_exclude_trace",
       sources: {
-        intake: polo.source(emptyInputSchema, {
-          resolve: async () => ({ medications: [] }),
-        }),
-        priorNote: polo.source(emptyInputSchema, {
-          resolve: async () => ({ text: "note" }),
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          intake: source(emptyInputSchema, {
+            resolve: async () => ({ medications: [] }),
+          }),
+          priorNote: source(emptyInputSchema, {
+            resolve: async () => ({ text: "note" }),
+          }),
+        })),
       },
-      derive: ({ context }) => ({
-        includeIntake: !context.priorNote,
+      derive: (ctx) => ({
+        includeIntake: !ctx.priorNote,
       }),
       policies: {
         exclude: [
-          ({ context }) =>
-            !context.includeIntake
+          (ctx) =>
+            !ctx.includeIntake
               ? {
                   source: "intake",
                   reason: "follow-up visits exclude patient intake",
@@ -152,19 +164,22 @@ describe("policies.exclude", () => {
       },
     });
 
-    const { trace } = await polo.resolve(task, {});
-    const excluded = trace.policies.find((p) => p.action === "excluded");
+    const { traces } = await run({});
+    const excluded = traces.policies.find((p) => p.action === "excluded");
     expect(excluded?.source).toBe("intake");
     expect(excluded?.reason).toBe("follow-up visits exclude patient intake");
   });
 
   test("required source cannot be excluded", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_require_exclude_conflict",
       sources: {
-        intake: polo.source(emptyInputSchema, {
-          resolve: async () => ({ medications: ["aspirin"] }),
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          intake: source(emptyInputSchema, {
+            resolve: async () => ({ medications: ["aspirin"] }),
+          }),
+        })),
       },
       policies: {
         require: ["intake"],
@@ -173,25 +188,28 @@ describe("policies.exclude", () => {
             source: "intake",
             reason: "conflicting policy",
           }),
-        ],
-      } as never,
+        ] as never,
+      },
     });
 
-    await expect(polo.resolve(task, {})).rejects.toThrow(/cannot be excluded/);
+    await expect(run({})).rejects.toThrow(/cannot be excluded/);
   });
 
   test("exclude callback runs once per resolution", async () => {
     let callCount = 0;
 
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_exclude_called_once",
       sources: {
-        sourceA: polo.source(emptyInputSchema, {
-          resolve: async () => "a",
-        }),
-        sourceB: polo.source(emptyInputSchema, {
-          resolve: async () => "b",
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          sourceA: source(emptyInputSchema, {
+            resolve: async () => "a",
+          }),
+          sourceB: source(emptyInputSchema, {
+            resolve: async () => "b",
+          }),
+        })),
       },
       policies: {
         exclude: [
@@ -203,22 +221,25 @@ describe("policies.exclude", () => {
       },
     });
 
-    await polo.resolve(task, {});
+    await run({});
     expect(callCount).toBe(1);
   });
 
   test("exclude callback that would throw on second call does not throw", async () => {
     let callCount = 0;
 
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_exclude_no_second_call",
       sources: {
-        sourceA: polo.source(emptyInputSchema, {
-          resolve: async () => "a",
-        }),
-        sourceB: polo.source(emptyInputSchema, {
-          resolve: async () => "b",
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          sourceA: source(emptyInputSchema, {
+            resolve: async () => "a",
+          }),
+          sourceB: source(emptyInputSchema, {
+            resolve: async () => "b",
+          }),
+        })),
       },
       policies: {
         exclude: [
@@ -237,24 +258,27 @@ describe("policies.exclude", () => {
       },
     });
 
-    const { context } = await polo.resolve(task, {});
+    const { context } = await run({});
     expect(callCount).toBe(1);
     expect("sourceA" in context).toBe(false);
     expect(context.sourceB).toBe("b");
   });
 
   test("excluded chunk source keeps redacted exclusion records in trace", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_excluded_chunk_trace_records",
       sources: {
-        docs: polo.source.rag(emptyInputSchema, {
-          async resolve() {
-            return [
-              { content: "chunk A secret", score: 0.9 },
-              { content: "chunk B secret", score: 0.7 },
-            ];
-          },
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          docs: source.rag(emptyInputSchema, {
+            async resolve() {
+              return [
+                { content: "chunk A secret", score: 0.9 },
+                { content: "chunk B secret", score: 0.7 },
+              ];
+            },
+          }),
+        })),
       },
       policies: {
         exclude: [
@@ -266,11 +290,11 @@ describe("policies.exclude", () => {
       },
     });
 
-    const { context, trace } = await polo.resolve(task, {});
+    const { context, traces } = await run({});
 
     expect("docs" in context).toBe(false);
 
-    const docsRecord = trace.sources.find((source) => source.key === "docs");
+    const docsRecord = traces.sources.find((source) => source.key === "docs");
     expect(docsRecord?.type).toBe("rag");
     if (docsRecord?.type === "rag") {
       expect(docsRecord.items).toHaveLength(2);
@@ -279,7 +303,7 @@ describe("policies.exclude", () => {
       expect(docsRecord.items.every((chunk) => chunk.content === "")).toBe(true);
     }
 
-    expect(JSON.stringify(trace)).not.toContain("chunk A secret");
-    expect(JSON.stringify(trace)).not.toContain("chunk B secret");
+    expect(JSON.stringify(traces)).not.toContain("chunk A secret");
+    expect(JSON.stringify(traces)).not.toContain("chunk B secret");
   });
 });

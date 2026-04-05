@@ -1,11 +1,8 @@
 # @polo/core
 
-Typed context assembly for production AI apps.
+**The best context management framework for agents** — typed sources, policies, token budgets, templates, and traces for production agent systems.
 
-`@polo/core` lets you declare where model context comes from, how it is filtered,
-and how it must fit within a token budget. At runtime, Polo resolves sources,
-applies policies, and returns a typed `context` object (and optional prompt)
-plus a detailed `trace` for observability.
+`@polo/core` is the runtime that resolves context windows: where data comes from, how it is filtered, and how it must fit under a token ceiling. At runtime, Polo returns a typed `context`, optional `{ system, prompt }`, and detailed `traces`.
 
 ## Install
 
@@ -28,28 +25,32 @@ const taskInput = z.object({
   transcript: z.string(),
 });
 
-const supportReply = polo.define(taskInput, {
+const transcript = polo.input("transcript", { tags: ["restricted"] });
+
+const { account } = polo.sourceSet(({ source }) => ({
+  account: source(z.object({ accountId: z.string() }), {
+    tags: ["internal"],
+    async resolve({ input }) {
+      return db.getAccount(input.accountId);
+    },
+  }),
+}));
+
+const window = polo.window({
+  input: taskInput,
   id: "support_reply",
-  sources: {
-    transcript: polo.source.fromInput("transcript", { tags: ["restricted"] }),
-    account: polo.source(z.object({ accountId: z.string() }), {
-      tags: ["internal"],
-      async resolve({ input }) {
-        return db.getAccount(input.accountId);
-      },
-    }),
-  },
+  sources: { transcript, account },
   policies: {
     require: ["transcript", "account"],
     budget: 300,
   },
-  template: ({ context }) => ({
+  template: (context) => ({
     system: "You are a support engineer.",
     prompt: `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}`,
   }),
 });
 
-const { context, prompt, trace } = await polo.resolve(supportReply, {
+const { context, prompt, traces } = await window({
   accountId: "acc_123",
   transcript: "Our webhook deliveries are timing out.",
 });
@@ -57,21 +58,22 @@ const { context, prompt, trace } = await polo.resolve(supportReply, {
 
 ## Core Concepts
 
-- `polo.source.fromInput()` passes through call-time input fields.
-- `polo.source()` resolves async values (DB, APIs, files, etc.).
-- `polo.source.rag()` resolves ranked chunk lists that can be trimmed by budget.
+- `polo.window({ input, sources, … })` — declare one context window; the return value is an async function you call each turn with input.
+- `polo.input(key, options?)` — pass through a value from call-time input as a tagged source.
+- `polo.sourceSet(({ source }) => …)` — define reusable resolver/chunk sources; use `source` and `source.rag` inside the builder.
 - `derive()` adds computed values to the final context.
-- `policies.require` enforces must-have keys; `policies.prefer` marks nice-to-have keys.
-- `policies.exclude` applies runtime exclusion logic with auditable reasons.
+- `policies: { require, prefer, exclude, budget }` controls inclusion, exclusions, and budgets.
 - `template` renders `{ system, prompt }` and enables exact prompt-token measurement.
 
 ## Return Value
 
-`polo.resolve()` returns:
+Calling the function returned by `polo.window()` yields:
 
 - `context`: final typed context after source resolution and policy application.
-- `prompt`: rendered `{ system, prompt }` when a template is defined.
-- `trace`: source timings, budget decisions, policy records, and prompt token metrics.
+- `prompt`: rendered `{ system, prompt }` when a template is configured.
+- `traces`: source timings, budget decisions, policy records, and prompt token metrics.
+
+`id` is required and should be stable for the logical window definition. Polo Cloud uses it to group runs of the same window.
 
 ## Local Development
 

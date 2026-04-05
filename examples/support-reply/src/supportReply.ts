@@ -8,27 +8,30 @@ const supportReplyInputSchema = z.object({
   transcript: z.string(),
 });
 
-export const supportReply = polo.define(supportReplyInputSchema, {
+const transcript = polo.input("transcript", { tags: ["restricted"] });
+
+export const supportReplyWindow = polo.window({
+  input: supportReplyInputSchema,
   id: "support_reply",
   sources: {
-    transcript: polo.source.fromInput("transcript", { tags: ["restricted"] }),
+    transcript,
     account: supportReplySources.account,
     billingNotes: supportReplySources.billingNotes,
     recentTickets: supportReplySources.recentTickets,
   },
 
-  derive: ({ context }) => ({
-    isEnterprise: context.account.plan === "enterprise",
-    replyStyle: context.account.tier === "priority" ? ("concise" as const) : ("standard" as const),
-    mentionsBilling: /\b(invoice|refund|charge|billing)\b/i.test(context.transcript),
+  derive: (ctx) => ({
+    isEnterprise: ctx.account.plan === "enterprise",
+    replyStyle: ctx.account.tier === "priority" ? ("concise" as const) : ("standard" as const),
+    mentionsBilling: /\b(invoice|refund|charge|billing)\b/i.test(ctx.transcript),
   }),
 
   policies: {
     require: ["transcript", "account"],
     prefer: ["recentTickets", "billingNotes"],
     exclude: [
-      ({ context }) =>
-        !context.mentionsBilling
+      (ctx) =>
+        !ctx.mentionsBilling
           ? {
               source: "billingNotes",
               reason: "billing notes are excluded unless the transcript is billing-related",
@@ -38,7 +41,7 @@ export const supportReply = polo.define(supportReplyInputSchema, {
     budget: 110,
   },
 
-  template: ({ context }) => ({
+  template: (context) => ({
     system: `You are a support engineer drafting a customer reply. Use a ${context.replyStyle} tone. ${
       context.isEnterprise
         ? "Prioritize urgency and ownership."
@@ -52,7 +55,7 @@ export const supportReply = polo.define(supportReplyInputSchema, {
   }),
 });
 
-export type SupportReplyContext = InferContext<typeof supportReply>;
+export type SupportReplyContext = InferContext<typeof supportReplyWindow>;
 
 function formatTraceReason(reason: string): string {
   switch (reason) {
@@ -68,7 +71,7 @@ function formatTraceReason(reason: string): string {
 export function summarizeTrace(trace: Trace): string {
   const lines = [
     `run: ${trace.runId}`,
-    `task: ${trace.taskId}`,
+    `window: ${trace.windowId}`,
     `budget: ${trace.budget.used}/${trace.budget.max}`,
   ];
 

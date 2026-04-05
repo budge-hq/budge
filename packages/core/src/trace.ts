@@ -19,7 +19,7 @@ export interface SourceTiming {
 }
 
 export function buildTrace(options: {
-  taskId: string;
+  windowId: string;
   startedAt: Date;
   completedAt: Date;
   sourceTimings: SourceTiming[];
@@ -33,7 +33,7 @@ export function buildTrace(options: {
   promptTrace?: PromptTrace;
 }): Trace {
   const {
-    taskId,
+    windowId,
     startedAt,
     completedAt,
     sourceTimings,
@@ -62,7 +62,7 @@ export function buildTrace(options: {
 
   return {
     runId: generateRunId(),
-    taskId,
+    windowId,
     startedAt,
     completedAt,
     sources,

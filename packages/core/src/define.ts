@@ -12,7 +12,7 @@ export function createDefinition<
   input: InputSchema<TResolveInput, TInput>,
   config: DefinitionConfig<TInput, TSourceMap, TDerived, TRequired, TPrefer>,
 ): Definition<TInput, TSourceMap, TDerived, TRequired, TPrefer, TResolveInput> {
-  buildWaves(config.sources, `task "${config.id}"`);
+  buildWaves(config.sources, `context window "${config.id}"`);
 
   return {
     _id: config.id,

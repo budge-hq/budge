@@ -1,6 +1,7 @@
 // Public API
 export { createPolo, registerSources } from "./polo.ts";
-export type { PoloInstance } from "./polo.ts";
+export { PoloSourceSetBrand } from "./types.ts";
+export type { PoloInstance, SourceFactory } from "./polo.ts";
 
 // Public types
 export type {
@@ -16,6 +17,7 @@ export type {
   Chunk,
   RagSource,
   ChunkRecord,
+  InputOptions,
   RagItems,
   DependentRagSourceConfig,
   DependentSourceConfig,
@@ -23,7 +25,6 @@ export type {
   DeriveFn,
   EnforceSourceDependencies,
   ExcludeDecision,
-  FromInputSourceOptions,
   InferContext,
   InferSchemaInput,
   InferSchemaInputObject,

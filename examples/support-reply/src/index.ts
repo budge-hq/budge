@@ -1,5 +1,4 @@
-import { polo } from "./polo.ts";
-import { summarizeTrace, supportReply } from "./supportReply.ts";
+import { summarizeTrace, supportReplyWindow } from "./supportReply.ts";
 
 const input = {
   accountId: "acc_123",
@@ -7,7 +6,7 @@ const input = {
     "Our webhook deliveries have been timing out in production since yesterday's deploy. Can you help us figure out the safest next step?",
 };
 
-const { context, prompt, trace } = await polo.resolve(supportReply, input);
+const { context, prompt, traces } = await supportReplyWindow(input);
 
 console.log("=== Context Keys ===");
 console.log(Object.keys(context));
@@ -21,7 +20,7 @@ if (prompt) {
 }
 
 console.log("\n=== Trace Summary ===");
-console.log(summarizeTrace(trace));
+console.log(summarizeTrace(traces));
 
 console.log("\n=== Full Trace JSON ===");
-console.log(JSON.stringify(trace, null, 2));
+console.log(JSON.stringify(traces, null, 2));

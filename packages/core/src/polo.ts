@@ -1,19 +1,22 @@
 import type {
   AnyInput,
   AnySchema,
+  AnySource,
   AnyResolverSource,
   RagSource,
   RagSourceConfig,
   DependentRagSourceConfig,
   DependentSourceConfig,
-  Definition,
   DefinitionConfig,
   DeriveFn,
+  EnforceDerivedKeys,
+  EnforceReservedContextKeys,
   EnforceSourceDependencies,
-  FromInputSourceOptions,
+  EnforceUniqueSourceSetKeys,
   InferSchemaInputObject,
   InferSchemaOutputObject,
   InferSources,
+  InputOptions,
   InputSchema,
   InputSource,
   MergeSourceSets,
@@ -27,6 +30,7 @@ import type {
   SourceShape,
   TemplateFn,
 } from "./types.ts";
+import { PoloSourceSetBrand } from "./types.ts";
 import { createDefinition } from "./define.ts";
 import { buildWaves } from "./graph.ts";
 import { resolveDefinition } from "./resolve.ts";
@@ -34,11 +38,11 @@ import {
   createDependentRagSource,
   createRagSource,
   createDependentValueSource,
-  createFromInputSource,
+  createInputSource,
   createValueSource,
 } from "./source.ts";
 
-interface SourceFactory {
+export interface SourceFactory {
   <TSchema extends AnySchema, TOutput>(
     input: TSchema,
     config: SourceConfig<InferSchemaOutputObject<TSchema>, TOutput>,
@@ -55,8 +59,6 @@ interface SourceFactory {
     Extract<keyof TDeps, string>
   >;
 
-  fromInput<TKey extends string>(key: TKey, options?: FromInputSourceOptions): InputSource<TKey>;
-
   rag<TSchema extends AnySchema, TItem>(
     input: TSchema,
     config: RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
@@ -69,20 +71,29 @@ interface SourceFactory {
   ): RagSource<InferSchemaOutputObject<TSchema>, string, Extract<keyof TDeps, string>>;
 }
 
-interface SourceSetFactory {
-  value: SourceFactory;
-  rag: SourceFactory["rag"];
+let nextSourceSetOwnerId = 0;
+
+function validateWindowId(id: unknown): string {
+  if (typeof id !== "string" || id.trim() === "") {
+    throw new TypeError("polo.window() requires a non-empty string id.");
+  }
+
+  return id;
 }
 
-let nextSourceSetOwnerId = 0;
+function validateReservedWindowSourceKeys(sources: Record<string, AnySource>): void {
+  if ("raw" in sources) {
+    throw new TypeError('polo.window() reserves "raw" as a context key.');
+  }
+}
 
 export interface PoloInstance {
   /**
-   * Declare the context contract for a task.
+   * Declare a context window and return an async function: call it each turn with input.
    */
-  define<
+  window<
     TSchema extends AnySchema,
-    const TSourceMap extends Record<string, unknown>,
+    const TSourceMap extends Record<string, AnySource> = Record<string, AnySource>,
     TDerived extends Record<string, unknown> = Record<string, never>,
     const TRequired extends readonly Extract<
       keyof InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>,
@@ -93,9 +104,10 @@ export interface PoloInstance {
       string
     >[] = [],
   >(
-    input: TSchema,
     config: {
+      /** Stable logical id for this context window; used to group traces across runs. */
       id: string;
+      input: TSchema;
       sources: TSourceMap &
         SourceShape<InferSchemaOutputObject<TSchema>, NoInfer<TSourceMap>> &
         EnforceSourceDependencies<NoInfer<TSourceMap>>;
@@ -111,34 +123,21 @@ export interface PoloInstance {
         NoInfer<TDerived>,
         TRequired
       >;
-    },
-  ): Definition<
-    InferSchemaOutputObject<TSchema>,
-    TSourceMap,
-    TDerived,
-    TRequired,
-    TPrefer,
-    InferSchemaInputObject<TSchema>
+    } & EnforceDerivedKeys<InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>, TDerived> &
+      EnforceReservedContextKeys<
+        InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>,
+        TDerived
+      >,
+  ): (
+    input: InferSchemaInputObject<TSchema>,
+  ) => Promise<
+    Resolution<InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>, TDerived, TRequired>
   >;
 
-  /**
-   * Resolve context at runtime for a task definition.
-   */
-  resolve<
-    TInput extends AnyInput,
-    TSourceMap extends Record<string, unknown>,
-    TDerived extends Record<string, unknown>,
-    TRequired extends readonly Extract<keyof InferSources<TInput, TSourceMap>, string>[] = [],
-    TPrefer extends readonly Extract<keyof InferSources<TInput, TSourceMap>, string>[] = [],
-    TResolveInput extends AnyInput = TInput,
-  >(
-    definition: Definition<TInput, TSourceMap, TDerived, TRequired, TPrefer, TResolveInput>,
-    input: TResolveInput,
-  ): Promise<Resolution<InferSources<TInput, TSourceMap>, TDerived, TRequired>>;
+  input<TKey extends string>(key: TKey, options?: InputOptions): InputSource<TKey>;
 
-  source: SourceFactory;
-  sourceSet<const TSources extends Record<string, AnyResolverSource>>(
-    builder: (sources: SourceSetFactory) => TSources,
+  sourceSet<TSources extends Record<string, AnyResolverSource>>(
+    builder: (factories: { source: SourceFactory }) => TSources,
   ): SourceSet<TSources>;
 }
 
@@ -170,12 +169,6 @@ function createSourceFactory(): SourceFactory {
       );
     },
     {
-      fromInput<TKey extends string>(
-        key: TKey,
-        options?: FromInputSourceOptions,
-      ): InputSource<TKey> {
-        return createFromInputSource(key, options);
-      },
       rag<TSchema extends AnySchema, const TDeps extends Record<string, AnyResolverSource>, TItem>(
         input: TSchema,
         depsOrConfig: RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem> | TDeps,
@@ -196,21 +189,19 @@ function createSourceFactory(): SourceFactory {
   ) as SourceFactory;
 }
 
-function createSourceSetFactory(source: SourceFactory): SourceSetFactory {
-  return {
-    value: source,
-    rag: ((...args: Parameters<SourceFactory["rag"]>) =>
-      source.rag(...args)) as unknown as SourceFactory["rag"],
-  };
-}
-
-function finalizeSourceSet<const TSources extends Record<string, AnyResolverSource>>(
+function finalizeSourceSet<TSources extends Record<string, AnyResolverSource>>(
   sources: TSources,
 ): SourceSet<TSources> {
   const seenSources = new Set<AnyResolverSource>();
   const ownerSetId = `set_${nextSourceSetOwnerId++}`;
 
   for (const [key, source] of Object.entries(sources)) {
+    if (source._type !== "resolver") {
+      throw new TypeError(
+        `polo.sourceSet() only accepts resolver or rag sources. Use polo.input() for "${key}".`,
+      );
+    }
+
     if (seenSources.has(source)) {
       throw new Error(`Source handle reused under multiple keys in sourceSet: "${key}".`);
     }
@@ -259,27 +250,21 @@ function finalizeSourceSet<const TSources extends Record<string, AnyResolverSour
   }
 
   return Object.defineProperties(sources, {
-    _sourceSet: {
+    [PoloSourceSetBrand]: {
       configurable: false,
       enumerable: false,
       value: true,
-      writable: false,
-    },
-    _sources: {
-      configurable: false,
-      enumerable: false,
-      value: sources,
       writable: false,
     },
   }) as unknown as SourceSet<TSources>;
 }
 
 function isSourceSet(value: unknown): value is SourceSetBrand<Record<string, AnyResolverSource>> {
-  return typeof value === "object" && value !== null && "_sourceSet" in value;
+  return typeof value === "object" && value !== null && PoloSourceSetBrand in value;
 }
 
 export function registerSources<const TSourceSets extends readonly SourceSet<any>[]>(
-  ...sourceSets: TSourceSets
+  ...sourceSets: TSourceSets & EnforceUniqueSourceSetKeys<TSourceSets>
 ): MergeSourceSets<TSourceSets> {
   const merged: Record<string, AnyResolverSource> = {};
 
@@ -293,7 +278,7 @@ export function registerSources<const TSourceSets extends readonly SourceSet<any
         throw new Error(`Duplicate source key "${key}" found while registering sources.`);
       }
 
-      merged[key] = source;
+      merged[key] = source as unknown as AnyResolverSource;
     }
   }
 
@@ -303,12 +288,11 @@ export function registerSources<const TSourceSets extends readonly SourceSet<any
 
 export function createPolo(options: PoloOptions = {}): PoloInstance {
   const source = createSourceFactory();
-  const sourceSetFactory = createSourceSetFactory(source);
 
   return {
-    define<
+    window<
       TSchema extends AnySchema,
-      const TSourceMap extends Record<string, unknown>,
+      const TSourceMap extends Record<string, AnySource> = Record<string, AnySource>,
       TDerived extends Record<string, unknown> = Record<string, never>,
       const TRequired extends readonly Extract<
         keyof InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>,
@@ -319,9 +303,9 @@ export function createPolo(options: PoloOptions = {}): PoloInstance {
         string
       >[] = [],
     >(
-      input: TSchema,
       config: {
         id: string;
+        input: TSchema;
         sources: TSourceMap &
           SourceShape<InferSchemaOutputObject<TSchema>, NoInfer<TSourceMap>> &
           EnforceSourceDependencies<NoInfer<TSourceMap>>;
@@ -337,9 +321,16 @@ export function createPolo(options: PoloOptions = {}): PoloInstance {
           NoInfer<TDerived>,
           TRequired
         >;
-      },
+      } & EnforceDerivedKeys<InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>, TDerived> &
+        EnforceReservedContextKeys<
+          InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>,
+          TDerived
+        >,
     ) {
-      return createDefinition<
+      const id = validateWindowId(config.id);
+      validateReservedWindowSourceKeys(config.sources);
+
+      const definition = createDefinition<
         InferSchemaOutputObject<TSchema>,
         TSourceMap,
         TDerived,
@@ -347,8 +338,17 @@ export function createPolo(options: PoloOptions = {}): PoloInstance {
         TPrefer,
         InferSchemaInputObject<TSchema>
       >(
-        input as InputSchema<InferSchemaInputObject<TSchema>, InferSchemaOutputObject<TSchema>>,
-        config as DefinitionConfig<
+        config.input as InputSchema<
+          InferSchemaInputObject<TSchema>,
+          InferSchemaOutputObject<TSchema>
+        >,
+        {
+          id,
+          sources: config.sources,
+          derive: config.derive,
+          policies: config.policies,
+          template: config.template,
+        } as DefinitionConfig<
           InferSchemaOutputObject<TSchema>,
           TSourceMap,
           TDerived,
@@ -356,19 +356,21 @@ export function createPolo(options: PoloOptions = {}): PoloInstance {
           TPrefer
         >,
       );
+
+      return async (input: InferSchemaInputObject<TSchema>) => {
+        const resolution = await resolveDefinition(definition, input as AnyInput);
+        options.onTrace?.(resolution.traces);
+        options.logger?.info?.({ traces: resolution.traces });
+        return resolution;
+      };
     },
 
-    async resolve(definition, input) {
-      const resolution = await resolveDefinition(definition, input);
-      options.onTrace?.(resolution.trace);
-      options.logger?.info?.({ trace: resolution.trace });
-      return resolution;
+    input(key, options) {
+      return createInputSource(key, options);
     },
-
-    source,
 
     sourceSet(builder) {
-      return finalizeSourceSet(builder(sourceSetFactory));
+      return finalizeSourceSet(builder({ source }));
     },
   } satisfies PoloInstance;
 }

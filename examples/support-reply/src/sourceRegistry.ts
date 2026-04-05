@@ -11,15 +11,15 @@ const transcriptInputSchema = z.object({
   transcript: z.string(),
 });
 
-const accountSourceSet = polo.sourceSet((sources) => {
-  const account = sources.value(accountInputSchema, {
+const accountSourceSet = polo.sourceSet(({ source }) => {
+  const account = source(accountInputSchema, {
     tags: ["internal"],
     async resolve({ input }) {
       return db.getAccount(input.accountId);
     },
   });
 
-  const billingNotes = sources.value(
+  const billingNotes = source(
     accountInputSchema,
     { account },
     {
@@ -36,8 +36,8 @@ const accountSourceSet = polo.sourceSet((sources) => {
   };
 });
 
-const ticketSourceSet = polo.sourceSet((sources) => {
-  const recentTickets = sources.rag(
+const ticketSourceSet = polo.sourceSet(({ source }) => {
+  const recentTickets = source.rag(
     transcriptInputSchema,
     { account: accountSourceSet.account },
     {

@@ -16,31 +16,32 @@ describe("polo.source.rag", () => {
       { content: "c".repeat(100), score: 0.7 },
     ];
 
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_chunks_budget",
       sources: {
-        guidelines: polo.source.rag(emptyInputSchema, {
-          async resolve() {
-            return items;
-          },
-          normalize(item) {
-            return {
-              content: item.content,
-              score: item.score,
-            };
-          },
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          guidelines: source.rag(emptyInputSchema, {
+            async resolve() {
+              return items;
+            },
+            normalize(item) {
+              return {
+                content: item.content,
+                score: item.score,
+              };
+            },
+          }),
+        })),
       },
-      policies: {
-        budget: 40,
-      },
+      policies: { budget: 40 },
     });
 
-    const { context, trace } = await polo.resolve(task, {});
+    const { context, traces } = await run({});
     const chunks = context.guidelines as Array<{ content: string }>;
     expect(chunks.length).toBe(2);
 
-    const chunkSource_ = trace.sources.find((s) => s.key === "guidelines");
+    const chunkSource_ = traces.sources.find((s) => s.key === "guidelines");
     expect(chunkSource_?.type).toBe("rag");
     const dropped =
       chunkSource_?.type === "rag" ? chunkSource_.items.filter((c) => !c.included) : [];
@@ -54,24 +55,27 @@ describe("polo.source.rag", () => {
       { content: "y".repeat(10), score: 0.8 },
     ];
 
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_chunks_no_budget",
       sources: {
-        docs: polo.source.rag(emptyInputSchema, {
-          async resolve() {
-            return items;
-          },
-          normalize(item) {
-            return {
-              content: item.content,
-              score: item.score,
-            };
-          },
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          docs: source.rag(emptyInputSchema, {
+            async resolve() {
+              return items;
+            },
+            normalize(item) {
+              return {
+                content: item.content,
+                score: item.score,
+              };
+            },
+          }),
+        })),
       },
     });
 
-    const { context } = await polo.resolve(task, {});
+    const { context } = await run({});
     const chunks = context.docs as Array<{ content: string }>;
     expect(chunks.length).toBe(2);
   });
@@ -83,20 +87,23 @@ describe("polo.source.rag", () => {
       { content: "low ".repeat(30), score: 0.1 },
     ];
 
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_required_chunks_non_template",
       sources: {
-        docs: polo.source.rag(emptyInputSchema, {
-          async resolve() {
-            return items;
-          },
-          normalize(item) {
-            return {
-              content: item.content,
-              score: item.score,
-            };
-          },
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          docs: source.rag(emptyInputSchema, {
+            async resolve() {
+              return items;
+            },
+            normalize(item) {
+              return {
+                content: item.content,
+                score: item.score,
+              };
+            },
+          }),
+        })),
       },
       policies: {
         require: ["docs"],
@@ -104,49 +111,50 @@ describe("polo.source.rag", () => {
       },
     });
 
-    const { context, trace } = await polo.resolve(task, {});
+    const { context, traces } = await run({});
     expect(context.docs).toHaveLength(3);
 
-    const docsRecord = trace.sources.find((source) => source.key === "docs");
+    const docsRecord = traces.sources.find((source) => source.key === "docs");
     expect(docsRecord?.type).toBe("rag");
     if (docsRecord?.type === "rag") {
       expect(docsRecord.items).toHaveLength(3);
       expect(docsRecord.items.every((chunk) => chunk.included)).toBe(true);
     }
 
-    const droppedPolicy = trace.policies.find(
+    const droppedPolicy = traces.policies.find(
       (policy) => policy.source === "docs" && policy.action === "dropped",
     );
     expect(droppedPolicy).toBeUndefined();
   });
 
   test("non-required chunk source gets dropped policy when all chunks are over budget", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_chunks_full_drop_policy_record",
       sources: {
-        guidelines: polo.source.rag(emptyInputSchema, {
-          async resolve() {
-            return [
-              { content: "long chunk that will be dropped ".repeat(20), score: 0.9 },
-              { content: "another long chunk that will be dropped ".repeat(20), score: 0.8 },
-            ];
-          },
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          guidelines: source.rag(emptyInputSchema, {
+            async resolve() {
+              return [
+                { content: "long chunk that will be dropped ".repeat(20), score: 0.9 },
+                { content: "another long chunk that will be dropped ".repeat(20), score: 0.8 },
+              ];
+            },
+          }),
+        })),
       },
-      policies: {
-        budget: 1,
-      },
+      policies: { budget: 1 },
     });
 
-    const { context, trace } = await polo.resolve(task, {});
+    const { context, traces } = await run({});
     expect("guidelines" in context).toBe(false);
 
-    const droppedPolicy = trace.policies.find(
+    const droppedPolicy = traces.policies.find(
       (policy) => policy.source === "guidelines" && policy.action === "dropped",
     );
     expect(droppedPolicy?.reason).toBe("over_budget");
 
-    const guidelinesRecord = trace.sources.find((source) => source.key === "guidelines");
+    const guidelinesRecord = traces.sources.find((source) => source.key === "guidelines");
     expect(guidelinesRecord?.type).toBe("rag");
     if (guidelinesRecord?.type === "rag") {
       expect(guidelinesRecord.items.every((chunk) => chunk.included === false)).toBe(true);
@@ -155,24 +163,25 @@ describe("polo.source.rag", () => {
   });
 
   test("empty chunk source is not marked dropped", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_empty_chunks_not_dropped",
       sources: {
-        docs: polo.source.rag(emptyInputSchema, {
-          async resolve() {
-            return [];
-          },
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          docs: source.rag(emptyInputSchema, {
+            async resolve() {
+              return [];
+            },
+          }),
+        })),
       },
-      policies: {
-        budget: 1,
-      },
+      policies: { budget: 1 },
     });
 
-    const { context, trace } = await polo.resolve(task, {});
+    const { context, traces } = await run({});
     expect(context.docs).toEqual([]);
 
-    const droppedPolicy = trace.policies.find(
+    const droppedPolicy = traces.policies.find(
       (policy) => policy.source === "docs" && policy.action === "dropped",
     );
     expect(droppedPolicy).toBeUndefined();
@@ -185,24 +194,27 @@ describe("polo.source.rag", () => {
       { content: "mid", score: 0.6 },
     ];
 
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_chunks_order",
       sources: {
-        docs: polo.source.rag(emptyInputSchema, {
-          async resolve() {
-            return items;
-          },
-          normalize(item) {
-            return {
-              content: item.content,
-              score: item.score,
-            };
-          },
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          docs: source.rag(emptyInputSchema, {
+            async resolve() {
+              return items;
+            },
+            normalize(item) {
+              return {
+                content: item.content,
+                score: item.score,
+              };
+            },
+          }),
+        })),
       },
     });
 
-    const { context } = await polo.resolve(task, {});
+    const { context } = await run({});
     const chunks = context.docs as Array<{ content: string; score?: number }>;
     expect(chunks[0]?.content).toBe("high");
     expect(chunks[1]?.content).toBe("mid");
@@ -210,23 +222,26 @@ describe("polo.source.rag", () => {
   });
 
   test("throws when normalize returns invalid chunks", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_chunks_invalid_normalize",
       sources: {
-        docs: polo.source.rag(emptyInputSchema, {
-          async resolve() {
-            return [{ value: "not-content" }];
-          },
-          normalize(item) {
-            return {
-              content: (item as { missing?: string }).missing as string,
-            };
-          },
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          docs: source.rag(emptyInputSchema, {
+            async resolve() {
+              return [{ value: "not-content" }];
+            },
+            normalize(item) {
+              return {
+                content: (item as { missing?: string }).missing as string,
+              };
+            },
+          }),
+        })),
       },
     });
 
-    await expect(polo.resolve(task, {})).rejects.toThrow(
+    await expect(run({})).rejects.toThrow(
       /normalize\(\) must return Chunk objects with string content/,
     );
   });
@@ -238,14 +253,14 @@ describe("polo.source.rag", () => {
   });
 
   test("dependent chunk sources also reject invalid normalize output", async () => {
-    const sharedSourceSet = polo.sourceSet((sources) => {
-      const account = sources.value(emptyInputSchema, {
+    const sharedSourceSet = polo.sourceSet(({ source }) => {
+      const account = source(emptyInputSchema, {
         async resolve() {
           return { id: "acc_1" };
         },
       });
 
-      const docs = sources.rag(
+      const docs = source.rag(
         emptyInputSchema,
         { account },
         {
@@ -264,7 +279,8 @@ describe("polo.source.rag", () => {
     });
 
     const sourceRegistry = registerSources(sharedSourceSet);
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_dep_chunks_invalid_normalize",
       sources: {
         account: sourceRegistry.account,
@@ -272,35 +288,70 @@ describe("polo.source.rag", () => {
       },
     });
 
-    await expect(polo.resolve(task, {})).rejects.toThrow(
+    await expect(run({})).rejects.toThrow(
       /normalize\(\) must return Chunk objects with string content/,
     );
   });
 
-  test("throws when a chunk source resolves malformed chunk envelopes", async () => {
-    const malformedChunksSource = polo.source(emptyInputSchema, {
-      async resolve() {
-        return {
-          _type: "rag",
-          items: [{ content: undefined }],
-        };
+  test("dependent resolvers receive rag dependencies as chunk arrays", async () => {
+    const sharedSourceSet = polo.sourceSet(({ source }) => {
+      const docs = source.rag(emptyInputSchema, {
+        async resolve() {
+          return [{ content: "alpha" }, { content: "beta" }];
+        },
+      });
+
+      const summary = source(
+        emptyInputSchema,
+        { docs },
+        {
+          async resolve({ docs: chunks }) {
+            return chunks.map((chunk) => chunk.content).join(",");
+          },
+        },
+      );
+
+      return { docs, summary };
+    });
+
+    const run = polo.window({
+      input: emptyInputSchema,
+      id: "test_rag_dependency_shape",
+      sources: {
+        docs: sharedSourceSet.docs,
+        summary: sharedSourceSet.summary,
       },
     });
-    (malformedChunksSource as AnyResolverSource)._sourceKind = "rag";
 
-    const task = polo.define(emptyInputSchema, {
+    const { context } = await run({});
+    expect(context.summary).toBe("alpha,beta");
+  });
+
+  test("throws when a chunk source resolves malformed chunk envelopes", async () => {
+    const ragLikeSet = polo.sourceSet(({ source }) => ({
+      docs: source(emptyInputSchema, {
+        async resolve() {
+          return {
+            _type: "rag",
+            items: [{ content: undefined }],
+          };
+        },
+      }),
+    }));
+    (ragLikeSet.docs as AnyResolverSource)._sourceKind = "rag";
+
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_chunks_malformed_envelope",
       sources: {
-        docs: malformedChunksSource,
+        docs: ragLikeSet.docs,
       },
     });
 
-    await expect(polo.resolve(task, {})).rejects.toThrow(/resolved malformed rag items/);
+    await expect(run({})).rejects.toThrow(/resolved malformed rag items/);
   });
 
   test("BudgetConfig with score_per_token strategy changes packing", async () => {
-    // Big chunk: high score but takes a lot of tokens
-    // Small chunks: lower score but much more efficient per token
     const items = [
       { content: "x".repeat(200), score: 0.9 },
       { content: "a".repeat(30), score: 0.6 },
@@ -312,17 +363,20 @@ describe("polo.source.rag", () => {
         | number
         | { maxTokens: number; strategy: { type: "greedy_score" | "score_per_token" } },
     ) =>
-      polo.define(emptyInputSchema, {
+      polo.window({
+        input: emptyInputSchema,
         id: `test_strategy_${typeof budget === "number" ? "number" : budget.strategy.type}`,
         sources: {
-          docs: polo.source.rag(emptyInputSchema, {
-            async resolve() {
-              return items;
-            },
-            normalize(item) {
-              return { content: item.content, score: item.score };
-            },
-          }),
+          ...polo.sourceSet(({ source }) => ({
+            docs: source.rag(emptyInputSchema, {
+              async resolve() {
+                return items;
+              },
+              normalize(item) {
+                return { content: item.content, score: item.score };
+              },
+            }),
+          })),
         },
         policies: { budget },
       });
@@ -330,11 +384,11 @@ describe("polo.source.rag", () => {
     const bigTokens = estimateTokens(items[0]!.content);
     const budget = bigTokens + 1;
 
-    const greedyResult = await polo.resolve(makeTask(budget), {});
-    const efficientResult = await polo.resolve(
-      makeTask({ maxTokens: budget, strategy: { type: "score_per_token" } }),
-      {},
-    );
+    const greedyResult = await makeTask(budget)({});
+    const efficientResult = await makeTask({
+      maxTokens: budget,
+      strategy: { type: "score_per_token" },
+    })({});
 
     const greedyChunks = greedyResult.context.docs as Array<{ content: string }>;
     const efficientChunks = efficientResult.context.docs as Array<{ content: string }>;
@@ -351,7 +405,6 @@ describe("polo.source.rag", () => {
     let strategyCalled = false;
     const customStrategy: BudgetStrategyFn = (chunks, ctx) => {
       strategyCalled = true;
-      // Include only the first chunk
       const first = chunks[0]!;
       const tokens = ctx.estimateTokens(first.content);
       return {
@@ -366,24 +419,25 @@ describe("polo.source.rag", () => {
       };
     };
 
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_custom_strategy",
       sources: {
-        docs: polo.source.rag(emptyInputSchema, {
-          async resolve() {
-            return [
-              { content: "first", score: 0.9 },
-              { content: "second", score: 0.8 },
-            ];
-          },
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          docs: source.rag(emptyInputSchema, {
+            async resolve() {
+              return [
+                { content: "first", score: 0.9 },
+                { content: "second", score: 0.8 },
+              ];
+            },
+          }),
+        })),
       },
-      policies: {
-        budget: { maxTokens: 1000, strategy: customStrategy },
-      },
+      policies: { budget: { maxTokens: 1000, strategy: customStrategy } },
     });
 
-    const { context } = await polo.resolve(task, {});
+    const { context } = await run({});
     expect(strategyCalled).toBe(true);
     const chunks = context.docs as Array<{ content: string }>;
     expect(chunks).toHaveLength(1);
@@ -397,58 +451,65 @@ describe("polo.source.rag", () => {
       { content: "c".repeat(100), score: 0.7 },
     ];
 
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_trace_strategy",
       sources: {
-        docs: polo.source.rag(emptyInputSchema, {
-          async resolve() {
-            return items;
-          },
-          normalize(item) {
-            return { content: item.content, score: item.score };
-          },
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          docs: source.rag(emptyInputSchema, {
+            async resolve() {
+              return items;
+            },
+            normalize(item) {
+              return { content: item.content, score: item.score };
+            },
+          }),
+        })),
       },
-      policies: {
-        budget: { maxTokens: 40, strategy: { type: "score_per_token" } },
-      },
+      policies: { budget: { maxTokens: 40, strategy: { type: "score_per_token" } } },
     });
 
-    const { trace } = await polo.resolve(task, {});
-    expect(trace.budget.strategy).toBe("score_per_token");
-    expect(trace.budget.candidates).toBe(3);
-    expect(typeof trace.budget.selected).toBe("number");
+    const { traces } = await run({});
+    expect(traces.budget.strategy).toBe("score_per_token");
+    expect(traces.budget.candidates).toBe(3);
+    expect(typeof traces.budget.selected).toBe("number");
   });
 
   test("backward compat: budget as number still populates trace strategy", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_trace_compat",
       sources: {
-        docs: polo.source.rag(emptyInputSchema, {
-          async resolve() {
-            return [{ content: "hello", score: 1 }];
-          },
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          docs: source.rag(emptyInputSchema, {
+            async resolve() {
+              return [{ content: "hello", score: 1 }];
+            },
+          }),
+        })),
       },
       policies: { budget: 100 },
     });
 
-    const { trace } = await polo.resolve(task, {});
-    expect(trace.budget.strategy).toBe("greedy_score");
-    expect(trace.budget.candidates).toBe(1);
-    expect(trace.budget.selected).toBe(1);
+    const { traces } = await run({});
+    expect(traces.budget.strategy).toBe("greedy_score");
+    expect(traces.budget.candidates).toBe(1);
+    expect(traces.budget.selected).toBe(1);
   });
 
   test("non-chunk sources over budget produce dropped policy records", async () => {
-    const task = polo.define(emptyInputSchema, {
+    const run = polo.window({
+      input: emptyInputSchema,
       id: "test_non_chunk_over_budget_drop",
       sources: {
-        requiredText: polo.source(emptyInputSchema, {
-          resolve: async () => "keep me",
-        }),
-        extraText: polo.source(emptyInputSchema, {
-          resolve: async () => "x".repeat(2_000),
-        }),
+        ...polo.sourceSet(({ source }) => ({
+          requiredText: source(emptyInputSchema, {
+            resolve: async () => "keep me",
+          }),
+          extraText: source(emptyInputSchema, {
+            resolve: async () => "x".repeat(2_000),
+          }),
+        })),
       },
       policies: {
         require: ["requiredText"],
@@ -456,11 +517,11 @@ describe("polo.source.rag", () => {
       },
     });
 
-    const { context, trace } = await polo.resolve(task, {});
+    const { context, traces } = await run({});
     expect(context.requiredText).toBe("keep me");
     expect("extraText" in context).toBe(false);
 
-    const dropped = trace.policies.find(
+    const dropped = traces.policies.find(
       (policy) => policy.source === "extraText" && policy.action === "dropped",
     );
     expect(dropped?.reason).toBe("over_budget");

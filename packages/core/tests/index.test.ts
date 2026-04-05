@@ -38,25 +38,25 @@ describe("integration", () => {
       ] as Array<{ pageContent: string; score: number }>),
     };
 
-    const accountSourceSet = polo.sourceSet((sources) => {
-      const account = sources.value(accountSourceInputSchema, {
+    const accountSourceSet = polo.sourceSet(({ source }) => {
+      const account = source(accountSourceInputSchema, {
         tags: ["internal"],
         async resolve({ input }) {
           return mockDb.account(input.accountId);
         },
       });
 
-      const priorNote = sources.value(
+      const priorNote = source(
         accountSourceInputSchema,
         { account },
         {
-          async resolve({ account }) {
-            return mockDb.priorNote(account.plan);
+          async resolve({ account: acc }) {
+            return mockDb.priorNote(acc.plan);
           },
         },
       );
 
-      const sensitiveData = sources.value(accountSourceInputSchema, {
+      const sensitiveData = source(accountSourceInputSchema, {
         tags: ["phi"],
         async resolve() {
           return { secret: "should be excluded" };
@@ -70,8 +70,8 @@ describe("integration", () => {
       };
     });
 
-    const guidelineSourceSet = polo.sourceSet((sources) => {
-      const guidelines = sources.rag(transcriptSourceInputSchema, {
+    const guidelineSourceSet = polo.sourceSet(({ source }) => {
+      const guidelines = source.rag(transcriptSourceInputSchema, {
         tags: ["internal"],
         async resolve({ input }) {
           return mockVector.search(input.transcript) as Promise<
@@ -91,19 +91,20 @@ describe("integration", () => {
 
     const sourceRegistry = registerSources(accountSourceSet, guidelineSourceSet);
 
-    const task = polo.define(inputSchema, {
+    const run = polo.window({
+      input: inputSchema,
       id: "e2e_test",
       sources: {
-        transcript: polo.source.fromInput("transcript", { tags: ["restricted"] }),
+        transcript: polo.input("transcript", { tags: ["restricted"] }),
         account: sourceRegistry.account,
         priorNote: sourceRegistry.priorNote,
         guidelines: sourceRegistry.guidelines,
         sensitiveData: sourceRegistry.sensitiveData,
       },
-      derive: ({ context }) => ({
-        isEnterprise: context.account.plan === "enterprise",
-        replyStyle: context.account.tier === "priority" ? "concise" : "standard",
-        hasPriorNote: !!context.priorNote,
+      derive: (ctx) => ({
+        isEnterprise: ctx.account.plan === "enterprise",
+        replyStyle: ctx.account.tier === "priority" ? "concise" : "standard",
+        hasPriorNote: !!ctx.priorNote,
       }),
       policies: {
         require: ["transcript", "account"],
@@ -118,11 +119,11 @@ describe("integration", () => {
       },
     });
 
-    const { context, trace } = await polo.resolve(task, {
+    const { context, traces } = await run({
       accountId: "acc_123",
       transcript: "patient says they feel better",
     });
-    type TaskContext = InferContext<typeof task>;
+    type TaskContext = InferContext<typeof run>;
     const typedContext: TaskContext = context;
 
     expect(typedContext.transcript).toBe("patient says they feel better");
@@ -139,14 +140,14 @@ describe("integration", () => {
     expect(Array.isArray(guidelines)).toBe(true);
     expect(guidelines.length).toBeGreaterThan(0);
 
-    expect(trace.taskId).toBe("e2e_test");
-    expect(trace.runId).toBeTruthy();
-    expect(trace.sources.length).toBeGreaterThan(0);
-    expect(trace.budget.max).toBe(500);
+    expect(traces.windowId).toBe("e2e_test");
+    expect(traces.runId).toBeTruthy();
+    expect(traces.sources.length).toBeGreaterThan(0);
+    expect(traces.budget.max).toBe(500);
 
-    const excl = trace.policies.find((p) => p.action === "excluded");
+    const excl = traces.policies.find((p) => p.action === "excluded");
     expect(excl?.source).toBe("sensitiveData");
 
-    expect(JSON.stringify(trace)).not.toContain("should be excluded");
+    expect(JSON.stringify(traces)).not.toContain("should be excluded");
   });
 });

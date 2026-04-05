@@ -19,7 +19,7 @@ export function applyPolicies<
   resolvedSources: Map<string, unknown>,
   derived: TDerived,
   policies: Policies<TSources, TDerived, TRequired, TPrefer>,
-  taskId: string,
+  windowId: string,
 ): PolicyResult {
   const records: PolicyRecord[] = [];
   const sourceKeys = [...resolvedSources.keys()];
@@ -35,12 +35,12 @@ export function applyPolicies<
     const keyStr = String(key);
     const value = resolvedSources.get(keyStr);
     if (value === null || value === undefined) {
-      throw new RequiredSourceMissingError(keyStr, taskId);
+      throw new RequiredSourceMissingError(keyStr, windowId);
     }
     records.push({
       source: keyStr,
       action: "required",
-      reason: "required by task",
+      reason: "required by policy",
     });
   }
 
@@ -59,7 +59,7 @@ export function applyPolicies<
   // --- exclude ---
   const excludedKeys: string[] = [];
   for (const excludeFn of policies.exclude ?? []) {
-    const decision = excludeFn({ context: mergedContext });
+    const decision = excludeFn(mergedContext);
     if (decision !== false) {
       const { source, reason } = decision;
 

@@ -1,7 +1,7 @@
 {
   "name": "@polo/core",
   "version": "0.0.0",
-  "description": "Polo core package",
+  "description": "The best context management framework for agents — typed sources, policies, budgets, and traces.",
   "homepage": "https://github.com/polo-hq/polo#readme",
   "bugs": {
     "url": "https://github.com/polo-hq/polo/issues"

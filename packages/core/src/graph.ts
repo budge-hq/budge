@@ -1,5 +1,6 @@
 import type { AnyInput, AnyResolverSource, InputSource } from "./types.ts";
 import { DepGraph, DepGraphCycleError } from "dependency-graph";
+import { isRagItems } from "./rag.ts";
 import {
   CircularSourceDependencyError,
   MissingSourceDependencyError,
@@ -38,6 +39,10 @@ function getDependencyRefs(source: unknown) {
   }
 
   return [...(source._dependencyRefs ?? [])];
+}
+
+function materializeDependencyValue(value: unknown): unknown {
+  return isRagItems(value) ? value.items : value;
 }
 
 function hydrateSelectedSourceMetadata<TSourceMap extends Record<string, unknown>>(
@@ -237,7 +242,7 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
   input: AnyInput,
   waves: Wave[],
   sourceKeysById: Map<string, string>,
-  taskId: string,
+  windowId: string,
   onResolved: (key: string, value: unknown, durationMs: number) => void,
 ): Promise<Map<string, unknown>> {
   const resolved = new Map<string, unknown>();
@@ -257,7 +262,9 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
             const dependencyContext = Object.fromEntries(
               getDependencyRefs(source).map((dependency) => [
                 dependency.alias,
-                resolved.get(sourceKeysById.get(dependency.internalId)!),
+                materializeDependencyValue(
+                  resolved.get(sourceKeysById.get(dependency.internalId)!),
+                ),
               ]),
             );
             value = await source.resolve(input, dependencyContext);
@@ -269,7 +276,7 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
           resolved.set(key, value);
           onResolved(key, value, durationMs);
         } catch (error) {
-          throw new SourceResolutionError(key, taskId, error);
+          throw new SourceResolutionError(key, windowId, error);
         }
       }),
     );
