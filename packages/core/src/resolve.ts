@@ -262,7 +262,8 @@ export async function resolveDefinition<
     taskId,
     (key, value, durationMs) => {
       const source = sourceMap[key]!;
-      const type = isInputSource(source) ? "input" : isRagItems(value) ? "rag" : "value";
+      const rag = isRagItems(value) ? value : undefined;
+      const type = isInputSource(source) ? "input" : rag ? "rag" : "value";
 
       sourceTimings.push({
         key,
@@ -274,6 +275,8 @@ export async function resolveDefinition<
             : [],
         resolvedAt: new Date(),
         durationMs,
+        ...(rag?._profile !== undefined && { ragProfile: rag._profile }),
+        ...(rag?._pipeline !== undefined && { ragPipeline: rag._pipeline }),
       });
     },
   );

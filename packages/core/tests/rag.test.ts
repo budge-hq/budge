@@ -9,6 +9,105 @@ const polo = createPolo();
 const emptyInputSchema = z.object({});
 
 describe("polo.source.rag", () => {
+  test("supports staged retrieve/rerank/compress pipeline", async () => {
+    const task = polo.define(emptyInputSchema, {
+      id: "test_rag_stage_pipeline",
+      sources: {
+        docs: polo.source.rag(emptyInputSchema, {
+          profile: "balanced",
+          async retrieve() {
+            return [
+              { content: "duplicate", score: 0.3 },
+              { content: "best", score: 0.9 },
+              { content: "duplicate", score: 0.2 },
+            ];
+          },
+          async rerank({ items }) {
+            return [...items].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+          },
+          async compress({ items }) {
+            return items.filter((item, index, all) => {
+              const firstIndex = all.findIndex((other) => other.content === item.content);
+              return firstIndex === index;
+            });
+          },
+        }),
+      },
+    });
+
+    const { context, trace } = await polo.resolve(task, {});
+    const docs = context.docs as Array<{ content: string; score?: number }>;
+    expect(docs).toHaveLength(2);
+    expect(docs[0]?.content).toBe("best");
+
+    const docsTrace = trace.sources.find((source) => source.key === "docs");
+    expect(docsTrace?.type).toBe("rag");
+    if (docsTrace?.type === "rag") {
+      expect(docsTrace.profile).toBe("balanced");
+      expect(docsTrace.pipeline?.map((stage) => stage.stage)).toEqual([
+        "retrieve",
+        "rerank",
+        "compress",
+      ]);
+    }
+  });
+
+  test("supports dependent staged retrieve", async () => {
+    const sharedSourceSet = polo.sourceSet((sources) => {
+      const account = sources.value(z.object({ accountId: z.string() }), {
+        async resolve({ input }) {
+          return { id: input.accountId };
+        },
+      });
+
+      const docs = sources.rag(
+        z.object({ query: z.string(), accountId: z.string() }),
+        { account },
+        {
+          async retrieve({ account, input }) {
+            return [{ content: `${account.id}:${input.query}`, score: 0.9 }];
+          },
+        },
+      );
+
+      return { account, docs };
+    });
+
+    const sourceRegistry = registerSources(sharedSourceSet);
+    const task = polo.define(z.object({ accountId: z.string(), query: z.string() }), {
+      id: "test_dependent_rag_stage_pipeline",
+      sources: {
+        account: sourceRegistry.account,
+        docs: sourceRegistry.docs,
+      },
+    });
+
+    const { context } = await polo.resolve(task, {
+      accountId: "acc_1",
+      query: "refund",
+    });
+
+    const docs = context.docs as Array<{ content: string }>;
+    expect(docs[0]?.content).toBe("acc_1:refund");
+  });
+
+  test("throws when neither retrieve nor resolve is configured", async () => {
+    const task = polo.define(emptyInputSchema, {
+      id: "test_rag_missing_retrieve_and_resolve",
+      sources: {
+        docs: polo.source.rag(emptyInputSchema, {
+          rerank({ items }) {
+            return items;
+          },
+        }),
+      },
+    });
+
+    await expect(polo.resolve(task, {})).rejects.toThrow(
+      /requires either resolve\(\) or retrieve\(\)/,
+    );
+  });
+
   test("packs chunks within budget", async () => {
     const items = [
       { content: "a".repeat(100), score: 0.9 },

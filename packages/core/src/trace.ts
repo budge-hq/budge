@@ -2,6 +2,8 @@ import type {
   ChunkRecord,
   PolicyRecord,
   PromptTrace,
+  RagProfile,
+  RagStageRecord,
   SourceRecord,
   SourceRecordType,
   Trace,
@@ -16,6 +18,8 @@ export interface SourceTiming {
   resolvedAt: Date;
   durationMs: number;
   itemRecords?: ChunkRecord[];
+  ragProfile?: RagProfile;
+  ragPipeline?: RagStageRecord[];
 }
 
 export function buildTrace(options: {
@@ -55,7 +59,13 @@ export function buildTrace(options: {
       tags: t.tags,
     };
     if (t.type === "rag") {
-      return { ...base, type: "rag" as const, items: t.itemRecords ?? [] };
+      return {
+        ...base,
+        type: "rag" as const,
+        items: t.itemRecords ?? [],
+        ...(t.ragProfile !== undefined && { profile: t.ragProfile }),
+        ...(t.ragPipeline !== undefined && { pipeline: t.ragPipeline }),
+      };
     }
     return { ...base, type: t.type };
   });

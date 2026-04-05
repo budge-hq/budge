@@ -39,9 +39,22 @@ export interface Chunk {
   metadata?: Record<string, unknown>;
 }
 
+export type RagProfile = "fast" | "balanced" | "high_precision" | "adaptive";
+
+export type RagStageName = "retrieve" | "rerank" | "compress";
+
+export interface RagStageRecord {
+  stage: RagStageName;
+  inputItems: number;
+  outputItems: number;
+  durationMs: number;
+}
+
 export interface RagItems {
   _type: "rag";
   items: Chunk[];
+  _profile?: RagProfile;
+  _pipeline?: RagStageRecord[];
 }
 
 // ============================================================
@@ -114,8 +127,12 @@ export interface RagSourceConfig<
   TItem = Chunk,
 > extends SourceOptions {
   output?: AnySchema;
+  profile?: RagProfile;
   normalize?: (item: TItem) => Chunk;
-  resolve(args: SourceResolveArgs<TInput>): Promise<TItem[] | Chunk[]> | TItem[] | Chunk[];
+  resolve?(args: SourceResolveArgs<TInput>): Promise<TItem[] | Chunk[]> | TItem[] | Chunk[];
+  retrieve?(args: SourceResolveArgs<TInput>): Promise<TItem[] | Chunk[]> | TItem[] | Chunk[];
+  rerank?(args: SourceResolveArgs<TInput> & { items: Chunk[] }): Promise<Chunk[]> | Chunk[];
+  compress?(args: SourceResolveArgs<TInput> & { items: Chunk[] }): Promise<Chunk[]> | Chunk[];
 }
 
 export interface DependentRagSourceConfig<
@@ -124,10 +141,20 @@ export interface DependentRagSourceConfig<
   TItem = Chunk,
 > extends SourceOptions {
   output?: AnySchema;
+  profile?: RagProfile;
   normalize?: (item: TItem) => Chunk;
-  resolve(
+  resolve?(
     args: SourceResolveArgs<TInput> & SourceDepValues<TDeps>,
   ): Promise<TItem[] | Chunk[]> | TItem[] | Chunk[];
+  retrieve?(
+    args: SourceResolveArgs<TInput> & SourceDepValues<TDeps>,
+  ): Promise<TItem[] | Chunk[]> | TItem[] | Chunk[];
+  rerank?(
+    args: SourceResolveArgs<TInput> & SourceDepValues<TDeps> & { items: Chunk[] },
+  ): Promise<Chunk[]> | Chunk[];
+  compress?(
+    args: SourceResolveArgs<TInput> & SourceDepValues<TDeps> & { items: Chunk[] },
+  ): Promise<Chunk[]> | Chunk[];
 }
 
 export interface SourceDependencyRef {
@@ -409,7 +436,12 @@ type SourceRecordBase = {
 
 export type SourceRecord =
   | (SourceRecordBase & { type: "input" | "value"; items?: never })
-  | (SourceRecordBase & { type: "rag"; items: ChunkRecord[] });
+  | (SourceRecordBase & {
+      type: "rag";
+      items: ChunkRecord[];
+      profile?: RagProfile;
+      pipeline?: RagStageRecord[];
+    });
 
 export interface PolicyRecord {
   source: string;

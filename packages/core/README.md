@@ -60,6 +60,7 @@ const { context, prompt, trace } = await polo.resolve(supportReply, {
 - `polo.source.fromInput()` passes through call-time input fields.
 - `polo.source()` resolves async values (DB, APIs, files, etc.).
 - `polo.source.rag()` resolves ranked chunk lists that can be trimmed by budget.
+- `polo.source.rag()` also supports staged pipelines via `retrieve`, `rerank`, and `compress` hooks.
 - `derive()` adds computed values to the final context.
 - `policies.require` enforces must-have keys; `policies.prefer` marks nice-to-have keys.
 - `policies.exclude` applies runtime exclusion logic with auditable reasons.

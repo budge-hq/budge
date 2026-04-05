@@ -277,6 +277,25 @@ recentTickets: polo.source.rag(
 );
 ```
 
+You can also define an explicit stage pipeline for ecosystem integrations:
+
+```ts
+docs: polo.source.rag(transcriptSourceInputSchema, {
+  profile: "balanced",
+  async retrieve({ input }) {
+    return vectorStore.search(input.transcript);
+  },
+  async rerank({ input, items }) {
+    return cohereRerank(input.transcript, items);
+  },
+  async compress({ items }) {
+    return items.slice(0, 8);
+  },
+});
+```
+
+`retrieve`, `rerank`, and `compress` are plain functions, so you can plug in tools from AI SDK, Mastra, LangChain, or your own internal clients without adapter lock-in.
+
 ## Derive
 
 `derive()` computes values from resolved sources. The result is merged onto `context` alongside source data.
