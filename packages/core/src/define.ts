@@ -1,26 +1,21 @@
-import type { AnyInput, Definition, DefinitionConfig, InferSources, InputSchema } from "./types.ts";
-import { buildWaves } from "./graph.ts";
+import type { AnyInput, ComposeFn, Definition, InputSchema } from "./types.ts";
 
 export function createDefinition<
+  TResolveInput extends AnyInput,
   TInput extends AnyInput,
-  const TSourceMap extends Record<string, unknown>,
-  TDerived extends Record<string, unknown> = Record<string, never>,
-  const TRequired extends readonly Extract<keyof InferSources<TInput, TSourceMap>, string>[] = [],
-  const TPrefer extends readonly Extract<keyof InferSources<TInput, TSourceMap>, string>[] = [],
-  TResolveInput extends AnyInput = TInput,
+  TSchema extends InputSchema<TResolveInput, TInput>,
 >(
-  input: InputSchema<TResolveInput, TInput>,
-  config: DefinitionConfig<TInput, TSourceMap, TDerived, TRequired, TPrefer>,
-): Definition<TInput, TSourceMap, TDerived, TRequired, TPrefer, TResolveInput> {
-  buildWaves(config.sources, `context window "${config.id}"`);
-
+  input: TSchema,
+  config: {
+    id: string;
+    maxTokens: number;
+    compose: ComposeFn<TInput>;
+  },
+): Definition<TInput, TResolveInput> {
   return {
     _id: config.id,
     _inputSchema: input,
-    _sources: config.sources,
-    _derive: config.derive,
-    _policies: config.policies ?? {},
-    _system: config.system,
-    _prompt: config.prompt,
+    _maxTokens: config.maxTokens,
+    _compose: config.compose,
   };
 }

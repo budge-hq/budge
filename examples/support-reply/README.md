@@ -1,22 +1,18 @@
 # Support Reply Example
 
-This example shows a practical, end-to-end `@budge/core` context window for
-generating a support reply prompt under a strict token budget.
+This example shows the M1 `@budge/core` API:
 
-It demonstrates:
-
-- passthrough input sources via `budge.input()`
-- resolver sources for account and billing context
-- chunk sources for ranked ticket retrieval
-- `derive()` for prompt-ready flags (`isEnterprise`, `replyStyle`, `mentionsBilling`)
-- nested policy controls via `policies: { require, prefer, exclude, budget }`
-- trace inspection for policy decisions and compression metrics
+- reusable source handles defined once
+- `budge.window({ id, input, maxTokens, compose })`
+- `use(source, input)` inside `compose`
+- `.resolve({ input })` at runtime
+- `trace` as the receipt for what Budge resolved and measured
 
 ## Files
 
-- `src/sourceRegistry.ts` defines reusable sources
-- `src/supportReply.ts` declares the context window, policies, rendering, and trace summary helper
-- `src/index.ts` runs the demo and prints context/prompt/trace output
+- `src/sourceRegistry.ts` defines reusable `value` and `rag` sources
+- `src/supportReply.ts` declares the window and a small trace-summary helper
+- `src/index.ts` runs the example and prints the rendered prompt plus trace
 
 ## Run
 
@@ -27,16 +23,4 @@ vp pack
 vp run demo
 ```
 
-The demo resolves an input transcript and prints:
-
-- the final authoritative context keys
-- a sample system prompt
-- a sample prompt
-- a human-readable trace summary
-- the full trace JSON
-
-## What to look for
-
-- `billingNotes` is excluded unless the transcript is billing-related.
-- lower-ranked ticket chunks may be trimmed when over budget.
-- trace output shows exactly what was included, excluded, or dropped.
+The demo resolves a support transcript, renders `system` and `prompt`, and prints the trace Budge produced for the turn.

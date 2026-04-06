@@ -1,153 +1,74 @@
-import { describe, expect, test, vi } from "vite-plus/test";
+import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
-import { createBudge, type InferContext } from "../src/index.ts";
+import { createBudge } from "../src/index.ts";
 
-const budge = createBudge();
+describe("compose + resolve", () => {
+  test("resolves reusable sources inside compose and returns trace", async () => {
+    const budge = createBudge();
 
-describe("integration", () => {
-  test("full workflow: input + source + derive + exclude + chunks + trace", async () => {
-    const inputSchema = z.object({
-      accountId: z.string(),
-      transcript: z.string(),
-    });
-    const accountSourceInputSchema = z.object({
-      accountId: z.string(),
-    });
-    const transcriptSourceInputSchema = z.object({
-      transcript: z.string(),
-    });
-    const accountResult = {
-      plan: "enterprise" as const,
-      tier: "priority" as const,
-    };
-    const priorNoteResult = {
-      text: "previous note",
-    };
-    type Account = typeof accountResult;
-
-    const mockDb = {
-      account: vi.fn(async (_accountId: string) => accountResult),
-      priorNote: vi.fn(async (_plan: Account["plan"]) => priorNoteResult),
-    };
-
-    const mockVector = {
-      search: vi.fn().mockResolvedValue([
-        { pageContent: "guideline A ".repeat(5), score: 0.91 },
-        { pageContent: "guideline B ".repeat(5), score: 0.87 },
-        { pageContent: "guideline C ".repeat(200), score: 0.42 },
-      ] as Array<{ pageContent: string; score: number }>),
-    };
-
-    const accountSourceSet = budge.sourceSet(({ source }) => {
-      const account = source.value(accountSourceInputSchema, {
+    const accountSource = budge.source.value(
+      z.object({
+        accountId: z.string(),
+      }),
+      {
         tags: ["internal"],
         async resolve({ input }) {
-          return mockDb.account(input.accountId);
-        },
-      });
-
-      const priorNote = source.value(
-        accountSourceInputSchema,
-        { account },
-        {
-          async resolve({ account: acc }) {
-            return mockDb.priorNote(acc.plan);
-          },
-        },
-      );
-
-      const sensitiveData = source.value(accountSourceInputSchema, {
-        tags: ["phi"],
-        async resolve() {
-          return { secret: "should be excluded" };
-        },
-      });
-
-      return {
-        account,
-        priorNote,
-        sensitiveData,
-      };
-    });
-
-    const guidelineSourceSet = budge.sourceSet(({ source }) => {
-      const guidelines = source.rag(transcriptSourceInputSchema, {
-        tags: ["internal"],
-        async resolve({ input }) {
-          return mockVector.search(input.transcript) as Promise<
-            Array<{ pageContent: string; score: number }>
-          >;
-        },
-        normalize(item) {
           return {
-            content: item.pageContent,
-            score: item.score,
+            id: input.accountId,
+            name: "Acme",
+            plan: "enterprise" as const,
           };
         },
-      });
-
-      return { guidelines };
-    });
-
-    const sourceRegistry = budge.sources(accountSourceSet, guidelineSourceSet);
-
-    const run = budge.window({
-      input: inputSchema,
-      id: "e2e_test",
-      sources: {
-        transcript: budge.input("transcript", { tags: ["restricted"] }),
-        account: sourceRegistry.account,
-        priorNote: sourceRegistry.priorNote,
-        guidelines: sourceRegistry.guidelines,
-        sensitiveData: sourceRegistry.sensitiveData,
       },
-      derive: (ctx) => ({
-        isEnterprise: ctx.account.plan === "enterprise",
-        replyStyle: ctx.account.tier === "priority" ? "concise" : "standard",
-        hasPriorNote: !!ctx.priorNote,
+    );
+
+    const priorNoteSource = budge.source.value(
+      z.object({
+        encounter: z.object({
+          id: z.string(),
+          name: z.string(),
+          plan: z.string(),
+        }),
       }),
-      policies: {
-        require: ["transcript", "account"],
-        prefer: ["priorNote", "guidelines"],
-        exclude: [
-          () => ({
-            source: "sensitiveData",
-            reason: "sensitive data excluded from this task",
-          }),
-        ],
-        budget: 500,
+      {
+        async resolve({ input }) {
+          return `Prior note for ${input.encounter.name}`;
+        },
+      },
+    );
+
+    const window = budge.window({
+      id: "support-note",
+      maxTokens: Infinity,
+      input: z.object({
+        accountId: z.string(),
+      }),
+      async compose({ input, use }) {
+        const account = await use(accountSource, { accountId: input.accountId });
+        const priorNote = await use(priorNoteSource, { encounter: account });
+
+        const accountName: string = account.name;
+        const noteText: string = priorNote;
+
+        return {
+          system: `You are helping ${accountName}.`,
+          prompt: `Account:\n${account}\n\nPrior note:\n${noteText}`,
+        };
       },
     });
 
-    const { context, trace } = await run({
-      accountId: "acc_123",
-      transcript: "patient says they feel better",
+    const result = await window.resolve({
+      input: {
+        accountId: "acc_123",
+      },
     });
-    type TaskContext = InferContext<typeof run>;
-    const typedContext: TaskContext = context;
 
-    expect(typedContext.transcript).toBe("patient says they feel better");
-    expect(typedContext.account).toEqual({ plan: "enterprise", tier: "priority" });
-    expect(typedContext.priorNote).toEqual({ text: "previous note" });
-
-    expect("sensitiveData" in context).toBe(false);
-
-    expect(context.isEnterprise).toBe(true);
-    expect(context.replyStyle).toBe("concise");
-    expect(context.hasPriorNote).toBe(true);
-
-    const guidelines = context.guidelines ?? [];
-    expect(Array.isArray(guidelines)).toBe(true);
-    expect(guidelines.length).toBeGreaterThan(0);
-
-    expect(trace.windowId).toBe("e2e_test");
-    expect(trace.runId).toBeTruthy();
-    expect(trace.sources.length).toBeGreaterThan(0);
-    expect(trace.budget.max).toBe(500);
-
-    const excl = trace.policies.find((p) => p.action === "excluded");
-    expect(excl?.source).toBe("sensitiveData");
-
-    expect(JSON.stringify(trace)).not.toContain("should be excluded");
+    expect(result.system).toContain("Acme");
+    expect(result.prompt).toContain("Prior note for Acme");
+    expect(result.prompt).not.toContain("[object Object]");
+    expect(result.trace.windowId).toBe("support-note");
+    expect(result.trace.sources).toHaveLength(2);
+    expect(result.trace.budget.max).toBeNull();
+    expect(result.trace.prompt.totalTokens).toBeGreaterThan(0);
   });
 });

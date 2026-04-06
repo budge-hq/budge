@@ -1,8 +1,14 @@
 # @budge/core
 
-**The best context management framework for agents** — typed sources, policies, token budgets, rendering, and traces for production agent systems.
+`@budge/core` is the typed runtime for building and resolving context windows.
 
-`@budge/core` is the runtime that resolves context windows: where data comes from, how it is filtered, and how it must fit under a token ceiling. At runtime, Budge returns a typed `context`, optional top-level `system` and `prompt` strings, and a detailed `trace`.
+It gives you a small surface area:
+
+- reusable context sources
+- `window({ id, input, maxTokens, compose })`
+- `use(source, input)` inside `compose`
+- `window.resolve({ input })`
+- `trace` receipts for what ran and what the prompt cost
 
 ## Install
 
@@ -10,9 +16,9 @@
 pnpm add @budge/core zod
 ```
 
-`zod` is shown in examples, but any Standard Schema-compatible validator works.
+`zod` is used in the examples, but any Standard Schema-compatible validator works.
 
-## Quick Start
+## Quick start
 
 ```ts
 import { createBudge } from "@budge/core";
@@ -20,73 +26,254 @@ import { z } from "zod";
 
 const budge = createBudge();
 
-const taskInput = z.object({
-  accountId: z.string(),
-  transcript: z.string(),
+const noteSource = budge.source.value(z.object({ encounterId: z.string() }), {
+  async resolve({ input }) {
+    return db.getNote(input.encounterId);
+  },
 });
-
-const transcript = budge.input("transcript", { tags: ["restricted"] });
-
-const { account } = budge.sourceSet(({ source }) => ({
-  account: source.value(z.object({ accountId: z.string() }), {
-    tags: ["internal"],
-    async resolve({ input }) {
-      return db.getAccount(input.accountId);
-    },
-  }),
-}));
 
 const window = budge.window({
-  input: taskInput,
-  id: "support_reply",
-  sources: { transcript, account },
-  policies: {
-    require: ["transcript", "account"],
-    budget: 300,
+  id: "scribe-note",
+  input: z.object({ encounterId: z.string() }),
+  maxTokens: 2000,
+  async compose({ input, use }) {
+    const note = await use(noteSource, { encounterId: input.encounterId });
+
+    return {
+      system: "You are an AI medical scribe.",
+      prompt: `Prior note:\n${note}`,
+    };
   },
-  system: "You are a support engineer.",
-  prompt: (context) => `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}`,
 });
 
-const { context, system, prompt, trace } = await window({
-  accountId: "acc_123",
-  transcript: "Our webhook deliveries are timing out.",
+const result = await window.resolve({
+  input: { encounterId: "enc_123" },
 });
 ```
 
-## Core Concepts
+## Runtime setup
 
-- `budge.window({ input, sources, … })` — declare one context window; the return value is an async function you call each turn with input.
-- `budge.input(key, options?)` — pass through a value from call-time input as a tagged source.
-- `budge.sourceSet(({ source }) => …)` — define reusable resolver/chunk sources; use `source.value` and `source.rag` inside the builder.
-- `budge.sources(...sourceSets)` — compose reusable source sets into a shared registry.
-- `derive()` adds computed values to the final context.
-- `policies: { require, prefer, exclude, budget }` controls inclusion, exclusions, and budgets.
-- `system` and `prompt` render model-ready strings and enable exact prompt-token measurement.
+Create one Budge runtime with `createBudge()`:
 
-## Return Value
+```ts
+import { createBudge } from "@budge/core";
 
-Calling the function returned by `budge.window()` yields:
+const budge = createBudge({
+  onTrace(trace) {
+    console.log(trace);
+  },
+});
+```
 
-- `context`: final typed context after source resolution and policy application.
-- `system`: rendered system string when configured.
-- `prompt`: rendered prompt string when configured.
-- `trace`: source timings, budget decisions, policy records, and prompt token metrics.
+`createBudge()` gives you:
 
-`id` is required and should be stable for the logical window definition. Budge Cloud uses it to group runs of the same window.
+- `budge.source.value(...)`
+- `budge.source.rag(...)`
+- `budge.window(...)`
 
-## Local Development
+## Source definitions
 
-From this package directory (`packages/core`):
+Sources are defined once and reused across windows.
+
+### Value sources
+
+Use `budge.source.value(...)` for a single resolved value:
+
+```ts
+const accountSource = budge.source.value(z.object({ accountId: z.string() }), {
+  async resolve({ input }) {
+    return db.getAccount(input.accountId);
+  },
+});
+```
+
+### RAG sources
+
+Use `budge.source.rag(...)` for ranked multi-item context:
+
+```ts
+const docsSource = budge.source.rag(z.object({ query: z.string() }), {
+  async resolve({ input }) {
+    return vector.search(input.query);
+  },
+  normalize(item) {
+    return {
+      content: item.pageContent,
+      score: item.score,
+    };
+  },
+});
+```
+
+RAG sources resolve to chunk arrays when used inside `compose`.
+
+## Context windows
+
+The main primitive is:
+
+```ts
+budge.window({
+  id,
+  input,
+  maxTokens,
+  async compose({ input, use }) {
+    // ...
+    return { system, prompt };
+  },
+});
+```
+
+### Fields
+
+- `id` — stable logical identifier for the window
+- `input` — Standard Schema used to validate `resolve({ input })`
+- `maxTokens` — prompt budget; `Infinity` disables strict enforcement
+- `compose` — async function that fetches context and returns `{ system?, prompt? }`
+
+### `compose({ input, use })`
+
+`compose` is plain business logic.
+
+- `input` is the validated window input
+- `use(source, input)` resolves a source and returns its typed value
+- regular `if` statements decide what to fetch
+- the return value is the final prompt surface Budge measures
+
+Example:
+
+```ts
+async compose({ input, use }) {
+  const account = await use(accountSource, { accountId: input.accountId });
+
+  const docs = await use(docsSource, {
+    query: input.transcript,
+  });
+
+  return {
+    system: `You are helping ${account.name}.`,
+    prompt:
+      `Customer message:\n${input.transcript}` +
+      `\n\nAccount:\n${account}` +
+      (docs.length ? `\n\nDocs:\n${docs}` : ""),
+  };
+}
+```
+
+## Rendering and TOON
+
+Structured values interpolate directly inside strings:
+
+```ts
+prompt: `Account:\n${account}\n\nDocs:\n${docs}`;
+```
+
+Budge does not stringify these values as `[object Object]`.
+
+Instead:
+
+- strings pass through unchanged
+- objects and arrays are serialized with **TOON**
+- token counting runs on the final rendered `system` + `prompt`
+
+This lets you write plain template strings while still getting compact structured serialization.
+
+## Resolving a window
+
+Resolve a window with:
+
+```ts
+const result = await window.resolve({
+  input: { encounterId: "enc_123" },
+});
+```
+
+`result` contains:
+
+- `system?: string`
+- `prompt?: string`
+- `trace`
+
+## Budget behavior
+
+`maxTokens` is enforced on the final rendered prompt.
+
+Current behavior:
+
+- if `maxTokens === Infinity`, Budge still measures the prompt and emits `trace`
+- if `maxTokens` is finite and the final rendered prompt exceeds it, Budge throws `BudgetExceededError`
+
+This is currently a strict post-compose check. Lazy optional resolution and compaction come in later milestones.
+
+## Errors
+
+Current public errors:
+
+- `BudgetExceededError` — rendered prompt exceeded `maxTokens`
+- `RequiredSourceValueError` — a `use(...)` source resolved to `null` or `undefined`
+- `SourceResolutionError` — a source threw while resolving
+
+These errors can carry `trace` so you can inspect partial resolution state.
+
+## Trace
+
+Every successful resolve returns a `trace`.
+
+Today it includes:
+
+- `windowId`
+- `runId`
+- start/completion timestamps
+- per-source timing records
+- prompt token totals
+- budget usage and whether it was exceeded
+
+At a high level:
+
+```ts
+type Trace = {
+  version: 1;
+  runId: string;
+  windowId: string;
+  startedAt: Date;
+  completedAt: Date;
+  sources: Array<{
+    sourceId: string;
+    kind: "value" | "rag";
+    tags: string[];
+    resolvedAt: Date;
+    durationMs: number;
+    itemCount?: number;
+  }>;
+  budget: {
+    max: number | null;
+    used: number;
+    exceeded: boolean;
+  };
+  prompt: {
+    systemTokens: number;
+    promptTokens: number;
+    totalTokens: number;
+  };
+};
+```
+
+## Current primitives
+
+- `createBudge()`
+- `budge.source.value(...)`
+- `budge.source.rag(...)`
+- `budge.window({ id, input, maxTokens, compose })`
+- `use(source, input)`
+- `window.resolve({ input })`
+
+## Example
+
+See `examples/support-reply` for a full working example of the current API.
+
+## Local development
 
 ```bash
-vp install
 vp test
 vp check
 vp pack
 ```
-
-## Example
-
-See the working end-to-end example in
-`examples/support-reply/README.md`.

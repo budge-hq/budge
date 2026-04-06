@@ -1,21 +1,24 @@
-import type {
-  ChunkRecord,
-  PolicyRecord,
-  PromptTrace,
-  SourceRecord,
-  SourceRecordType,
-  Trace,
-} from "./types.ts";
-import type { SourceTag } from "./types.ts";
+import type { PromptTrace, SourceTag, SourceTrace, Trace } from "./types.ts";
 import { generateRunId } from "./utils.ts";
 
 export interface SourceTiming {
-  key: string;
-  type: SourceRecordType;
+  sourceId: string;
+  kind: "value" | "rag";
   tags: SourceTag[];
   resolvedAt: Date;
   durationMs: number;
-  itemRecords?: ChunkRecord[];
+  itemCount?: number;
+}
+
+function toSourceTrace(timing: SourceTiming): SourceTrace {
+  return {
+    sourceId: timing.sourceId,
+    kind: timing.kind,
+    tags: timing.tags,
+    resolvedAt: timing.resolvedAt,
+    durationMs: timing.durationMs,
+    ...(timing.itemCount !== undefined && { itemCount: timing.itemCount }),
+  };
 }
 
 export function buildTrace(options: {
@@ -23,58 +26,34 @@ export function buildTrace(options: {
   startedAt: Date;
   completedAt: Date;
   sourceTimings: SourceTiming[];
-  policyRecords: PolicyRecord[];
-  derived: Record<string, unknown>;
   budgetMax: number;
   budgetUsed: number;
-  strategyName?: string;
-  budgetCandidates?: number;
-  budgetSelected?: number;
-  promptTrace?: PromptTrace;
+  budgetExceeded: boolean;
+  prompt: PromptTrace;
 }): Trace {
   const {
     windowId,
     startedAt,
     completedAt,
     sourceTimings,
-    policyRecords,
-    derived,
     budgetMax,
     budgetUsed,
-    strategyName,
-    budgetCandidates,
-    budgetSelected,
-    promptTrace,
+    budgetExceeded,
+    prompt,
   } = options;
 
-  const sources: SourceRecord[] = sourceTimings.map((t): SourceRecord => {
-    const base = {
-      key: t.key,
-      resolvedAt: t.resolvedAt,
-      durationMs: t.durationMs,
-      tags: t.tags,
-    };
-    if (t.type === "rag") {
-      return { ...base, type: "rag" as const, items: t.itemRecords ?? [] };
-    }
-    return { ...base, type: t.type };
-  });
-
   return {
+    version: 1,
     runId: generateRunId(),
     windowId,
     startedAt,
     completedAt,
-    sources,
-    policies: policyRecords,
-    derived,
+    sources: sourceTimings.map(toSourceTrace),
     budget: {
-      max: budgetMax,
+      max: Number.isFinite(budgetMax) ? budgetMax : null,
       used: budgetUsed,
-      ...(strategyName !== undefined && { strategy: strategyName }),
-      ...(budgetCandidates !== undefined && { candidates: budgetCandidates }),
-      ...(budgetSelected !== undefined && { selected: budgetSelected }),
+      exceeded: budgetExceeded,
     },
-    ...(promptTrace !== undefined && { prompt: promptTrace }),
+    prompt,
   };
 }

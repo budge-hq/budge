@@ -1,42 +1,28 @@
 # Budge
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/budge-hq/budge)
+**The best context framework management for agents.**
 
-**The best context management framework for agents.**
+Most teams still spend most of their time on model choice, evals, and prompt tweaks. That matters, but as models improve and commoditize, more of the leverage shifts to **context**: what information you give the model, how you shape it, and how much it costs.
 
-Budge is the typed runtime that decides what goes into the model’s context window on every turn: which sources to fetch, how they compose, how policy shapes visibility, how a token budget is satisfied, and how the result is serialized into prompts. Each resolution returns a fully typed `context`, optional top-level `system` and `prompt` strings, and a `trace` receipt so you can see what the model saw and why.
+Budge is built for that layer.
 
-## The context layer
+## Why Budge
 
-1. **Sources** — Typed, async data fetchers with dependency resolution (`ValueSource`, `RAGSource`, `InputSource`). The DAG and wave execution live here; it is already Budge’s strongest component.
+- Prevent **context rot** by making context windows explicit and repeatable.
+- Prevent **context stuffing** by measuring the final prompt and enforcing budgets.
+- Optimize prompts so the model sees the **highest-leverage information** for the **lowest cost**.
+- Serialize structured context efficiently with **TOON** instead of bloated JSON.
+- Emit exact **traces** so you can see what ran, what the prompt cost, and what the model actually received.
 
-2. **Composition** — How sources are grouped, reused, and shared across windows. The `sourceSet` primitive: without it you only have sources; with it you have reusable context architecture.
+## How Budge Works
 
-3. **Budgeting** — Token-aware fitting. Not only “trim when over,” but the full priority cascade (require, prefer, drop, trim chunks), pluggable strategies such as `score_per_token`, and TOON serialization as part of fitting more into the budget.
-
-4. **Policy** — Rules for what the model should and should not see at runtime (`require`, `prefer`, `exclude`). Separate from budgeting: policy is intent (this source must appear); budgeting is constraint (fit within N tokens). They interact but stay distinct.
-
-5. **History** — Turn-level context: what accumulates across the agent loop. This belongs on the window, not as a separate primitive. Reversible edits (clear tool results, clear reasoning blocks, sliding window) live here.
-
-6. **Compaction** — The lossy tier when reversible edits are not enough: LLM summarization, structured persistent summaries, anchored merging, pluggable summarizers. This is where a managed cloud product plugs in.
-
-7. **Traces** — Every resolution produces a receipt: timing, token counts, compression ratios, policy decisions, inclusion and exclusion reasons. The base for observability and, eventually, closed-loop improvement.
-
-8. **Rendering** — How resolved context becomes `system` and `prompt` strings: proxy-based auto-serialization, TOON encoding, and model-ready structure. Poor serialization wastes budget even when sourcing and policy are perfect.
-
----
-
-## Installation
-
-```sh
-pnpm add @budge/core zod
-```
-
-Examples below use `zod` for schemas, but Budge works with Standard Schema-compatible validators.
+- Define reusable context sources once.
+- Compose a context window around a specific task.
+- Resolve the window into a model-ready `system`, `prompt`, and `trace`.
 
 ## Usage
 
-### Create instance
+### 1. Set up the runtime
 
 ```ts
 import { createBudge } from "@budge/core";
@@ -44,384 +30,66 @@ import { createBudge } from "@budge/core";
 export const budge = createBudge();
 ```
 
-`createBudge()` gives you an isolated runtime surface. You can also pass runtime hooks like `logger` and `onTrace` if you want to forward traces into your own observability layer.
-
-### Create source sets
+### 2. Create the context window
 
 ```ts
 import { z } from "zod";
 
-const supportReplyInputSchema = z.object({
-  accountId: z.string(),
-  transcript: z.string(),
-});
-
-const accountSourceInputSchema = z.object({
-  accountId: z.string(),
-});
-
-const transcriptSourceInputSchema = z.object({
-  transcript: z.string(),
-});
-
-const accountSourceSet = budge.sourceSet(({ source }) => {
-  const account = source.value(accountSourceInputSchema, {
-    tags: ["internal"],
-    async resolve({ input }) {
-      return db.getAccount(input.accountId);
-    },
-  });
-
-  const billingNotes = source.value(
-    accountSourceInputSchema,
-    { account },
-    {
-      tags: ["billing"],
-      async resolve({ account }) {
-        return db.getBillingNotes(account.id);
-      },
-    },
-  );
-
-  return { account, billingNotes };
-});
-
-const ticketSourceSet = budge.sourceSet(({ source }) => {
-  const recentTickets = source.rag(
-    transcriptSourceInputSchema,
-    { account: accountSourceSet.account },
-    {
-      tags: ["internal"],
-      async resolve({ input, account }) {
-        return vectorDb.searchTickets(account.id, input.transcript);
-      },
-      normalize(item) {
-        return {
-          content: item.pageContent,
-          score: item.relevanceScore,
-          metadata: { ticketId: item.id },
-        };
-      },
-    },
-  );
-
-  return { recentTickets };
-});
-
-const supportReplySources = budge.sources(accountSourceSet, ticketSourceSet);
-```
-
-Use `budge.sourceSet(...)` to author reusable resolver/chunk sources and `budge.sources(...)` to assemble the final shared registry. Input passthroughs like `transcript` stay local to each window declaration.
-
-Dependencies are declared by referencing source handles like `{ account }` or `{ account: accountSourceSet.account }`. Budge validates that graph during source composition, then checks that every `budge.window(...)` selects a dependency-closed source set.
-
-Source handles are single-owner objects: create them inside one `budge.sourceSet(...)`, then reference them from other sets as dependencies instead of re-exporting the same handle from multiple sets.
-
-### Declare a context window
-
-The core API is `budge.window({ input, id, sources, policies, … })`: one object describes a stable window identifier, sources, optional `derive`, optional `system` / `prompt`, and a nested `policies` block (`require`, `prefer`, `exclude`, `budget`) for a single context window. The return value is an async function you call each turn with validated input.
-
-```ts
-const transcript = budge.input("transcript", { tags: ["restricted"] });
-
-const runSupportReply = budge.window({
-  input: supportReplyInputSchema,
-  id: "support_reply",
-  sources: {
-    transcript,
-    account: supportReplySources.account,
-    billingNotes: supportReplySources.billingNotes,
-    recentTickets: supportReplySources.recentTickets,
-  },
-
-  derive: (ctx) => ({
-    isEnterprise: ctx.account.plan === "enterprise",
-    replyStyle: ctx.account.tier === "priority" ? "concise" : "standard",
-    mentionsBilling: /\b(invoice|refund|charge|billing)\b/i.test(ctx.transcript),
-  }),
-
-  policies: {
-    require: ["transcript", "account"],
-    prefer: ["recentTickets", "billingNotes"],
-    exclude: [
-      (ctx) =>
-        !ctx.mentionsBilling
-          ? {
-              source: "billingNotes",
-              reason: "billing notes are excluded unless the transcript is billing-related",
-            }
-          : false,
-    ],
-    budget: 110,
-  },
-
-  system: (context) =>
-    `You are a support engineer drafting a customer reply. Use a ${context.replyStyle} tone. ${
-      context.isEnterprise
-        ? "Prioritize urgency and ownership."
-        : "Keep the reply practical and direct."
-    }`,
-
-  prompt: (context) =>
-    `Customer message:\n${context.transcript}\n\nAccount:\n${context.account}${
-      context.recentTickets?.length
-        ? `\n\nRecent tickets:\n${context.recentTickets.map((ticket) => ticket.content).join("\n")}`
-        : ""
-    }\n\nBilling notes:\n${context.billingNotes ?? "N/A"}`,
-});
-```
-
-`id` is required and should remain stable for the logical window definition. Budge Cloud uses this value to group runs under the same window.
-
-`system` and `prompt` can each be a plain string or a function that receives the fully resolved, policy-gated render context. When you interpolate objects or arrays like `${context.account}`, Budge intercepts that coercion under the hood, serializes the raw value with [TOON](https://github.com/toon-format/toon), and only then measures the final rendered output. For chunk sources, direct interpolation serializes the full chunk objects; map to `chunk.content` when you only want the text. If you need the original value for custom formatting, use `context.raw`.
-
-### Resolve prompt and context
-
-```ts
-const { context, system, prompt, trace } = await runSupportReply({
-  accountId: "acc_123",
-  transcript: "Our webhook deliveries have been timing out in production since yesterday's deploy.",
-});
-
-// Pass directly to your model
-const { text } = await generateText({
-  model: "openai/gpt-5.4",
-  system,
-  prompt,
-});
-
-// Inspect the compression
-console.log(
-  `Compressed to ${((trace.prompt?.includedCompressionRatio ?? 0) * 100).toFixed(1)}% fewer tokens than the final included context`,
-);
-```
-
-`system` and `prompt` are absent when no renderer is configured — the resolved `context` object is still available for manual prompt construction.
-
----
-
-## API
-
-| API                                             | Description                                                           |
-| ----------------------------------------------- | --------------------------------------------------------------------- |
-| `createBudge(options?)`                         | Create an isolated Budge runtime                                      |
-| `budge.input(key, options?)`                    | Passthrough from call-time input                                      |
-| `budge.sourceSet(({ source }) => …)`            | Define reusable resolver/chunk sources (`source.value`, `source.rag`) |
-| `budge.sources(...sourceSets)`                  | Compose a shared source registry                                      |
-| `budge.window({ input, sources, policies, … })` | Declare a window; returns async `(input) => result`                   |
-| `source.value(inputSchema, config)`             | Resolve a single async value                                          |
-| `source.value(inputSchema, deps, config)`       | Resolve a value that depends on other sources                         |
-| `source.rag(inputSchema, config)`               | Resolve ranked multi-block context                                    |
-| `source.rag(inputSchema, deps, config)`         | Resolve ranked blocks with dependencies                               |
-
----
-
-## Rendering
-
-Add `system` and `prompt` fields to any window to have Budge construct model-ready strings:
-
-```ts
-system: (context) => `System instructions for ${context.account}`,
-prompt: (context) => `User-facing content:\n${context.transcript}`,
-```
-
-`context` inside render functions is render-aware:
-
-- interpolate objects and arrays directly: `${context.account}`, `${context.recentTickets}`
-- access fields normally for logic: `context.account.plan`, `context.recentTickets?.length`
-- use `context.raw` when you need the original JS value for custom formatting: `JSON.stringify(context.raw.account)`
-- for chunk sources, map to `chunk.content` when you only want text in the prompt
-
-### Budget fitting
-
-When a budget is set, Budge renders the configured `system` and `prompt`, counts exact tokens, and if over budget:
-
-1. **Drop default-included non-chunk sources** (lowest priority, dropped whole)
-2. **Drop preferred non-chunk sources** (dropped whole)
-3. **Trim chunks one-at-a-time** from chunk sources, lowest score first
-4. **Drop chunk sources whole** as a last resort
-
-Required sources are never dropped. Each dropped source is recorded in the trace.
-
-## Sources
-
-Use `budge.input()` for call-time input passthroughs. Inside `budge.sourceSet(({ source }) => …)`, `source.value()` wraps any async resolver: database queries, HTTP requests, file reads, whatever you already have.
-
-Resolvers receive a single argument object with:
-
-- `input`: window input narrowed by the source’s schema
-- direct dependency values, flattened onto the resolver args
-
-Budge builds the dependency graph from the source handles you pass in the `deps` object and validates it during source composition and window declaration.
-
-That gives you two safety nets:
-
-- type errors in `budge.window(...)` when a window selects a dependent source without its prerequisites
-- runtime errors with clear source names if JavaScript or ignored type errors bypass the static check
-
-Dependency validation follows the referenced source handles’ internal ids, not the window’s selected key names.
-
-```ts
-account: source.value(accountSourceInputSchema, {
+const accountSource = budge.source.value(z.object({ accountId: z.string() }), {
   async resolve({ input }) {
     return db.getAccount(input.accountId);
   },
 });
 
-billingNotes: source.value(
-  accountSourceInputSchema,
-  { account },
-  {
-    async resolve({ account }) {
-      return db.getBillingNotes(account.id);
-    },
+const supportReply = budge.window({
+  id: "support-reply",
+  input: z.object({
+    accountId: z.string(),
+    transcript: z.string(),
+  }),
+  maxTokens: 4000,
+  async compose({ input, use }) {
+    const account = await use(accountSource, { accountId: input.accountId });
+
+    return {
+      system: `You are helping ${account.name}.`,
+      prompt: `Customer message:\n${input.transcript}\n\nAccount:\n${account}`,
+    };
   },
-);
+});
 ```
 
-## RAG Sources
-
-`source.rag()` is for sources that return multiple ranked blocks. Budge fits as many as the token budget allows, drops the rest, and records each decision in the trace.
+### 3. Resolve the window
 
 ```ts
-recentTickets: source.rag(
-  transcriptSourceInputSchema,
-  { account },
-  {
-    async resolve({ input, account }) {
-      return vectorDb.searchTickets(account.id, input.transcript);
-    },
-    normalize(item) {
-      return {
-        content: item.pageContent,
-        score: item.relevanceScore,
-      };
-    },
+const result = await supportReply.resolve({
+  input: {
+    accountId: "acc_123",
+    transcript: "Our webhook deliveries are timing out.",
   },
-);
+});
+
+console.log(result.system);
+console.log(result.prompt);
+console.log(result.trace);
 ```
 
-## Derive
+## Primitives
 
-`derive()` computes values from resolved sources. The result is merged onto `context` alongside source data.
+- `createBudge()` sets up the runtime.
+- `budge.source.value(...)` and `budge.source.rag(...)` define reusable context sources.
+- `budge.window({ id, input, maxTokens, compose })` defines one context window.
+- `use(source, input)` resolves context inside `compose`.
+- `window.resolve({ input })` returns `system`, `prompt`, and `trace`.
 
-```ts
-derive: (ctx) => ({
-  isEnterprise: ctx.account.plan === "enterprise",
-  replyStyle: ctx.account.tier === "priority" ? "concise" : "standard",
-  mentionsBilling: /\b(invoice|refund|charge|billing)\b/i.test(ctx.transcript),
-}),
+## Packages
+
+- `@budge/core` — core runtime
+- `examples/support-reply` — end-to-end example of the current API
+
+## Development
+
+```bash
+vp check
+vp test
 ```
-
-## Policies
-
-```ts
-policies: {
-  require: ["transcript", "account"],
-  prefer: ["recentTickets", "billingNotes"],
-  exclude: [
-    (ctx) =>
-      !ctx.mentionsBilling
-        ? {
-            source: "billingNotes",
-            reason: "billing notes are excluded unless the transcript is billing-related",
-          }
-        : false,
-  ],
-  budget: 110,
-},
-```
-
-`policies.require` — must resolve or the window’s async call throws.  
-`policies.prefer` — included if it fits in budget.  
-`policies.exclude` — excludes a source with a reason, recorded in the trace.  
-`policies.budget` — token ceiling. Without `system` or `prompt`, tokens are estimated per-source using TOON serialization at 96% accuracy via [tokenx](https://github.com/johannschopplich/tokenx). With rendering enabled, Budge measures the exact rendered token count.
-
-> **v0:** policies operate on top-level source keys only. If nested data needs separate treatment, promote it to its own source.
-
-## Trace
-
-Calling the async function returned by `budge.window()` yields `trace` alongside `context`, optional `system`, and optional `prompt`. The trace records source resolution timing, tags, policy decisions, chunk inclusion, budget usage, and — when rendering is enabled — exact prompt-level token metrics. Raw resolved values are not stored.
-
-```json
-{
-  "sources": [
-    { "key": "transcript", "type": "input", "tags": ["restricted"] },
-    { "key": "account", "type": "value", "tags": ["internal"], "durationMs": 1 },
-    {
-      "key": "billingNotes",
-      "type": "value",
-      "tags": ["billing"],
-      "durationMs": 0
-    },
-    {
-      "key": "recentTickets",
-      "type": "rag",
-      "tags": ["internal"],
-      "items": [
-        { "included": true, "score": 0.91 },
-        { "included": false, "score": 0.14, "reason": "over_budget" }
-      ]
-    }
-  ],
-  "policies": [
-    { "source": "transcript", "action": "required", "reason": "required by policy" },
-    {
-      "source": "billingNotes",
-      "action": "excluded",
-      "reason": "billing notes are excluded unless the transcript is billing-related"
-    }
-  ],
-  "budget": { "max": 110, "used": 98 },
-  "prompt": {
-    "systemTokens": 22,
-    "promptTokens": 76,
-    "totalTokens": 98,
-    "rawContextTokens": 163,
-    "includedContextTokens": 121,
-    "compressionRatio": 0.399,
-    "includedCompressionRatio": 0.19
-  }
-}
-```
-
-`prompt.rawContextTokens` measures the naive JSON baseline for all resolved sources before policy exclusions or budget fitting.
-
-`prompt.includedContextTokens` measures the naive JSON baseline for the final rendered context after policy exclusions and budget fitting.
-
-`prompt.compressionRatio` is `max(0, 1 - totalTokens / rawContextTokens)` — the clamped fraction of tokens saved versus all resolved sources.
-
-`prompt.includedCompressionRatio` is `max(0, 1 - totalTokens / includedContextTokens)` — the clamped fraction of tokens saved versus the final included context. This is usually the better metric for comparing prompt compaction strategies.
-
----
-
-## Why Budge
-
-Hand-rolled context assembly usually means ad hoc fetches, everything stuffed into the prompt, and no durable record of what the model actually saw. That breaks down as soon as you need reliability, cost control, or debugging across agent turns.
-
-Budge gives you:
-
-- **consistent windows** — the same policies, sources, and budget every resolution
-- **explicit contracts** — input schemas, source schemas, and policies live with the window
-- **typed context** — `context` is fully typed from your source definitions, no casting
-- **validated dependency graphs** — sources run in parallel waves; missing prerequisites are caught before runtime work starts
-- **token-efficient serialization** — TOON encoding delivers ~40% fewer tokens than JSON on structured data, with equal or better model accuracy
-- **measurable optimization** — trace metrics include full-resolution and final-included compression metrics for comparing strategies
-- **debuggable runs** — when outputs go wrong, the trace shows what the model saw and why
-
----
-
-## Fits Your Stack
-
-Budge is the context layer in front of your existing AI stack — not a replacement for it.
-
-- **AI SDK** — pass `context`, `system`, and `prompt` directly to `generateText`, `generateObject`, or streaming APIs
-- **LangChain / LangGraph** — call your window’s async runner inside `dynamicSystemPromptMiddleware` or `wrapModelCall`; Budge owns context, your framework owns the loop
-- **Prisma / Drizzle / any ORM** — `source.value(inputSchema, { resolve })` (inside `sourceSet`) wraps any async resolver with minimal ceremony
-- **LangSmith / Braintrust** — forward `trace` into your observability pipeline; it carries timings, policy decisions, chunk records, and prompt compression metrics
-
----
-
-## License
-
-MIT

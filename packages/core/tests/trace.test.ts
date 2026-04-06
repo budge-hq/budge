@@ -1,134 +1,170 @@
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { z } from "zod";
 import { createBudge } from "../src/index.ts";
-import { buildTrace } from "../src/trace.ts";
-
-const budge = createBudge();
-const emptyInputSchema = z.object({});
 
 describe("trace", () => {
-  test("trace contains source timing records", async () => {
-    const run = budge.window({
-      input: emptyInputSchema,
-      id: "test_trace_sources",
-      sources: {
-        ...budge.sourceSet(({ source }) => ({
-          account: source.value(emptyInputSchema, {
-            resolve: async () => ({ id: "acc_1" }),
-            tags: ["internal"],
-          }),
-        })),
-      },
-    });
+  test("emits trace to the result and onTrace callback", async () => {
+    const onTrace = vi.fn();
+    const budge = createBudge({ onTrace });
 
-    const { trace } = await run({});
-    const sourceRecord = trace.sources.find((s) => s.key === "account");
-    expect(sourceRecord).toBeDefined();
-    expect(sourceRecord?.tags).toEqual(["internal"]);
-    expect(typeof sourceRecord?.durationMs).toBe("number");
-  });
-
-  test("trace contains budget usage", async () => {
-    const run = budge.window({
-      input: emptyInputSchema,
-      id: "test_trace_budget",
-      sources: {
-        ...budge.sourceSet(({ source }) => ({
-          data: source.value(emptyInputSchema, {
-            resolve: async () => ({ value: "hello" }),
-          }),
-        })),
-      },
-      policies: { budget: 10_000 },
-    });
-
-    const { trace } = await run({});
-    expect(trace.budget.max).toBe(10_000);
-    expect(trace.budget.used).toBeGreaterThanOrEqual(0);
-  });
-
-  test("trace contains derived values", async () => {
-    const run = budge.window({
-      input: emptyInputSchema,
-      id: "test_trace_derived",
-      sources: {
-        ...budge.sourceSet(({ source }) => ({
-          account: source.value(emptyInputSchema, {
-            resolve: async () => ({ plan: "enterprise" as const }),
-          }),
-        })),
-      },
-      derive: (ctx) => ({
-        isEnterprise: ctx.account.plan === "enterprise",
+    const encounterSource = budge.source.value(
+      z.object({
+        encounterId: z.string(),
       }),
-    });
-
-    const { trace } = await run({});
-    expect(trace.derived["isEnterprise"]).toBe(true);
-  });
-
-  test("each run gets a unique runId", async () => {
-    const run = budge.window({
-      input: emptyInputSchema,
-      id: "test_run_id",
-      sources: {
-        ...budge.sourceSet(({ source }) => ({
-          data: source.value(emptyInputSchema, {
-            resolve: async () => "x",
-          }),
-        })),
-      },
-    });
-
-    const [r1, r2] = await Promise.all([run({}), run({})]);
-
-    expect(r1.trace.runId).not.toBe(r2.trace.runId);
-  });
-
-  test("trace does not contain raw resolved data", async () => {
-    const run = budge.window({
-      input: emptyInputSchema,
-      id: "test_trace_no_data",
-      sources: {
-        ...budge.sourceSet(({ source }) => ({
-          secret: source.value(emptyInputSchema, {
-            resolve: async () => ({ ssn: "123-45-6789" }),
-            tags: ["phi"],
-          }),
-        })),
-      },
-    });
-
-    const { trace } = await run({});
-    const raw = JSON.stringify(trace);
-    expect(raw).not.toContain("123-45-6789");
-  });
-
-  test("buildTrace falls back to empty chunks when chunkRecords are missing", () => {
-    const now = new Date();
-    const trace = buildTrace({
-      windowId: "test_trace_chunk_fallback",
-      startedAt: now,
-      completedAt: now,
-      sourceTimings: [
-        {
-          key: "docs",
-          type: "rag",
-          tags: [],
-          resolvedAt: now,
-          durationMs: 0,
+      {
+        async resolve({ input }) {
+          return {
+            id: input.encounterId,
+            status: "ready" as const,
+          };
         },
-      ],
-      policyRecords: [],
-      derived: {},
-      budgetMax: 0,
-      budgetUsed: 0,
+      },
+    );
+
+    const window = budge.window({
+      id: "trace-window",
+      maxTokens: Infinity,
+      input: z.object({
+        encounterId: z.string(),
+      }),
+      async compose({ input, use }) {
+        const encounter = await use(encounterSource, { encounterId: input.encounterId });
+
+        return {
+          system: `Status: ${encounter.status}`,
+          prompt: `Encounter:\n${encounter}`,
+        };
+      },
     });
 
-    const docs = trace.sources.find((source) => source.key === "docs");
-    expect(docs?.type).toBe("rag");
-    if (docs?.type === "rag") {
-      expect(docs.items).toEqual([]);
+    const result = await window.resolve({
+      input: {
+        encounterId: "enc_123",
+      },
+    });
+
+    expect(onTrace).toHaveBeenCalledTimes(1);
+    expect(onTrace).toHaveBeenCalledWith(result.trace);
+    expect(result.trace.version).toBe(1);
+    expect(result.trace.sources[0]?.sourceId).toBeTruthy();
+    expect(result.trace.prompt.systemTokens).toBeGreaterThan(0);
+  });
+
+  test("observer hook failures do not corrupt a successful resolution", async () => {
+    const onTrace = vi.fn(() => {
+      throw new Error("observer failed");
+    });
+    const budge = createBudge({ onTrace });
+
+    const source = budge.source.value(
+      z.object({
+        encounterId: z.string(),
+      }),
+      {
+        async resolve({ input }) {
+          return {
+            id: input.encounterId,
+            status: "ready" as const,
+          };
+        },
+      },
+    );
+
+    const window = budge.window({
+      id: "trace-success-window",
+      maxTokens: Infinity,
+      input: z.object({
+        encounterId: z.string(),
+      }),
+      async compose({ input, use }) {
+        const encounter = await use(source, { encounterId: input.encounterId });
+
+        return {
+          prompt: `Encounter:\n${encounter}`,
+        };
+      },
+    });
+
+    const result = await window.resolve({
+      input: {
+        encounterId: "enc_123",
+      },
+    });
+
+    expect(onTrace).toHaveBeenCalledTimes(1);
+    expect(result.prompt).toContain("enc_123");
+  });
+
+  test("observer hook failures do not replace the original resolution error", async () => {
+    const onTrace = vi.fn(() => {
+      throw new Error("observer failed");
+    });
+    const budge = createBudge({ onTrace });
+
+    const failingSource = budge.source.value(
+      z.object({
+        encounterId: z.string(),
+      }),
+      {
+        async resolve() {
+          throw new Error("source failed");
+        },
+      },
+    );
+
+    const window = budge.window({
+      id: "trace-error-window",
+      maxTokens: Infinity,
+      input: z.object({
+        encounterId: z.string(),
+      }),
+      async compose({ input, use }) {
+        await use(failingSource, { encounterId: input.encounterId });
+
+        return {
+          prompt: "unreachable",
+        };
+      },
+    });
+
+    await expect(
+      window.resolve({
+        input: {
+          encounterId: "enc_123",
+        },
+      }),
+    ).rejects.toThrow("source failed");
+    expect(onTrace).toHaveBeenCalledTimes(1);
+  });
+
+  test("plain compose errors get a trace attached and are emitted to onTrace", async () => {
+    const onTrace = vi.fn();
+    const budge = createBudge({ onTrace });
+
+    const window = budge.window({
+      id: "compose-error-window",
+      maxTokens: Infinity,
+      input: z.object({
+        encounterId: z.string(),
+      }),
+      async compose() {
+        throw new Error("compose failed");
+      },
+    });
+
+    try {
+      await window.resolve({
+        input: {
+          encounterId: "enc_123",
+        },
+      });
+      throw new Error("Expected window.resolve() to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as { message: string }).message).toBe("compose failed");
+      expect((error as { trace?: unknown }).trace).toBeTruthy();
     }
+
+    expect(onTrace).toHaveBeenCalledTimes(1);
   });
 });
