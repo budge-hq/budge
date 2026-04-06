@@ -167,4 +167,30 @@ describe("trace", () => {
 
     expect(onTrace).toHaveBeenCalledTimes(1);
   });
+
+  test("primitive compose errors are preserved when trace emission runs", async () => {
+    const onTrace = vi.fn();
+    const budge = createBudge({ onTrace });
+
+    const window = budge.window({
+      id: "primitive-compose-error-window",
+      maxTokens: Infinity,
+      input: z.object({
+        encounterId: z.string(),
+      }),
+      async compose() {
+        throw "db error";
+      },
+    });
+
+    await expect(
+      window.resolve({
+        input: {
+          encounterId: "enc_123",
+        },
+      }),
+    ).rejects.toBe("db error");
+
+    expect(onTrace).not.toHaveBeenCalled();
+  });
 });

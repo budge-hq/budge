@@ -16,14 +16,14 @@ import type {
   WindowHandle,
 } from "./types.ts";
 
-export interface ValueSourceFactory {
+interface ValueSourceFactory {
   <TSchema extends InputSchema<AnyInput, AnyInput>, TOutput>(
     input: TSchema,
     config: SourceConfig<InferSchemaOutputObject<TSchema>, TOutput>,
   ): ValueSource<Awaited<TOutput>, InferSchemaInputObject<TSchema>>;
 }
 
-export interface RagSourceFactory {
+interface RagSourceFactory {
   <TSchema extends InputSchema<AnyInput, AnyInput>, TItem>(
     input: TSchema,
     config: RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
@@ -60,8 +60,13 @@ function createSourceFactory(): SourceFactory {
   return { value, rag };
 }
 
-function emitTrace(options: BudgeOptions, trace: { trace?: unknown } | undefined): void {
-  if (!trace || !("trace" in trace) || trace.trace === undefined) {
+function emitTrace(options: BudgeOptions, trace: unknown): void {
+  if (
+    typeof trace !== "object" ||
+    trace === null ||
+    !("trace" in trace) ||
+    trace.trace === undefined
+  ) {
     return;
   }
 
