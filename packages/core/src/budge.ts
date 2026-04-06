@@ -69,8 +69,17 @@ function emitTrace(options: BudgeOptions, trace: { trace?: unknown } | undefined
     return;
   }
 
-  options.onTrace?.(trace.trace as Parameters<NonNullable<BudgeOptions["onTrace"]>>[0]);
-  options.logger?.info?.({ trace: trace.trace });
+  try {
+    options.onTrace?.(trace.trace as Parameters<NonNullable<BudgeOptions["onTrace"]>>[0]);
+  } catch {
+    // Observer hooks must not affect resolution results.
+  }
+
+  try {
+    options.logger?.info?.({ trace: trace.trace });
+  } catch {
+    // Logging failures must not affect resolution results.
+  }
 }
 
 export function createBudge(options: BudgeOptions = {}): BudgeInstance {

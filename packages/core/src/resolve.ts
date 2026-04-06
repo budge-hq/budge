@@ -132,7 +132,7 @@ function createPromptTrace(system: string | undefined, prompt: string | undefine
 }
 
 function attachTrace(error: unknown, trace: ResolveResult["trace"]): void {
-  if (typeof error === "object" && error !== null && "trace" in error) {
+  if (typeof error === "object" && error !== null) {
     (error as { trace?: ResolveResult["trace"] }).trace = trace;
   }
 }
@@ -145,7 +145,7 @@ function createUse(windowId: string, state: RenderState, sourceTimings: SourceTi
     const startedAt = Date.now();
 
     try {
-      const resolved = await source.resolve(input, {});
+      const resolved = await source.resolve(input);
       const unwrapped = unwrapSourceValue(resolved);
 
       if (unwrapped === null || unwrapped === undefined) {
@@ -211,6 +211,8 @@ export async function resolveDefinition<
     const system = materializeText(composed.system, renderState.slotValues);
     const prompt = materializeText(composed.prompt, renderState.slotValues);
     const promptTrace = createPromptTrace(system, prompt);
+    const budgetExceeded =
+      Number.isFinite(definition._maxTokens) && promptTrace.totalTokens > definition._maxTokens;
     const completedAt = new Date();
     const trace = buildTrace({
       windowId: definition._id,
@@ -219,12 +221,11 @@ export async function resolveDefinition<
       sourceTimings,
       budgetMax: definition._maxTokens,
       budgetUsed: promptTrace.totalTokens,
-      budgetExceeded:
-        Number.isFinite(definition._maxTokens) && promptTrace.totalTokens > definition._maxTokens,
+      budgetExceeded,
       prompt: promptTrace,
     });
 
-    if (Number.isFinite(definition._maxTokens) && promptTrace.totalTokens > definition._maxTokens) {
+    if (budgetExceeded) {
       const error = new BudgetExceededError(
         definition._id,
         definition._maxTokens,

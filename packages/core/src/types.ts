@@ -67,7 +67,7 @@ export interface ResolverSource<
   _sourceKind: "value" | "rag";
   output?: AnySchema;
   tags?: SourceTag[];
-  resolve(input: AnyInput, context: Record<string, unknown>): Promise<TResult>;
+  resolve(input: AnyInput): Promise<TResult>;
   _input?: TSourceInput;
   _resolveInput?: TResolveInput;
 }
