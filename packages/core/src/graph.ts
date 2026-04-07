@@ -241,9 +241,17 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
       }),
     );
 
-    const failed = results.find((result) => result.status === "rejected");
-    if (failed?.status === "rejected") {
-      throw failed.reason;
+    const failures = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failures.length === 1) {
+      throw failures[0].reason;
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(
+        failures.map((failure) => failure.reason),
+        `Multiple sources failed while resolving a wave in context window "${windowId}".`,
+      );
     }
   }
 

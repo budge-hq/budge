@@ -2,16 +2,16 @@ import type { Trace } from "./types.ts";
 
 export class SourceResolutionError extends Error {
   readonly sourceKey: string;
-  readonly cause: unknown;
+  declare readonly cause: unknown;
   traces?: Trace;
 
   constructor(sourceKey: string, windowId: string, cause: unknown) {
     super(
       `Source "${sourceKey}" threw during resolution in context window "${windowId}": ${String(cause)}`,
+      { cause },
     );
     this.name = "SourceResolutionError";
     this.sourceKey = sourceKey;
-    this.cause = cause;
   }
 }
 

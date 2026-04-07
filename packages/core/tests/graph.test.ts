@@ -104,4 +104,48 @@ describe("source graph", () => {
     expect(result.context.second).toBe("second-value");
     expect(durationMs).toBeLessThan(18);
   });
+
+  test("throws AggregateError when multiple sources fail in the same wave", async () => {
+    const window = budge.window({
+      id: "aggregate-failure-window",
+      input: emptyInputSchema,
+      sources: ({ source }) => ({
+        first: source.value(emptyInputSchema, {
+          async resolve() {
+            throw new Error("first failure");
+          },
+        }),
+        second: source.value(emptyInputSchema, {
+          async resolve() {
+            throw new Error("second failure");
+          },
+        }),
+      }),
+    });
+
+    try {
+      await window.resolve({ input: {} });
+      throw new Error("Expected window.resolve() to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError);
+
+      const aggregateError = error as AggregateError & {
+        traces?: {
+          sources: Array<{ key: string; status: string }>;
+        };
+      };
+
+      expect(aggregateError.errors).toHaveLength(2);
+      expect(aggregateError.errors.map((failure) => (failure as Error).message).sort()).toEqual([
+        'Source "first" threw during resolution in context window "aggregate-failure-window": Error: first failure',
+        'Source "second" threw during resolution in context window "aggregate-failure-window": Error: second failure',
+      ]);
+      expect(
+        aggregateError.traces?.sources
+          .filter((source) => source.status === "failed")
+          .map((source) => source.key)
+          .sort(),
+      ).toEqual(["first", "second"]);
+    }
+  });
 });
