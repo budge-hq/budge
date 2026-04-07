@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./assets/logo@2x.png" width="200" alt="budge" />
+</p>
+
 # Budge
 
 > The missing observability layer for context assembly. Evals for inputs, not outputs.
