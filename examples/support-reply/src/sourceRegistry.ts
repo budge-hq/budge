@@ -15,13 +15,12 @@ export const accountSource = budge.source.value(
 );
 
 export const billingNotesSource = budge.source.value(
-  z.object({
-    accountId: z.string(),
-  }),
+  z.object({}),
+  { account: accountSource },
   {
     tags: ["billing"],
-    async resolve({ input }) {
-      const notes = await db.getBillingNotes(input.accountId);
+    async resolve({ account }) {
+      const notes = await db.getBillingNotes(account.id);
       return notes ?? "No billing notes available.";
     },
   },

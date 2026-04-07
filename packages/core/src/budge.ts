@@ -1,16 +1,28 @@
 import { createWindowSpec } from "./window-spec.ts";
 import { resolveWindowSpec } from "./resolve.ts";
-import { createRagSource, createValueSource } from "./source.ts";
+import {
+  createDependentRagSource,
+  createDependentValueSource,
+  createFromInputSource,
+  createRagSource,
+  createValueSource,
+} from "./source.ts";
 import type {
   AnyInput,
+  AnyResolverSource,
+  AnySource,
   BudgeOptions,
-  ComposeContext,
-  ComposeResult,
+  DependentRagSourceConfig,
+  DependentSourceConfig,
+  FromInputSourceOptions,
+  InferSources,
   InferSchemaInputObject,
   InferSchemaOutputObject,
+  InputSource,
   InputSchema,
   RagSource,
   RagSourceConfig,
+  SourceShape,
   SourceConfig,
   ValueSource,
   WindowHandle,
@@ -21,6 +33,16 @@ interface ValueSourceFactory {
     input: TSchema,
     config: SourceConfig<InferSchemaOutputObject<TSchema>, TOutput>,
   ): ValueSource<Awaited<TOutput>, InferSchemaInputObject<TSchema>>;
+
+  <
+    TSchema extends InputSchema<AnyInput, AnyInput>,
+    const TDeps extends Record<string, AnyResolverSource>,
+    TOutput,
+  >(
+    input: TSchema,
+    deps: TDeps,
+    config: DependentSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TOutput>,
+  ): ValueSource<Awaited<TOutput>, InferSchemaInputObject<TSchema>>;
 }
 
 interface RagSourceFactory {
@@ -28,56 +50,102 @@ interface RagSourceFactory {
     input: TSchema,
     config: RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
   ): RagSource<InferSchemaInputObject<TSchema>>;
+
+  <
+    TSchema extends InputSchema<AnyInput, AnyInput>,
+    const TDeps extends Record<string, AnyResolverSource>,
+    TItem,
+  >(
+    input: TSchema,
+    deps: TDeps,
+    config: DependentRagSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
+  ): RagSource<InferSchemaInputObject<TSchema>>;
 }
 
 export interface SourceFactory {
   value: ValueSourceFactory;
   rag: RagSourceFactory;
+  fromInput<TKey extends string>(key: TKey, options?: FromInputSourceOptions): InputSource<TKey>;
 }
 
 export interface BudgeInstance {
-  window<TSchema extends InputSchema<AnyInput, AnyInput>>(config: {
+  window<
+    TSchema extends InputSchema<AnyInput, AnyInput>,
+    const TSourceMap extends Record<string, AnySource>,
+  >(config: {
     id: string;
     input: TSchema;
-    maxTokens: number;
-    compose: (
-      context: ComposeContext<InferSchemaOutputObject<TSchema>>,
-    ) => ComposeResult | Promise<ComposeResult>;
-  }): WindowHandle<InferSchemaInputObject<TSchema>>;
+    sources: (helpers: {
+      source: SourceFactory;
+    }) => TSourceMap & SourceShape<InferSchemaOutputObject<TSchema>, TSourceMap>;
+  }): WindowHandle<
+    InferSchemaInputObject<TSchema>,
+    InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>
+  >;
 
   source: SourceFactory;
 }
 
 function createSourceFactory(): SourceFactory {
-  const value: ValueSourceFactory = (input, config) => {
-    return createValueSource(input, config);
+  const value: ValueSourceFactory = (
+    input: InputSchema<AnyInput, AnyInput>,
+    depsOrConfig: SourceConfig<AnyInput, unknown> | Record<string, AnyResolverSource>,
+    maybeConfig?: DependentSourceConfig<AnyInput, Record<string, AnyResolverSource>, unknown>,
+  ) => {
+    if (maybeConfig) {
+      return createDependentValueSource(
+        input,
+        depsOrConfig as Record<string, AnyResolverSource>,
+        maybeConfig,
+      );
+    }
+
+    return createValueSource(input, depsOrConfig as SourceConfig<AnyInput, unknown>);
   };
 
-  const rag: RagSourceFactory = (input, config) => {
-    return createRagSource(input, config);
+  const rag: RagSourceFactory = (
+    input: InputSchema<AnyInput, AnyInput>,
+    depsOrConfig: RagSourceConfig<AnyInput, unknown> | Record<string, AnyResolverSource>,
+    maybeConfig?: DependentRagSourceConfig<AnyInput, Record<string, AnyResolverSource>, unknown>,
+  ) => {
+    if (maybeConfig) {
+      return createDependentRagSource(
+        input,
+        depsOrConfig as Record<string, AnyResolverSource>,
+        maybeConfig,
+      );
+    }
+
+    return createRagSource(input, depsOrConfig as RagSourceConfig<AnyInput, unknown>);
   };
 
-  return { value, rag };
+  return {
+    value,
+    rag,
+    fromInput(key, options) {
+      return createFromInputSource(key, options);
+    },
+  };
 }
 
-function emitTrace(options: BudgeOptions, trace: unknown): void {
+function emitTrace(options: BudgeOptions, result: unknown): void {
   if (
-    typeof trace !== "object" ||
-    trace === null ||
-    !("trace" in trace) ||
-    trace.trace === undefined
+    typeof result !== "object" ||
+    result === null ||
+    !("traces" in result) ||
+    result.traces === undefined
   ) {
     return;
   }
 
   try {
-    options.onTrace?.(trace.trace as Parameters<NonNullable<BudgeOptions["onTrace"]>>[0]);
+    options.onTrace?.(result.traces as Parameters<NonNullable<BudgeOptions["onTrace"]>>[0]);
   } catch {
     // Observer hooks must not affect resolution results.
   }
 
   try {
-    options.logger?.info?.({ trace: trace.trace });
+    options.logger?.info?.({ traces: result.traces });
   } catch {
     // Logging failures must not affect resolution results.
   }
@@ -87,18 +155,23 @@ export function createBudge(options: BudgeOptions = {}): BudgeInstance {
   const source = createSourceFactory();
 
   return {
-    window<TSchema extends InputSchema<AnyInput, AnyInput>>(config: {
+    window<
+      TSchema extends InputSchema<AnyInput, AnyInput>,
+      const TSourceMap extends Record<string, AnySource>,
+    >(config: {
       id: string;
       input: TSchema;
-      maxTokens: number;
-      compose: (
-        context: ComposeContext<InferSchemaOutputObject<TSchema>>,
-      ) => ComposeResult | Promise<ComposeResult>;
-    }): WindowHandle<InferSchemaInputObject<TSchema>> {
-      const windowSpec = createWindowSpec(config.input, {
+      sources: (helpers: {
+        source: SourceFactory;
+      }) => TSourceMap & SourceShape<InferSchemaOutputObject<TSchema>, TSourceMap>;
+    }): WindowHandle<
+      InferSchemaInputObject<TSchema>,
+      InferSources<InferSchemaOutputObject<TSchema>, TSourceMap>
+    > {
+      const sourceMap = config.sources({ source }) as TSourceMap;
+      const windowSpec = createWindowSpec<TSchema, TSourceMap>(config.input, {
         id: config.id,
-        maxTokens: config.maxTokens,
-        compose: config.compose,
+        sources: sourceMap,
       });
 
       return {
@@ -109,7 +182,7 @@ export function createBudge(options: BudgeOptions = {}): BudgeInstance {
             emitTrace(options, result);
             return result;
           } catch (error) {
-            emitTrace(options, error as { trace?: unknown });
+            emitTrace(options, error as { traces?: unknown });
             throw error;
           }
         },

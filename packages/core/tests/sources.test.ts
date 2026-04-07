@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
-import { RequiredSourceValueError, createBudge } from "../src/index.ts";
+import { createBudge } from "../src/index.ts";
 
 describe("sources", () => {
   test("validates source input schemas before calling resolve", async () => {
@@ -43,17 +43,12 @@ describe("sources", () => {
 
     const window = budge.window({
       id: "invalid-source",
-      maxTokens: Infinity,
       input: z.object({
         encounterId: z.string(),
       }),
-      async compose({ input, use }) {
-        const value = await use(invalidSource, { encounterId: input.encounterId });
-
-        return {
-          prompt: String(value),
-        };
-      },
+      sources: () => ({
+        invalidSource,
+      }),
     });
 
     await expect(
@@ -90,17 +85,12 @@ describe("sources", () => {
 
     const window = budge.window({
       id: "transformed-source",
-      maxTokens: Infinity,
       input: z.object({
         encounterId: z.string(),
       }),
-      async compose({ input, use }) {
-        const value = await use(transformedSource, { encounterId: input.encounterId });
-
-        return {
-          prompt: JSON.stringify(value),
-        };
-      },
+      sources: () => ({
+        transformedSource,
+      }),
     });
 
     const result = await window.resolve({
@@ -109,45 +99,29 @@ describe("sources", () => {
       },
     });
 
-    expect(result.prompt).toContain('"text":"hello"');
-    expect(result.prompt).not.toContain("secret");
+    expect(result.context.transformedSource).toEqual({ text: "hello" });
   });
 
-  test("treats use() as required and throws when a source resolves empty", async () => {
+  test("passes through window input with fromInput", async () => {
     const budge = createBudge();
 
-    const emptySource = budge.source.value(
-      z.object({
-        encounterId: z.string(),
-      }),
-      {
-        async resolve() {
-          return undefined as string | undefined;
-        },
-      },
-    );
-
     const window = budge.window({
-      id: "required-source",
-      maxTokens: Infinity,
+      id: "from-input-window",
       input: z.object({
         encounterId: z.string(),
       }),
-      async compose({ input, use }) {
-        const note = await use(emptySource, { encounterId: input.encounterId });
+      sources: ({ source }) => ({
+        encounterId: source.fromInput("encounterId", { tags: ["restricted"] }),
+      }),
+    });
 
-        return {
-          prompt: note,
-        };
+    const result = await window.resolve({
+      input: {
+        encounterId: "enc_123",
       },
     });
 
-    await expect(
-      window.resolve({
-        input: {
-          encounterId: "enc_123",
-        },
-      }),
-    ).rejects.toBeInstanceOf(RequiredSourceValueError);
+    expect(result.context.encounterId).toBe("enc_123");
+    expect(result.traces.sources[0]?.kind).toBe("input");
   });
 });

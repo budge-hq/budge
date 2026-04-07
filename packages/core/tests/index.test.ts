@@ -2,8 +2,12 @@ import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
 import { createBudge } from "../src/index.ts";
 
-describe("compose + resolve", () => {
-  test("resolves reusable sources inside compose and returns trace", async () => {
+function expectType<T>(_value: T): void {
+  // compile-time only
+}
+
+describe("window resolution", () => {
+  test("resolves reusable sources through a declarative source builder", async () => {
     const budge = createBudge();
 
     const accountSource = budge.source.value(
@@ -23,52 +27,50 @@ describe("compose + resolve", () => {
     );
 
     const priorNoteSource = budge.source.value(
-      z.object({
-        encounter: z.object({
-          id: z.string(),
-          name: z.string(),
-          plan: z.string(),
-        }),
-      }),
+      z.object({}),
+      { account: accountSource },
       {
-        async resolve({ input }) {
-          return `Prior note for ${input.encounter.name}`;
+        async resolve({ account }) {
+          return `Prior note for ${account.name}`;
         },
       },
     );
 
     const window = budge.window({
       id: "support-note",
-      maxTokens: Infinity,
       input: z.object({
         accountId: z.string(),
+        transcript: z.string(),
       }),
-      async compose({ input, use }) {
-        const account = await use(accountSource, { accountId: input.accountId });
-        const priorNote = await use(priorNoteSource, { encounter: account });
-
-        const accountName: string = account.name;
-        const noteText: string = priorNote;
-
-        return {
-          system: `You are helping ${accountName}.`,
-          prompt: `Account:\n${account}\n\nPrior note:\n${noteText}`,
-        };
-      },
+      sources: ({ source }) => ({
+        transcript: source.fromInput("transcript", { tags: ["restricted"] }),
+        account: accountSource,
+        priorNote: priorNoteSource,
+      }),
     });
 
     const result = await window.resolve({
       input: {
         accountId: "acc_123",
+        transcript: "Our webhook deliveries are timing out.",
       },
     });
 
-    expect(result.system).toContain("Acme");
-    expect(result.prompt).toContain("Prior note for Acme");
-    expect(result.prompt).not.toContain("[object Object]");
-    expect(result.trace.windowId).toBe("support-note");
-    expect(result.trace.sources).toHaveLength(2);
-    expect(result.trace.budget.max).toBeNull();
-    expect(result.trace.prompt.totalTokens).toBeGreaterThan(0);
+    expectType<string>(result.context.transcript);
+    expectType<{ id: string; name: string; plan: "enterprise" }>(result.context.account);
+    expectType<string>(result.context.priorNote);
+
+    expect(result.context.transcript).toBe("Our webhook deliveries are timing out.");
+    expect(result.context.account.name).toBe("Acme");
+    expect(result.context.priorNote).toBe("Prior note for Acme");
+    expect(result.traces.windowId).toBe("support-note");
+    expect(result.traces.sources).toHaveLength(3);
+
+    const transcriptTrace = result.traces.sources.find((source) => source.key === "transcript");
+    expect(transcriptTrace?.kind).toBe("input");
+    expect(transcriptTrace?.tags).toEqual(["restricted"]);
+
+    const priorNoteTrace = result.traces.sources.find((source) => source.key === "priorNote");
+    expect(priorNoteTrace?.dependsOn).toEqual(["account"]);
   });
 });

@@ -1,12 +1,19 @@
 import type {
   AnyInput,
+  AnyResolverSource,
   AnySchema,
   Chunk,
+  DependentRagSourceConfig,
+  DependentSourceConfig,
+  FromInputSourceOptions,
   InferSchemaInputObject,
   InferSchemaOutputObject,
+  InputSource,
   InputSchema,
   RagSource,
   RagSourceConfig,
+  SourceDepValues,
+  SourceResolveArgs,
   SourceConfig,
   ValueSource,
 } from "./types.ts";
@@ -60,19 +67,52 @@ async function validateSourceOutput<TOutput>(
   return result.value as TOutput;
 }
 
+export function createFromInputSource<TKey extends string>(
+  key: TKey,
+  options?: FromInputSourceOptions,
+): InputSource<TKey> {
+  return {
+    _type: "input",
+    _internalId: createSourceInternalId(),
+    _sourceKind: "input",
+    _key: key,
+    _tags: options?.tags ?? [],
+  };
+}
+
 export function createValueSource<TSchema extends InputSchema<AnyInput, AnyInput>, TOutput>(
   inputSchema: TSchema,
   config: SourceConfig<InferSchemaOutputObject<TSchema>, TOutput>,
+): ValueSource<Awaited<TOutput>, InferSchemaInputObject<TSchema>> {
+  return createDependentValueSource(inputSchema, {}, config);
+}
+
+export function createDependentValueSource<
+  TSchema extends InputSchema<AnyInput, AnyInput>,
+  const TDeps extends Record<string, AnyResolverSource>,
+  TOutput,
+>(
+  inputSchema: TSchema,
+  dependencies: TDeps,
+  config: DependentSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TOutput>,
 ): ValueSource<Awaited<TOutput>, InferSchemaInputObject<TSchema>> {
   return {
     _type: "resolver",
     _internalId: createSourceInternalId(),
     _sourceKind: "value",
+    _dependencySources: dependencies,
     output: config.output,
     tags: config.tags ?? [],
-    async resolve(runtimeInput: InferSchemaInputObject<TSchema>): Promise<Awaited<TOutput>> {
+    async resolve(
+      runtimeInput: InferSchemaInputObject<TSchema>,
+      context: Record<string, unknown> = {},
+    ): Promise<Awaited<TOutput>> {
       const normalizedInput = await validateSourceInput(inputSchema, runtimeInput);
-      const resolved = await config.resolve({ input: normalizedInput });
+      const resolveArgs = {
+        input: normalizedInput,
+        ...context,
+      } as unknown as SourceResolveArgs<InferSchemaOutputObject<TSchema>> & SourceDepValues<TDeps>;
+      const resolved = await config.resolve(resolveArgs);
       return await validateSourceOutput(config.output, resolved as Awaited<TOutput>);
     },
   };
@@ -82,16 +122,40 @@ export function createRagSource<TSchema extends InputSchema<AnyInput, AnyInput>,
   inputSchema: TSchema,
   config: RagSourceConfig<InferSchemaOutputObject<TSchema>, TItem>,
 ): RagSource<InferSchemaInputObject<TSchema>> {
+  return createDependentRagSource(inputSchema, {}, config);
+}
+
+export function createDependentRagSource<
+  TSchema extends InputSchema<AnyInput, AnyInput>,
+  const TDeps extends Record<string, AnyResolverSource>,
+  TItem,
+>(
+  inputSchema: TSchema,
+  dependencies: TDeps,
+  config: DependentRagSourceConfig<InferSchemaOutputObject<TSchema>, TDeps, TItem>,
+): RagSource<InferSchemaInputObject<TSchema>> {
   return {
     _type: "resolver",
     _internalId: createSourceInternalId(),
     _sourceKind: "rag",
+    _dependencySources: dependencies,
     output: config.output,
     tags: config.tags ?? [],
-    async resolve(runtimeInput: InferSchemaInputObject<TSchema>): Promise<Chunk[]> {
+    async resolve(
+      runtimeInput: InferSchemaInputObject<TSchema>,
+      context: Record<string, unknown> = {},
+    ): Promise<Chunk[]> {
       const normalizedInput = await validateSourceInput(inputSchema, runtimeInput);
-      const result = await config.resolve({ input: normalizedInput });
+      const resolveArgs = {
+        input: normalizedInput,
+        ...context,
+      } as unknown as SourceResolveArgs<InferSchemaOutputObject<TSchema>> & SourceDepValues<TDeps>;
+      const result = await config.resolve(resolveArgs);
       const validated = await validateSourceOutput(config.output, result);
+
+      if (!Array.isArray(validated)) {
+        throw new TypeError("budge.source.rag() resolve() must return an array.");
+      }
 
       if (config.normalize) {
         const normalizedItems = validated.map((item) => config.normalize!(item as TItem));

@@ -1,47 +1,40 @@
 import type { Trace } from "./types.ts";
 
 export class SourceResolutionError extends Error {
-  readonly sourceId: string;
-  readonly cause: unknown;
-  trace?: Trace;
+  readonly sourceKey: string;
+  declare readonly cause: unknown;
+  traces?: Trace;
 
-  constructor(sourceId: string, windowId: string, cause: unknown) {
+  constructor(sourceKey: string, windowId: string, cause: unknown) {
     super(
-      `Source "${sourceId}" threw during resolution in context window "${windowId}": ${String(cause)}`,
+      `Source "${sourceKey}" threw during resolution in context window "${windowId}": ${String(cause)}`,
+      { cause },
     );
     this.name = "SourceResolutionError";
-    this.sourceId = sourceId;
-    this.cause = cause;
+    this.sourceKey = sourceKey;
   }
 }
 
-export class RequiredSourceValueError extends Error {
-  readonly sourceId: string;
-  trace?: Trace;
+export class MissingSourceDependencyError extends Error {
+  readonly sourceKey: string;
+  readonly dependencyKey: string;
 
-  constructor(sourceId: string, windowId: string) {
+  constructor(sourceKey: string, dependencyKey: string, ownerLabel: string) {
     super(
-      `Source "${sourceId}" resolved to null or undefined in context window "${windowId}". ` +
-        "Use a nullable source shape or wait for optional() if this value is not required.",
+      `Source "${sourceKey}" depends on "${dependencyKey}", but it is not selected in ${ownerLabel}.`,
     );
-    this.name = "RequiredSourceValueError";
-    this.sourceId = sourceId;
+    this.name = "MissingSourceDependencyError";
+    this.sourceKey = sourceKey;
+    this.dependencyKey = dependencyKey;
   }
 }
 
-export class BudgetExceededError extends Error {
-  readonly windowId: string;
-  readonly maxTokens: number;
-  readonly actualTokens: number;
-  trace?: Trace;
+export class CircularSourceDependencyError extends Error {
+  readonly sourceKeys: string[];
 
-  constructor(windowId: string, maxTokens: number, actualTokens: number) {
-    super(
-      `Context window "${windowId}" exceeded its max token budget (${actualTokens} > ${maxTokens}).`,
-    );
-    this.name = "BudgetExceededError";
-    this.windowId = windowId;
-    this.maxTokens = maxTokens;
-    this.actualTokens = actualTokens;
+  constructor(sourceKeys: string[], ownerLabel: string) {
+    super(`Circular source dependency detected in ${ownerLabel}: ${sourceKeys.join(", ")}.`);
+    this.name = "CircularSourceDependencyError";
+    this.sourceKeys = sourceKeys;
   }
 }

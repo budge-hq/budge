@@ -80,18 +80,12 @@ describe("rag sources", () => {
 
     const window = budge.window({
       id: "rag-window",
-      maxTokens: Infinity,
       input: z.object({
         query: z.string(),
       }),
-      async compose({ input, use }) {
-        const docs = await use(docsSource, { query: input.query });
-        const firstDoc: string = docs[0].content;
-
-        return {
-          prompt: `First doc:\n${firstDoc}\n\nAll docs:\n${docs}`,
-        };
-      },
+      sources: () => ({
+        docs: docsSource,
+      }),
     });
 
     const result = await window.resolve({
@@ -100,10 +94,9 @@ describe("rag sources", () => {
       },
     });
 
-    expect(result.prompt).toContain("Doc for refund policy");
-    expect(result.prompt).not.toContain("[object Object]");
-    expect(result.trace.sources).toHaveLength(1);
-    expect(result.trace.sources[0]?.kind).toBe("rag");
-    expect(result.trace.sources[0]?.itemCount).toBe(2);
+    expect(result.context.docs[0]?.content).toBe("Doc for refund policy");
+    expect(result.traces.sources).toHaveLength(1);
+    expect(result.traces.sources[0]?.kind).toBe("rag");
+    expect(result.traces.sources[0]?.itemCount).toBe(2);
   });
 });

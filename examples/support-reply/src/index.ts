@@ -1,4 +1,4 @@
-import { summarizeTrace, supportReplyWindow } from "./supportReply.ts";
+import { buildSupportReplyPrompt, summarizeTrace, supportReplyWindow } from "./supportReply.ts";
 
 const result = await supportReplyWindow.resolve({
   input: {
@@ -8,18 +8,19 @@ const result = await supportReplyWindow.resolve({
   },
 });
 
-if (result.system) {
-  console.log("=== System Prompt ===");
-  console.log(result.system);
-}
+const prompt = buildSupportReplyPrompt(result.context);
 
-if (result.prompt) {
-  console.log("\n=== User Prompt ===");
-  console.log(result.prompt);
-}
+console.log("=== Context ===");
+console.log(JSON.stringify(result.context, null, 2));
+
+console.log("\n=== Developer-Owned System ===");
+console.log(prompt.system);
+
+console.log("\n=== Developer-Owned Prompt ===");
+console.log(prompt.prompt);
 
 console.log("\n=== Trace Summary ===");
-console.log(summarizeTrace(result.trace));
+console.log(summarizeTrace(result.traces));
 
 console.log("\n=== Full Trace JSON ===");
-console.log(JSON.stringify(result.trace, null, 2));
+console.log(JSON.stringify(result.traces, null, 2));

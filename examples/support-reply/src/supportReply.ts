@@ -11,50 +11,53 @@ const supportReplyInputSchema = z.object({
 export const supportReplyWindow = budge.window({
   id: "support_reply",
   input: supportReplyInputSchema,
-  maxTokens: 700,
-  async compose({ input, use }) {
-    const account = await use(accountSource, {
-      accountId: input.accountId,
-    });
-
-    const mentionsBilling = /\b(invoice|refund|charge|billing)\b/i.test(input.transcript);
-    const billingNotes = mentionsBilling
-      ? await use(billingNotesSource, { accountId: input.accountId })
-      : undefined;
-
-    const recentTickets = await use(recentTicketsSource, {
-      accountId: input.accountId,
-      transcript: input.transcript,
-    });
-
-    return {
-      system: `You are a support engineer drafting a ${account.tier === "priority" ? "concise" : "standard"} customer reply for ${account.name}. ${
-        account.plan === "enterprise"
-          ? "Prioritize urgency and ownership."
-          : "Keep the reply practical and direct."
-      }`,
-      prompt:
-        `Customer message:\n${input.transcript}` +
-        `\n\nAccount:\n${account}` +
-        (recentTickets.length ? `\n\nRelevant docs:\n${recentTickets}` : "") +
-        (billingNotes ? `\n\nBilling notes:\n${billingNotes}` : ""),
-    };
-  },
+  sources: ({ source }) => ({
+    transcript: source.fromInput("transcript", { tags: ["restricted"] }),
+    account: accountSource,
+    billingNotes: billingNotesSource,
+    recentTickets: recentTicketsSource,
+  }),
 });
 
+type SupportReplyContext = Awaited<ReturnType<(typeof supportReplyWindow)["resolve"]>>["context"];
+
+function formatStructured(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+export function buildSupportReplyPrompt(context: SupportReplyContext): {
+  system: string;
+  prompt: string;
+} {
+  const mentionsBilling = /\b(invoice|refund|charge|billing)\b/i.test(context.transcript);
+  const billingNotes = mentionsBilling ? context.billingNotes : undefined;
+
+  return {
+    system: `You are a support engineer drafting a ${context.account.tier === "priority" ? "concise" : "standard"} customer reply for ${context.account.name}. ${
+      context.account.plan === "enterprise"
+        ? "Prioritize urgency and ownership."
+        : "Keep the reply practical and direct."
+    }`,
+    prompt:
+      `Customer message:\n${context.transcript}` +
+      `\n\nAccount:\n${formatStructured(context.account)}` +
+      (context.recentTickets.length
+        ? `\n\nRelevant docs:\n${formatStructured(context.recentTickets)}`
+        : "") +
+      (billingNotes ? `\n\nBilling notes:\n${formatStructured(billingNotes)}` : ""),
+  };
+}
+
 export function summarizeTrace(trace: Trace): string {
-  const lines = [
-    `run: ${trace.runId}`,
-    `window: ${trace.windowId}`,
-    `budget: ${trace.budget.used}/${trace.budget.max ?? "unbounded"}`,
-    `prompt tokens: ${trace.prompt.totalTokens} (system: ${trace.prompt.systemTokens}, prompt: ${trace.prompt.promptTokens})`,
-    "sources:",
-  ];
+  const lines = [`run: ${trace.runId}`, `window: ${trace.windowId}`, "sources:"];
 
   lines.push(
     ...trace.sources.map((source) => {
+      const dependencies = source.dependsOn.length
+        ? `, dependsOn=${source.dependsOn.join("|")}`
+        : "";
       const itemCount = source.itemCount !== undefined ? `, items=${source.itemCount}` : "";
-      return `  - ${source.sourceId}: ${source.kind} (${source.durationMs}ms${itemCount})`;
+      return `  - ${source.key}: ${source.kind} (${source.durationMs}ms, status=${source.status}${dependencies}${itemCount})`;
     }),
   );
 

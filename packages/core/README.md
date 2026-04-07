@@ -1,14 +1,8 @@
 # @budge/core
 
-`@budge/core` is the typed runtime for building and resolving context windows.
+`@budge/core` is the typed runtime for declaring context windows, resolving source graphs, and returning `context` plus `traces`.
 
-It gives you a small surface area:
-
-- reusable context sources
-- `window({ id, input, maxTokens, compose })`
-- `use(source, input)` inside `compose`
-- `window.resolve({ input })`
-- `trace` receipts for what ran and what the prompt cost
+It does not compose prompts, wrap model clients, or score model outputs.
 
 ## Install
 
@@ -18,7 +12,7 @@ pnpm add @budge/core zod
 
 `zod` is used in the examples, but any Standard Schema-compatible validator works.
 
-## Quick start
+## Quick Start
 
 ```ts
 import { createBudge } from "@budge/core";
@@ -26,58 +20,77 @@ import { z } from "zod";
 
 const budge = createBudge();
 
-const noteSource = budge.source.value(z.object({ encounterId: z.string() }), {
+const patientSource = budge.source.value(z.object({ patientId: z.string() }), {
   async resolve({ input }) {
-    return db.getNote(input.encounterId);
+    return db.getPatient(input.patientId);
   },
 });
+
+const priorNoteSource = budge.source.value(
+  z.object({}),
+  { patient: patientSource },
+  {
+    async resolve({ patient }) {
+      return db.getPriorNote(patient.id);
+    },
+  },
+);
 
 const window = budge.window({
-  id: "scribe-note",
-  input: z.object({ encounterId: z.string() }),
-  maxTokens: 2000,
-  async compose({ input, use }) {
-    const note = await use(noteSource, { encounterId: input.encounterId });
+  id: "note-generation",
+  input: z.object({
+    patientId: z.string(),
+    transcript: z.string(),
+  }),
+  sources: ({ source }) => ({
+    transcript: source.fromInput("transcript"),
+    patient: patientSource,
+    priorNote: priorNoteSource,
+  }),
+});
 
-    return {
-      system: "You are an AI medical scribe.",
-      prompt: `Prior note:\n${note}`,
-    };
+const { context, traces } = await window.resolve({
+  input: {
+    patientId: "pat_123",
+    transcript: "Patient reports less pain this week.",
   },
 });
 
-const result = await window.resolve({
-  input: { encounterId: "enc_123" },
-});
+const prompt = {
+  system: "You are a clinical documentation assistant.",
+  prompt:
+    `Transcript:\n${context.transcript}` +
+    `\n\nPatient:\n${JSON.stringify(context.patient, null, 2)}` +
+    `\n\nPrior note:\n${context.priorNote}`,
+};
 ```
 
-## Runtime setup
+## Runtime Setup
 
-Create one Budge runtime with `createBudge()`:
+Create one runtime with `createBudge()`:
 
 ```ts
-import { createBudge } from "@budge/core";
-
 const budge = createBudge({
-  onTrace(trace) {
-    console.log(trace);
+  onTrace(traces) {
+    console.log(traces);
   },
 });
 ```
 
-`createBudge()` gives you:
+`createBudge()` exposes:
 
 - `budge.source.value(...)`
 - `budge.source.rag(...)`
+- `budge.source.fromInput(...)`
 - `budge.window(...)`
 
-## Source definitions
+## Source APIs
 
-Sources are defined once and reused across windows.
+Sources are declared once and selected into a window.
 
-### Value sources
+### `source.value(input, config)`
 
-Use `budge.source.value(...)` for a single resolved value:
+Use `value` for a single resolved value:
 
 ```ts
 const accountSource = budge.source.value(z.object({ accountId: z.string() }), {
@@ -87,9 +100,27 @@ const accountSource = budge.source.value(z.object({ accountId: z.string() }), {
 });
 ```
 
-### RAG sources
+### `source.value(input, deps, config)`
 
-Use `budge.source.rag(...)` for ranked multi-item context:
+Use the dependency overload when a source depends on another source handle:
+
+```ts
+const billingNotesSource = budge.source.value(
+  z.object({}),
+  { account: accountSource },
+  {
+    async resolve({ account }) {
+      return db.getBillingNotes(account.id);
+    },
+  },
+);
+```
+
+Dependencies are inferred from the handles you pass into `deps`. Budge builds the DAG from those handles and resolves sources in waves.
+
+### `source.rag(input, config)`
+
+Use `rag` for ranked multi-item context:
 
 ```ts
 const docsSource = budge.source.rag(z.object({ query: z.string() }), {
@@ -105,9 +136,45 @@ const docsSource = budge.source.rag(z.object({ query: z.string() }), {
 });
 ```
 
-RAG sources resolve to chunk arrays.
+RAG sources resolve to `Chunk[]`.
 
-## Context windows
+### `source.rag(input, deps, config)`
+
+`rag` also supports dependency-aware overloads:
+
+```ts
+const recentTicketsSource = budge.source.rag(
+  z.object({ transcript: z.string() }),
+  { account: accountSource },
+  {
+    async resolve({ input, account }) {
+      return vector.searchTickets(account.id, input.transcript);
+    },
+    normalize(item) {
+      return {
+        content: item.pageContent,
+        score: item.relevanceScore,
+      };
+    },
+  },
+);
+```
+
+### `source.fromInput(key, options?)`
+
+Use `fromInput` when a validated field should flow directly into `context`:
+
+```ts
+const window = budge.window({
+  id: "support-reply",
+  input: z.object({ transcript: z.string() }),
+  sources: ({ source }) => ({
+    transcript: source.fromInput("transcript", { tags: ["restricted"] }),
+  }),
+});
+```
+
+## Window API
 
 The main primitive is:
 
@@ -115,119 +182,71 @@ The main primitive is:
 budge.window({
   id,
   input,
-  maxTokens,
-  async compose({ input, use }) {
+  sources: ({ source }) => ({
     // ...
-    return { system, prompt };
-  },
+  }),
 });
 ```
 
 ### Fields
 
-- `id` — stable logical identifier for the window
-- `input` — Standard Schema used to validate `resolve({ input })`
-- `maxTokens` — prompt budget; `Infinity` disables strict enforcement
-- `compose` — async function that fetches context and returns `{ system?, prompt? }`
+- `id` - stable logical identifier for the window
+- `input` - Standard Schema used to validate `resolve({ input })`
+- `sources` - builder that returns the source graph for the window
 
-### `compose({ input, use })`
+The builder is declarative. It describes which sources can appear in `context`, and Budge precomputes the dependency graph when the window is created.
 
-`compose` is plain business logic.
-
-- `input` is the validated window input
-- `use(source, input)` resolves a source and returns its typed value
-- regular `if` statements decide what to fetch
-- the return value is the final prompt surface Budge measures
-
-Example:
-
-```ts
-async compose({ input, use }) {
-  const account = await use(accountSource, { accountId: input.accountId });
-
-  const docs = await use(docsSource, {
-    query: input.transcript,
-  });
-
-  return {
-    system: `You are helping ${account.name}.`,
-    prompt:
-      `Customer message:\n${input.transcript}` +
-      `\n\nAccount:\n${account}` +
-      (docs.length ? `\n\nDocs:\n${docs}` : ""),
-  };
-}
-```
-
-## Rendering and TOON
-
-Structured values interpolate directly inside strings:
-
-```ts
-prompt: `Account:\n${account}\n\nDocs:\n${docs}`;
-```
-
-Budge does not turn these values into `[object Object]`.
-
-Instead:
-
-- strings pass through unchanged
-- objects and arrays are serialized with **TOON**
-- token counting runs on the final rendered `system` + `prompt`
-
-This lets you write plain template strings while still getting compact structured serialization.
-
-## Resolving a window
+## Resolution
 
 Resolve a window with:
 
 ```ts
 const result = await window.resolve({
-  input: { encounterId: "enc_123" },
+  input: {
+    patientId: "pat_123",
+    transcript: "Patient reports less pain this week.",
+  },
 });
 ```
 
 `result` contains:
 
-- `system?: string`
-- `prompt?: string`
-- `trace`
+- `context`
+- `traces`
 
-## Budget behavior
+You own prompt assembly from there:
 
-`maxTokens` is enforced on the final rendered prompt.
+```ts
+const prompt = {
+  system: "You are a helpful assistant.",
+  prompt: JSON.stringify(result.context, null, 2),
+};
+```
 
-Current behavior:
+## Return Shape
 
-- if `maxTokens === Infinity`, Budge still measures the prompt and emits `trace`
-- if `maxTokens` is finite and the final rendered prompt exceeds it, Budge throws `BudgetExceededError`
+At a high level:
 
-This is currently a strict post-compose check. Lazy optional resolution and compaction come in later milestones.
+```ts
+type ResolveResult<TContext> = {
+  context: TContext;
+  traces: Trace;
+};
+```
 
 ## Errors
 
 Current public errors:
 
-- `BudgetExceededError` — rendered prompt exceeded `maxTokens`
-- `RequiredSourceValueError` — a `use(...)` source resolved to `null` or `undefined`
-- `SourceResolutionError` — a source threw while resolving
+- `CircularSourceDependencyError` - the window source graph contains a cycle
+- `MissingSourceDependencyError` - a selected source depends on an unselected source
+- `SourceResolutionError` - a source threw while resolving
 
-These errors can carry `trace` so you can inspect partial resolution state.
+Errors can carry `traces` so you can inspect partial resolution state.
 
-## Trace
+## Trace Shape
 
-Every successful resolve returns a `trace`.
-
-Today it includes:
-
-- `windowId`
-- `runId`
-- start/completion timestamps
-- per-source timing records
-- prompt token totals
-- budget usage and whether it was exceeded
-
-At a high level:
+Every successful resolve returns a `traces` object.
 
 ```ts
 type Trace = {
@@ -237,40 +256,43 @@ type Trace = {
   startedAt: Date;
   completedAt: Date;
   sources: Array<{
+    key: string;
     sourceId: string;
-    kind: "value" | "rag";
+    kind: "input" | "value" | "rag";
     tags: string[];
-    resolvedAt: Date;
+    dependsOn: string[];
+    completedAt: Date;
     durationMs: number;
+    status: "resolved" | "failed";
     itemCount?: number;
   }>;
-  budget: {
-    max: number | null;
-    used: number;
-    exceeded: boolean;
-  };
-  prompt: {
-    systemTokens: number;
-    promptTokens: number;
-    totalTokens: number;
-  };
 };
 ```
 
-## Current primitives
+## Current Scope
 
-- `createBudge()`
-- `budge.source.value(...)`
-- `budge.source.rag(...)`
-- `budge.window({ id, input, maxTokens, compose })`
-- `use(source, input)`
-- `window.resolve({ input })`
+What `@budge/core` does today:
+
+- declarative source selection
+- dependency-graph planning
+- wave-based source resolution
+- type-safe `context`
+- source-level traces
+
+What `@budge/core` does not do today:
+
+- prompt composition
+- model wrapping
+- output scoring
+- tools API
+- compaction
+- budget management
 
 ## Example
 
 See `examples/support-reply` for a full working example of the current API.
 
-## Local development
+## Local Development
 
 ```bash
 vp test

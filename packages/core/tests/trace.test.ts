@@ -1,9 +1,9 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import { z } from "zod";
-import { createBudge } from "../src/index.ts";
+import { SourceResolutionError, createBudge } from "../src/index.ts";
 
-describe("trace", () => {
-  test("emits trace to the result and onTrace callback", async () => {
+describe("traces", () => {
+  test("emits traces to the result and onTrace callback", async () => {
     const onTrace = vi.fn();
     const budge = createBudge({ onTrace });
 
@@ -23,18 +23,12 @@ describe("trace", () => {
 
     const window = budge.window({
       id: "trace-window",
-      maxTokens: Infinity,
       input: z.object({
         encounterId: z.string(),
       }),
-      async compose({ input, use }) {
-        const encounter = await use(encounterSource, { encounterId: input.encounterId });
-
-        return {
-          system: `Status: ${encounter.status}`,
-          prompt: `Encounter:\n${encounter}`,
-        };
-      },
+      sources: () => ({
+        encounter: encounterSource,
+      }),
     });
 
     const result = await window.resolve({
@@ -44,10 +38,10 @@ describe("trace", () => {
     });
 
     expect(onTrace).toHaveBeenCalledTimes(1);
-    expect(onTrace).toHaveBeenCalledWith(result.trace);
-    expect(result.trace.version).toBe(1);
-    expect(result.trace.sources[0]?.sourceId).toBeTruthy();
-    expect(result.trace.prompt.systemTokens).toBeGreaterThan(0);
+    expect(onTrace).toHaveBeenCalledWith(result.traces);
+    expect(result.traces.version).toBe(1);
+    expect(result.traces.sources[0]?.sourceId).toBeTruthy();
+    expect(result.traces.sources[0]?.status).toBe("resolved");
   });
 
   test("observer hook failures do not corrupt a successful resolution", async () => {
@@ -72,17 +66,12 @@ describe("trace", () => {
 
     const window = budge.window({
       id: "trace-success-window",
-      maxTokens: Infinity,
       input: z.object({
         encounterId: z.string(),
       }),
-      async compose({ input, use }) {
-        const encounter = await use(source, { encounterId: input.encounterId });
-
-        return {
-          prompt: `Encounter:\n${encounter}`,
-        };
-      },
+      sources: () => ({
+        encounter: source,
+      }),
     });
 
     const result = await window.resolve({
@@ -92,7 +81,7 @@ describe("trace", () => {
     });
 
     expect(onTrace).toHaveBeenCalledTimes(1);
-    expect(result.prompt).toContain("enc_123");
+    expect(result.context.encounter.id).toBe("enc_123");
   });
 
   test("observer hook failures do not replace the original resolution error", async () => {
@@ -114,42 +103,12 @@ describe("trace", () => {
 
     const window = budge.window({
       id: "trace-error-window",
-      maxTokens: Infinity,
       input: z.object({
         encounterId: z.string(),
       }),
-      async compose({ input, use }) {
-        await use(failingSource, { encounterId: input.encounterId });
-
-        return {
-          prompt: "unreachable",
-        };
-      },
-    });
-
-    await expect(
-      window.resolve({
-        input: {
-          encounterId: "enc_123",
-        },
+      sources: () => ({
+        failing: failingSource,
       }),
-    ).rejects.toThrow("source failed");
-    expect(onTrace).toHaveBeenCalledTimes(1);
-  });
-
-  test("plain compose errors get a trace attached and are emitted to onTrace", async () => {
-    const onTrace = vi.fn();
-    const budge = createBudge({ onTrace });
-
-    const window = budge.window({
-      id: "compose-error-window",
-      maxTokens: Infinity,
-      input: z.object({
-        encounterId: z.string(),
-      }),
-      async compose() {
-        throw new Error("compose failed");
-      },
     });
 
     try {
@@ -160,37 +119,10 @@ describe("trace", () => {
       });
       throw new Error("Expected window.resolve() to throw");
     } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as { message: string }).message).toBe("compose failed");
-      expect((error as { trace?: unknown }).trace).toBeTruthy();
+      expect(error).toBeInstanceOf(SourceResolutionError);
+      expect((error as SourceResolutionError).message).toContain("source failed");
     }
 
     expect(onTrace).toHaveBeenCalledTimes(1);
-  });
-
-  test("primitive compose errors are preserved when trace emission runs", async () => {
-    const onTrace = vi.fn();
-    const budge = createBudge({ onTrace });
-
-    const window = budge.window({
-      id: "primitive-compose-error-window",
-      maxTokens: Infinity,
-      input: z.object({
-        encounterId: z.string(),
-      }),
-      async compose() {
-        throw "db error";
-      },
-    });
-
-    await expect(
-      window.resolve({
-        input: {
-          encounterId: "enc_123",
-        },
-      }),
-    ).rejects.toBe("db error");
-
-    expect(onTrace).not.toHaveBeenCalled();
   });
 });

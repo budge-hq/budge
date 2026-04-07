@@ -1,91 +1,189 @@
 # Budge
 
-**The best context framework management for agents.**
+> The missing observability layer for context assembly. Evals for inputs, not outputs.
 
-Most teams still spend most of their time on model choice, evals, and prompt tweaks. That matters, but as models improve and commoditize, more of the leverage shifts to **context**: what information you give the model, how you shape it, and how much it costs.
+## The problem
 
-Budge is built for that layer.
+Every AI eval tool measures what comes out of the model.
+
+- Braintrust
+- LangSmith
+- Promptfoo
+
+That is useful, but it leaves a blind spot before the model call.
+
+Developers are stuffing transcripts, retrieved chunks, documents, tool definitions, and history into a context window with no principled way to answer:
+
+- what got included
+- why it got included
+- what depended on what
+- which input changed the outcome
+
+When a score moves, they see the output. They do not see the assembly decisions that caused it.
+
+## Where Budge Lives
+
+```text
+[your data sources] -> budge -> [model call] -> [braintrust / langsmith]
+transcripts, docs,    assembly    your prompt,    output scoring
+rag, tools, history   + tracing   your model
+```
+
+Budge is not a model wrapper.
+
+It does not own your prompt, your model client, or your output scoring. It starts where your data sources are and ends where the model call begins.
+
+That makes it complementary to every eval tool that already exists.
 
 ## Why Budge
 
-- Prevent **context rot** by making context windows explicit and repeatable.
-- Prevent **context stuffing** by measuring the final prompt and enforcing budgets.
-- Optimize prompts so the model sees the **highest-leverage information** for the **lowest cost**.
-- Serialize structured context efficiently with **TOON** instead of bloated JSON.
-- Emit exact **traces** so you can see what ran, what the prompt cost, and what the model actually received.
+Output evals tell you whether something got better or worse.
 
-## How Budge Works
+Budge tells you what changed in the inputs.
 
-- Define reusable context sources once.
-- Compose a context window around a specific task.
-- Resolve the window into a model-ready `system`, `prompt`, and `trace`.
+- Which sources were present for this run?
+- Which sources depended on other sources?
+- Which retrieved chunks actually made it in?
+- Which assembly decisions changed across runs?
 
-## Usage
+The missing layer is not another prompt playground. It is observability for context assembly.
 
-### 1. Set up the runtime
+## What Budge Owns
+
+Today in OSS:
+
+- declarative source assembly
+- typed sources as the unit of abstraction
+- dependency-graph resolution in waves
+- traces for every assembly decision
+
+Directionally in Budge Cloud:
+
+- compaction policies
+- budget management configured at runtime
+- semantic selection for tools and retrieved context
+- input attribution across runs
+
+The core idea stays the same: Budge owns what goes into context, not what comes out of the model.
+
+## The Causal Engine
+
+Every source inclusion is a treatment. Every eval score is a response variable.
+
+That is the wedge.
+
+Braintrust can tell you a score moved. Budge can tell you which input decisions plausibly caused it to move.
+
+- Was it the prior note?
+- The intake?
+- The fourth retrieved chunk?
+- The tool manifest?
+
+That feedback loop does not exist in the current tooling stack.
+
+## vs Existing Tools
+
+|                   | Braintrust / LangSmith / prompt evals | Budge                         |
+| ----------------- | ------------------------------------- | ----------------------------- |
+| Where it sits     | After the model call                  | Before the model call         |
+| What it measures  | Output quality                        | Input assembly                |
+| What it tells you | Prompt A beat prompt B                | Which sources changed the run |
+| What you can do   | Tweak prompts and model settings      | Change what goes into context |
+
+## Current SDK
 
 ```ts
 import { createBudge } from "@budge/core";
-
-export const budge = createBudge();
-```
-
-### 2. Create the context window
-
-```ts
 import { z } from "zod";
 
-const accountSource = budge.source.value(z.object({ accountId: z.string() }), {
-  async resolve({ input }) {
-    return db.getAccount(input.accountId);
-  },
-});
+const budge = createBudge();
 
-const supportReply = budge.window({
-  id: "support-reply",
+const noteGeneration = budge.window({
+  id: "note-generation",
   input: z.object({
-    accountId: z.string(),
+    patientId: z.string(),
     transcript: z.string(),
   }),
-  maxTokens: 4000,
-  async compose({ input, use }) {
-    const account = await use(accountSource, { accountId: input.accountId });
+  sources: ({ source }) => {
+    const patient = source.value(z.object({ patientId: z.string() }), {
+      async resolve({ input }) {
+        return getPatient(input.patientId);
+      },
+    });
+
+    const priorNote = source.value(
+      z.object({}),
+      { patient },
+      {
+        async resolve({ patient }) {
+          return getPriorNote(patient.id);
+        },
+      },
+    );
 
     return {
-      system: `You are helping ${account.name}.`,
-      prompt: `Customer message:\n${input.transcript}\n\nAccount:\n${account}`,
+      transcript: source.fromInput("transcript"),
+      patient,
+      priorNote,
     };
   },
 });
-```
 
-### 3. Resolve the window
-
-```ts
-const result = await supportReply.resolve({
+const { context, traces } = await noteGeneration.resolve({
   input: {
-    accountId: "acc_123",
-    transcript: "Our webhook deliveries are timing out.",
+    patientId: "pat_123",
+    transcript: "Patient reports less pain this week.",
   },
 });
 
-console.log(result.system);
-console.log(result.prompt);
-console.log(result.trace);
+// Developer owns the prompt from here.
 ```
 
-## Primitives
+The current open-source SDK is intentionally narrow:
 
-- `createBudge()` sets up the runtime.
-- `budge.source.value(...)` and `budge.source.rag(...)` define reusable context sources.
-- `budge.window({ id, input, maxTokens, compose })` defines one context window.
-- `use(source, input)` resolves context inside `compose`.
-- `window.resolve({ input })` returns `system`, `prompt`, and `trace`.
+- no prompt composition
+- no model wrapping
+- no output scoring
+- no YAML or DSL
+
+## Roadmap
+
+Phase 1: open-source SDK
+
+- TypeScript-first
+- framework agnostic
+- works wherever a model call happens
+- optimized for design partners with production agent loops
+
+Phase 2: Budge Cloud
+
+- trace ingestion
+- causal attribution
+- runtime budget and compaction tuning from the dashboard
+- cross-customer signal
+
+## SDK Principles
+
+1. Every primitive that could live on the window lives on the window.
+2. Budge ends where the model call begins.
+3. Sources are the unit of abstraction.
+4. Tracing is not optional.
+5. The developer owns the prompt.
+6. TypeScript-first, no YAML, no DSL.
+7. Budget belongs to runtime configuration, not prompt glue code.
+8. Compaction is an assembly policy, not a memory system.
+9. Filters run before compaction.
+10. Framework agnostic by default.
+11. Semantic selection beats manual curation.
+12. Integration burden must stay lower than the insight value.
+13. Optimizations are recommendations, not hidden defaults.
+14. Configuration should move at runtime, not only deploy time.
+15. Sources are declarative and the dependency graph is explicit.
 
 ## Packages
 
-- `@budge/core` — core runtime
-- `examples/support-reply` — end-to-end example of the current API
+- `@budge/core` - current OSS SDK
+- `examples/support-reply` - end-to-end example
 
 ## Development
 

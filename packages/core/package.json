@@ -1,7 +1,7 @@
 {
   "name": "@budge/core",
   "version": "0.0.0",
-  "description": "The best context management framework for agents — typed sources, policies, budgets, and traces.",
+  "description": "Typed source assembly and tracing for model context windows.",
   "homepage": "https://github.com/budge-hq/budge#readme",
   "bugs": {
     "url": "https://github.com/budge-hq/budge/issues"
@@ -33,8 +33,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
-    "@toon-format/toon": "^2.1.0",
-    "tokenx": "^1.3.0"
+    "dependency-graph": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",

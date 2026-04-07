@@ -27,13 +27,33 @@ export interface Chunk {
   metadata?: Record<string, unknown>;
 }
 
+export interface SourceDependencyRef {
+  alias: string;
+  sourceId: string;
+  sourceKey: string;
+}
+
 export interface SourceOptions {
   tags?: SourceTag[];
+}
+
+export interface FromInputSourceOptions extends SourceOptions {}
+
+export interface InputSource<TKey extends string = string> {
+  _type: "input";
+  _internalId: string;
+  _sourceKind: "input";
+  _key: TKey;
+  _tags: SourceTag[];
 }
 
 export interface SourceResolveArgs<TInput extends AnyInput> {
   input: TInput;
 }
+
+export type SourceDepValues<TDeps extends Record<string, AnyResolverSource>> = {
+  [K in keyof TDeps]: InferSource<TDeps[K]>;
+};
 
 export interface SourceConfig<
   TInput extends AnyInput = AnyInput,
@@ -41,6 +61,15 @@ export interface SourceConfig<
 > extends SourceOptions {
   output?: AnySchema;
   resolve(args: SourceResolveArgs<TInput>): Promise<TOutput> | TOutput;
+}
+
+export interface DependentSourceConfig<
+  TInput extends AnyInput = AnyInput,
+  TDeps extends Record<string, AnyResolverSource> = Record<string, AnyResolverSource>,
+  TOutput = unknown,
+> extends SourceOptions {
+  output?: AnySchema;
+  resolve(args: SourceResolveArgs<TInput> & SourceDepValues<TDeps>): Promise<TOutput> | TOutput;
 }
 
 export interface RagSourceConfig<
@@ -52,13 +81,26 @@ export interface RagSourceConfig<
   resolve(args: SourceResolveArgs<TInput>): Promise<TItem[] | Chunk[]> | TItem[] | Chunk[];
 }
 
+export interface DependentRagSourceConfig<
+  TInput extends AnyInput = AnyInput,
+  TDeps extends Record<string, AnyResolverSource> = Record<string, AnyResolverSource>,
+  TItem = Chunk,
+> extends SourceOptions {
+  output?: AnySchema;
+  normalize?: (item: TItem) => Chunk;
+  resolve(
+    args: SourceResolveArgs<TInput> & SourceDepValues<TDeps>,
+  ): Promise<TItem[] | Chunk[]> | TItem[] | Chunk[];
+}
+
 export interface ResolverSource<TResult = unknown, TResolveInput extends AnyInput = AnyInput> {
   _type: "resolver";
   _internalId: string;
   _sourceKind: "value" | "rag";
+  _dependencySources: Readonly<Record<string, AnyResolverSource>>;
   output?: AnySchema;
   tags?: SourceTag[];
-  resolve(input: TResolveInput): Promise<TResult>;
+  resolve(input: TResolveInput, context?: Record<string, unknown>): Promise<TResult>;
 }
 
 export type ValueSource<
@@ -73,53 +115,75 @@ export type RagSource<TResolveInput extends AnyInput = AnyInput> = ResolverSourc
 
 export type AnyResolverSource = ResolverSource<unknown, AnyInput>;
 
-export type InferSource<TSource extends AnyResolverSource> = Awaited<
-  ReturnType<TSource["resolve"]>
->;
+export type AnySource = InputSource<string> | AnyResolverSource;
 
-export type InferSourceInput<TSource extends AnyResolverSource> = Parameters<TSource["resolve"]>[0];
+type InferResolvedValue<TResult> = Awaited<TResult>;
 
-export type UseFn = <TSource extends AnyResolverSource>(
-  source: TSource,
-  input: InferSourceInput<TSource>,
-) => Promise<NonNullable<InferSource<TSource>>>;
+export type InferSource<TSource extends AnyResolverSource> = TSource extends {
+  output: infer TSchema extends AnySchema;
+}
+  ? InferSchemaOutput<TSchema>
+  : TSource extends { resolve: (...args: never[]) => infer TResult }
+    ? InferResolvedValue<TResult>
+    : never;
 
-export interface ComposeContext<TInput extends AnyInput> {
-  input: TInput;
-  use: UseFn;
+type CompatibleSource<TInput extends AnyInput, TSource> =
+  TSource extends InputSource<infer TKey>
+    ? TKey extends Extract<keyof TInput, string>
+      ? TSource
+      : never
+    : TSource extends ResolverSource<unknown, infer TSourceInput>
+      ? TSourceInput extends Partial<TInput>
+        ? TSource
+        : never
+      : never;
+
+export type SourceShape<TInput extends AnyInput, TSourceMap extends Record<string, unknown>> = {
+  [K in keyof TSourceMap]: CompatibleSource<TInput, TSourceMap[K]>;
+};
+
+export type InferWindowSource<TInput extends AnyInput, TSource> =
+  TSource extends InputSource<infer TKey>
+    ? TKey extends keyof TInput
+      ? TInput[TKey]
+      : never
+    : TSource extends AnyResolverSource
+      ? InferSource<TSource>
+      : never;
+
+export type InferSources<TInput extends AnyInput, TSourceMap extends Record<string, unknown>> = {
+  [K in keyof TSourceMap]: InferWindowSource<TInput, TSourceMap[K]>;
+};
+
+export interface Wave {
+  keys: string[];
 }
 
-export interface ComposeResult {
-  system?: string;
-  prompt?: string;
+export interface ExecutionPlan {
+  waves: Wave[];
+  dependenciesBySourceKey: Map<string, SourceDependencyRef[]>;
 }
-
-export type ComposeFn<TInput extends AnyInput> = (
-  context: ComposeContext<TInput>,
-) => ComposeResult | Promise<ComposeResult>;
 
 export interface WindowSpec<
-  TComposeInput extends AnyInput,
-  TResolveInput extends AnyInput = TComposeInput,
+  TWindowInput extends AnyInput,
+  TResolveInput extends AnyInput = TWindowInput,
+  TSourceMap extends Record<string, AnySource> = Record<string, AnySource>,
 > {
   _id: string;
-  _inputSchema: InputSchema<TResolveInput, TComposeInput>;
-  _maxTokens: number;
-  _compose: ComposeFn<TComposeInput>;
-}
-
-export interface PromptTrace {
-  systemTokens: number;
-  promptTokens: number;
-  totalTokens: number;
+  _inputSchema: InputSchema<TResolveInput, TWindowInput>;
+  _sources: TSourceMap;
+  _plan: ExecutionPlan;
 }
 
 export interface SourceTrace {
+  key: string;
   sourceId: string;
-  kind: "value" | "rag";
+  kind: "input" | "value" | "rag";
   tags: SourceTag[];
-  resolvedAt: Date;
+  dependsOn: string[];
+  completedAt: Date;
   durationMs: number;
+  status: "resolved" | "failed";
   itemCount?: number;
 }
 
@@ -130,27 +194,23 @@ export interface Trace {
   startedAt: Date;
   completedAt: Date;
   sources: SourceTrace[];
-  budget: {
-    max: number | null;
-    used: number;
-    exceeded: boolean;
-  };
-  prompt: PromptTrace;
 }
 
-export interface ResolveResult {
-  system?: string;
-  prompt?: string;
-  trace: Trace;
+export interface ResolveResult<TContext extends Record<string, unknown> = Record<string, unknown>> {
+  context: TContext;
+  traces: Trace;
 }
 
 export interface ResolvePayload<TResolveInput extends AnyInput> {
   input: TResolveInput;
 }
 
-export interface WindowHandle<TResolveInput extends AnyInput> {
+export interface WindowHandle<
+  TResolveInput extends AnyInput,
+  TContext extends Record<string, unknown> = Record<string, unknown>,
+> {
   id: string;
-  resolve(payload: ResolvePayload<TResolveInput>): Promise<ResolveResult>;
+  resolve(payload: ResolvePayload<TResolveInput>): Promise<ResolveResult<TContext>>;
 }
 
 export interface BudgeLogger {
