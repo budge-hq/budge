@@ -126,6 +126,12 @@ export interface ToolDefinition {
   inputSchema: Record<string, unknown>;
 }
 
+export interface ToolCollision {
+  name: string;
+  winner: "static" | "mcp";
+  loser: "static" | "mcp";
+}
+
 export interface MCPClientLike {
   // Transport-agnostic by design: Budge only relies on a tools() method and does
   // not care whether the client talks to MCP over stdio, HTTP, SSE, or something else.
@@ -294,6 +300,7 @@ export interface SourceTrace {
     static: string[];
     mcp: string[];
   };
+  toolCollisions?: ToolCollision[];
 }
 
 export interface Trace {

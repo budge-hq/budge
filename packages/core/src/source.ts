@@ -20,6 +20,7 @@ import type {
   SourceDepValues,
   SourceResolveArgs,
   SourceConfig,
+  ToolCollision,
   ToolDefinition,
   ToolsSource,
   ToolsSourceConfig,
@@ -49,6 +50,7 @@ interface ToolsTraceMetadata {
     static: string[];
     mcp: string[];
   };
+  toolCollisions: ToolCollision[];
 }
 
 const historyTraceMetadataSymbol = Symbol("budge.historyTraceMetadata");
@@ -382,8 +384,10 @@ export function createToolsSource(config: ToolsSourceConfig): ToolsSource {
       _input: AnyInput,
       _context: Record<string, unknown> = {},
     ): Promise<Record<string, ToolDefinition>> {
+      let rawToolCount = 0;
       const mergedTools = new Map<string, ToolDefinition>();
       const toolOrigins = new Map<string, "static" | "mcp">();
+      const toolCollisions: ToolCollision[] = [];
 
       const addTool = (
         origin: "static" | "mcp",
@@ -394,11 +398,23 @@ export function createToolsSource(config: ToolsSourceConfig): ToolsSource {
 
         // When normalization changes names, the final record is keyed by the normalized
         // ToolDefinition.name. If multiple tools normalize to the same name, last writer wins.
+        // Static tools are merged first and MCP tools later, so MCP overwrites static on
+        // collisions by design. toolCollisions makes those overwrites visible in traces.
+        const existingOrigin = toolOrigins.get(normalizedTool.name);
+        if (existingOrigin !== undefined) {
+          toolCollisions.push({
+            name: normalizedTool.name,
+            winner: origin,
+            loser: existingOrigin,
+          });
+        }
+
         mergedTools.set(normalizedTool.name, normalizedTool);
         toolOrigins.set(normalizedTool.name, origin);
       };
 
       for (const [name, tool] of Object.entries(config.tools ?? {})) {
+        rawToolCount += 1;
         addTool("static", name, toRawToolEntry(tool));
       }
 
@@ -408,6 +424,7 @@ export function createToolsSource(config: ToolsSourceConfig): ToolsSource {
 
       for (const tools of mcpResults) {
         for (const [name, tool] of Object.entries(tools)) {
+          rawToolCount += 1;
           addTool("mcp", name, toRawToolEntry(tool));
         }
       }
@@ -416,14 +433,15 @@ export function createToolsSource(config: ToolsSourceConfig): ToolsSource {
       const toolNames = [...mergedTools.keys()];
 
       return attachToolsTraceMetadata(toolsRecord, {
-        totalTools: toolNames.length,
+        totalTools: rawToolCount,
         includedTools: toolNames.length,
-        droppedTools: 0,
+        droppedTools: rawToolCount - toolNames.length,
         toolNames,
         toolSources: {
           static: toolNames.filter((name) => toolOrigins.get(name) === "static"),
           mcp: toolNames.filter((name) => toolOrigins.get(name) === "mcp"),
         },
+        toolCollisions,
       });
     },
   };

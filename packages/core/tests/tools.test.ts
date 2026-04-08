@@ -312,7 +312,7 @@ describe("tools sources", () => {
     expect(result.traces.sources[0]?.kind).toBe("tools");
   });
 
-  test("trace carries totalTools, includedTools, toolNames, and toolSources", async () => {
+  test("trace carries raw totalTools before merge plus includedTools, droppedTools, toolNames, and toolSources", async () => {
     const budge = createBudge();
     const client: MCPClientLike = {
       async tools() {
@@ -359,12 +359,188 @@ describe("tools sources", () => {
     const trace = result.traces.sources.find((source) => source.key === "tools");
 
     expect(trace?.kind).toBe("tools");
-    expect(trace?.totalTools).toBe(3);
+    expect(trace?.totalTools).toBe(4);
     expect(trace?.includedTools).toBe(3);
-    expect(trace?.droppedTools).toBe(0);
+    expect(trace?.droppedTools).toBe(1);
     expect([...(trace?.toolNames ?? [])].sort()).toEqual(["getWeather", "searchDocs", "summarize"]);
     expect([...(trace?.toolSources.static ?? [])].sort()).toEqual(["summarize"]);
     expect([...(trace?.toolSources.mcp ?? [])].sort()).toEqual(["getWeather", "searchDocs"]);
+  });
+
+  test("single static and MCP name collision reports droppedTools and toolCollisions", async () => {
+    const budge = createBudge();
+    const client: MCPClientLike = {
+      async tools() {
+        return {
+          searchDocs: {
+            description: "Remote search",
+            inputSchema: { type: "object" },
+          },
+        };
+      },
+    };
+
+    const window = budge.window({
+      id: "tools-trace-single-collision",
+      input: z.object({
+        threadId: z.string(),
+      }),
+      sources: ({ source }) => ({
+        tools: source.tools({
+          tools: {
+            searchDocs: {
+              description: "Static search",
+              inputSchema: { type: "object" },
+            },
+          },
+          mcp: client,
+        }),
+      }),
+    });
+
+    const result = await window.resolve({
+      input: {
+        threadId: "thread_123",
+      },
+    });
+    const trace = result.traces.sources.find((source) => source.key === "tools");
+
+    expect(trace?.droppedTools).toBe(1);
+    expect(trace?.toolCollisions).toEqual([
+      {
+        name: "searchDocs",
+        winner: "mcp",
+        loser: "static",
+      },
+    ]);
+  });
+
+  test("when no collisions occur toolCollisions is an empty array", async () => {
+    const budge = createBudge();
+    const client: MCPClientLike = {
+      async tools() {
+        return {
+          getWeather: {
+            description: "Weather",
+            inputSchema: { type: "object" },
+          },
+        };
+      },
+    };
+
+    const window = budge.window({
+      id: "tools-trace-no-collision",
+      input: z.object({
+        threadId: z.string(),
+      }),
+      sources: ({ source }) => ({
+        tools: source.tools({
+          tools: {
+            searchDocs: {
+              description: "Static search",
+              inputSchema: { type: "object" },
+            },
+          },
+          mcp: client,
+        }),
+      }),
+    });
+
+    const result = await window.resolve({
+      input: {
+        threadId: "thread_123",
+      },
+    });
+    const trace = result.traces.sources.find((source) => source.key === "tools");
+
+    expect(trace?.toolCollisions).toEqual([]);
+  });
+
+  test("multiple collisions across MCP clients are all recorded", async () => {
+    const budge = createBudge();
+    const firstClient: MCPClientLike = {
+      async tools() {
+        return {
+          searchDocs: {
+            description: "First remote search",
+            inputSchema: { type: "object" },
+          },
+          getWeather: {
+            description: "First remote weather",
+            inputSchema: { type: "object" },
+          },
+        };
+      },
+    };
+    const secondClient: MCPClientLike = {
+      async tools() {
+        return {
+          searchDocs: {
+            description: "Second remote search",
+            inputSchema: { type: "object" },
+          },
+          getWeather: {
+            description: "Second remote weather",
+            inputSchema: { type: "object" },
+          },
+        };
+      },
+    };
+
+    const window = budge.window({
+      id: "tools-trace-multiple-collisions",
+      input: z.object({
+        threadId: z.string(),
+      }),
+      sources: ({ source }) => ({
+        tools: source.tools({
+          tools: {
+            searchDocs: {
+              description: "Static search",
+              inputSchema: { type: "object" },
+            },
+            getWeather: {
+              description: "Static weather",
+              inputSchema: { type: "object" },
+            },
+          },
+          mcp: [firstClient, secondClient],
+        }),
+      }),
+    });
+
+    const result = await window.resolve({
+      input: {
+        threadId: "thread_123",
+      },
+    });
+    const trace = result.traces.sources.find((source) => source.key === "tools");
+
+    expect(trace?.totalTools).toBe(6);
+    expect(trace?.includedTools).toBe(2);
+    expect(trace?.droppedTools).toBe(4);
+    expect(trace?.toolCollisions).toEqual([
+      {
+        name: "searchDocs",
+        winner: "mcp",
+        loser: "static",
+      },
+      {
+        name: "getWeather",
+        winner: "mcp",
+        loser: "static",
+      },
+      {
+        name: "searchDocs",
+        winner: "mcp",
+        loser: "mcp",
+      },
+      {
+        name: "getWeather",
+        winner: "mcp",
+        loser: "mcp",
+      },
+    ]);
   });
 
   test("tools source works alongside history and value sources in the same window", async () => {

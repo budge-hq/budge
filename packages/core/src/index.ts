@@ -34,6 +34,7 @@ export type {
   SourceTrace,
   SourceTag,
   SourceShape,
+  ToolCollision,
   ToolDefinition,
   Trace,
   ToolsSource,

@@ -1,4 +1,4 @@
-import type { SourceTag, SourceTrace, Trace } from "./types.ts";
+import type { SourceTag, SourceTrace, ToolCollision, Trace } from "./types.ts";
 import { generateRunId } from "./utils.ts";
 
 export interface SourceTiming {
@@ -26,6 +26,7 @@ export interface SourceTiming {
     static: string[];
     mcp: string[];
   };
+  toolCollisions?: ToolCollision[];
 }
 
 function toSourceTrace(timing: SourceTiming): SourceTrace {
@@ -53,6 +54,7 @@ function toSourceTrace(timing: SourceTiming): SourceTrace {
     ...(timing.droppedTools !== undefined && { droppedTools: timing.droppedTools }),
     ...(timing.toolNames !== undefined && { toolNames: timing.toolNames }),
     ...(timing.toolSources !== undefined && { toolSources: timing.toolSources }),
+    ...(timing.toolCollisions !== undefined && { toolCollisions: timing.toolCollisions }),
   };
 }
 
