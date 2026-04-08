@@ -159,6 +159,6 @@ The SDK works standalone. Cloud is opt-in.
 
 ```bash
 pnpm install
-vp check
-vp test
+pnpm check
+pnpm test
 ```

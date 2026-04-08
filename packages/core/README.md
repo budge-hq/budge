@@ -389,7 +389,7 @@ See `examples/support-reply` for a full working example combining value, rag, hi
 ## Local development
 
 ```bash
-vp test
-vp check
-vp pack
+pnpm test
+pnpm check
+pnpm pack
 ```
