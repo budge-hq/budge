@@ -1,3 +1,4 @@
+import { estimateTokenCount } from "tokenx";
 import { createWindowSpec } from "./window-spec.ts";
 import { resolveWindowSpec } from "./resolve.ts";
 import {
@@ -14,6 +15,7 @@ import type {
   AnyResolverSource,
   AnySource,
   BudgeOptions,
+  BudgeTokenizer,
   DependentRagSourceConfig,
   DependentSourceConfig,
   FromInputSourceOptions,
@@ -170,6 +172,9 @@ function emitTrace(options: BudgeOptions, result: unknown): void {
 
 export function createBudge(options: BudgeOptions = {}): BudgeInstance {
   const source = createSourceFactory();
+  // tokenx is the default estimator at about 96% accuracy and can be replaced
+  // via BudgeOptions.tokenizer.
+  const tokenizer: BudgeTokenizer = options.tokenizer ?? { estimate: estimateTokenCount };
 
   return {
     window<
@@ -195,7 +200,7 @@ export function createBudge(options: BudgeOptions = {}): BudgeInstance {
         id: config.id,
         async resolve(payload: { input: InferSchemaInputObject<TSchema> }) {
           try {
-            const result = await resolveWindowSpec(windowSpec, payload);
+            const result = await resolveWindowSpec(windowSpec, payload, tokenizer);
             emitTrace(options, result);
             return result;
           } catch (error) {

@@ -1,7 +1,14 @@
 import { executeWaves } from "./graph.ts";
 import { buildTrace } from "./trace.ts";
 import type { SourceTiming } from "./trace.ts";
-import type { AnyInput, AnySource, InferSources, ResolveResult, WindowSpec } from "./types.ts";
+import type {
+  AnyInput,
+  AnySource,
+  BudgeTokenizer,
+  InferSources,
+  ResolveResult,
+  WindowSpec,
+} from "./types.ts";
 
 async function validateInput<TResolveInput extends AnyInput, TInput extends AnyInput>(
   schema: WindowSpec<TInput, TResolveInput>["_inputSchema"],
@@ -30,6 +37,7 @@ export async function resolveWindowSpec<
 >(
   windowSpec: WindowSpec<TInput, TResolveInput, TSourceMap>,
   payload: { input: TResolveInput },
+  tokenizer?: BudgeTokenizer,
 ): Promise<ResolveResult<InferSources<TInput, TSourceMap>>> {
   const startedAt = new Date();
   const sourceTimings: SourceTiming[] = [];
@@ -48,6 +56,7 @@ export async function resolveWindowSpec<
       (timing) => {
         sourceTimings.push(timing);
       },
+      tokenizer,
     );
     const completedAt = new Date();
 

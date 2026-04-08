@@ -284,6 +284,8 @@ export interface SourceTrace {
   completedAt: Date;
   durationMs: number;
   status: "resolved" | "failed";
+  estimatedTokens?: number;
+  contentLength?: number;
   itemCount?: number;
   totalMessages?: number;
   includedMessages?: number;
@@ -333,7 +335,14 @@ export interface BudgeLogger {
   info?: (...args: unknown[]) => void;
 }
 
+export interface BudgeTokenizer {
+  // Receives a pre-serialized string. Returns estimated token count.
+  // Must never throw - wrap in try/catch at the call site.
+  estimate(text: string): number;
+}
+
 export interface BudgeOptions {
   logger?: BudgeLogger;
   onTrace?: (trace: Trace) => void;
+  tokenizer?: BudgeTokenizer;
 }

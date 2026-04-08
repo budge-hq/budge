@@ -10,6 +10,8 @@ export interface SourceTiming {
   completedAt: Date;
   durationMs: number;
   status: "resolved" | "failed";
+  estimatedTokens?: number;
+  contentLength?: number;
   itemCount?: number;
   totalMessages?: number;
   includedMessages?: number;
@@ -39,6 +41,8 @@ function toSourceTrace(timing: SourceTiming): SourceTrace {
     completedAt: timing.completedAt,
     durationMs: timing.durationMs,
     status: timing.status,
+    ...(timing.estimatedTokens !== undefined && { estimatedTokens: timing.estimatedTokens }),
+    ...(timing.contentLength !== undefined && { contentLength: timing.contentLength }),
     ...(timing.itemCount !== undefined && { itemCount: timing.itemCount }),
     ...(timing.totalMessages !== undefined && { totalMessages: timing.totalMessages }),
     ...(timing.includedMessages !== undefined && { includedMessages: timing.includedMessages }),

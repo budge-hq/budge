@@ -4,6 +4,7 @@ export type { BudgeInstance } from "./budge.ts";
 export type {
   BudgeLogger,
   BudgeOptions,
+  BudgeTokenizer,
   Chunk,
   DependentRagSourceConfig,
   DependentSourceConfig,

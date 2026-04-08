@@ -1,4 +1,5 @@
 import { DepGraph, DepGraphCycleError } from "dependency-graph";
+import stringify from "safe-stable-stringify";
 import {
   CircularSourceDependencyError,
   MissingSourceDependencyError,
@@ -8,12 +9,45 @@ import { readHistoryTraceMetadata, readToolsTraceMetadata } from "./source.ts";
 import type {
   AnyInput,
   AnySource,
+  BudgeTokenizer,
   ExecutionPlan,
   InputSource,
   ResolverSource,
   SourceDependencyRef,
 } from "./types.ts";
 import type { SourceTiming } from "./trace.ts";
+
+function serializeForEstimation(value: unknown, kind: SourceTiming["kind"]): string | null {
+  try {
+    switch (kind) {
+      case "rag": {
+        if (!Array.isArray(value)) {
+          return null;
+        }
+
+        return (value as Array<{ content?: string }>)
+          .map((chunk) => chunk.content ?? "")
+          .join("\n");
+      }
+      case "history": {
+        if (!Array.isArray(value)) {
+          return null;
+        }
+
+        return (value as Array<{ content?: string }>)
+          .map((message) => message.content ?? "")
+          .join("\n");
+      }
+      case "tools": {
+        return stringify(Object.values(value as Record<string, unknown>)) ?? null;
+      }
+      default:
+        return stringify(value) ?? null;
+    }
+  } catch {
+    return null;
+  }
+}
 
 function isInputSource(source: unknown): source is InputSource<string> {
   return (
@@ -175,6 +209,7 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
   plan: ExecutionPlan,
   windowId: string,
   onTiming: (timing: SourceTiming) => void,
+  tokenizer?: BudgeTokenizer,
 ): Promise<Map<string, unknown>> {
   const resolved = new Map<string, unknown>();
 
@@ -209,6 +244,21 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
             source._sourceKind === "history" ? readHistoryTraceMetadata(value) : undefined;
           const toolsTraceMetadata =
             source._sourceKind === "tools" ? readToolsTraceMetadata(value) : undefined;
+          const serialized = serializeForEstimation(value, source._sourceKind);
+          let estimatedTokens: number | undefined;
+          let contentLength: number | undefined;
+
+          if (serialized !== null) {
+            contentLength = serialized.length;
+
+            if (tokenizer) {
+              try {
+                estimatedTokens = tokenizer.estimate(serialized);
+              } catch {
+                // Tokenizer failures are silent so context assembly still succeeds.
+              }
+            }
+          }
 
           const completedAt = new Date();
           const durationMs = Date.now() - startedAt;
@@ -223,6 +273,8 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
             completedAt,
             durationMs,
             status: "resolved",
+            ...(contentLength !== undefined && { contentLength }),
+            ...(estimatedTokens !== undefined && { estimatedTokens }),
             ...(Array.isArray(value) && source._sourceKind === "rag"
               ? { itemCount: value.length }
               : {}),
