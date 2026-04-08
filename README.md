@@ -1,5 +1,15 @@
 <p align="center">
-  <img src="./assets/logo@2x.png" width="200" alt="budge" />
+  <picture>
+    <source
+      media="(prefers-color-scheme: dark)"
+      srcset="./assets/logo-dark@2x.png"
+    />
+    <img
+      src="./assets/logo@2x.png"
+      alt="Budge logo"
+      width="240"
+    />
+  </picture>
 </p>
 
 # Budge
