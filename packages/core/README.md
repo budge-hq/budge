@@ -81,6 +81,7 @@ const budge = createBudge({
 
 - `budge.source.value(...)`
 - `budge.source.rag(...)`
+- `budge.source.history(...)`
 - `budge.source.fromInput(...)`
 - `budge.window(...)`
 
@@ -137,6 +138,27 @@ const docsSource = budge.source.rag(z.object({ query: z.string() }), {
 ```
 
 RAG sources resolve to `Chunk[]`.
+
+### `source.history(input, config)`
+
+Use `history` for framework-agnostic message arrays that should be filtered and compacted before they enter `context`:
+
+```ts
+const historySource = budge.source.history(z.object({ threadId: z.string() }), {
+  async resolve({ input }) {
+    return db.getMessages(input.threadId);
+  },
+  filter: {
+    excludeKinds: ["tool_call", "reasoning"],
+  },
+  compaction: {
+    strategy: "sliding",
+    maxMessages: 12,
+  },
+});
+```
+
+History sources resolve to `Message[]`. In v0, compaction is count-based and only supports a sliding window. If you omit `compaction`, Budge still applies a default sliding window of `20` messages and reports that applied window in the trace.
 
 ### `source.rag(input, deps, config)`
 
@@ -258,13 +280,20 @@ type Trace = {
   sources: Array<{
     key: string;
     sourceId: string;
-    kind: "input" | "value" | "rag";
+    kind: "input" | "value" | "rag" | "history";
     tags: string[];
     dependsOn: string[];
     completedAt: Date;
     durationMs: number;
     status: "resolved" | "failed";
     itemCount?: number;
+    totalMessages?: number;
+    includedMessages?: number;
+    droppedMessages?: number; // filtered + compaction drops
+    droppedByKind?: Record<string, number>; // filtered drops only
+    compactionDroppedMessages?: number;
+    strategy?: "sliding";
+    maxMessages?: number;
   }>;
 };
 ```
@@ -278,6 +307,7 @@ What `@budge/core` does today:
 - wave-based source resolution
 - type-safe `context`
 - source-level traces
+- history filtering and sliding compaction
 
 What `@budge/core` does not do today:
 
@@ -285,7 +315,7 @@ What `@budge/core` does not do today:
 - model wrapping
 - output scoring
 - tools API
-- compaction
+- semantic or llm history compaction
 - budget management
 
 ## Example

@@ -4,6 +4,7 @@ import {
   createDependentRagSource,
   createDependentValueSource,
   createFromInputSource,
+  createHistorySource,
   createRagSource,
   createValueSource,
 } from "./source.ts";
@@ -15,6 +16,8 @@ import type {
   DependentRagSourceConfig,
   DependentSourceConfig,
   FromInputSourceOptions,
+  HistorySource,
+  HistorySourceConfig,
   InferSources,
   InferSchemaInputObject,
   InferSchemaOutputObject,
@@ -66,6 +69,10 @@ export interface SourceFactory {
   value: ValueSourceFactory;
   rag: RagSourceFactory;
   fromInput<TKey extends string>(key: TKey, options?: FromInputSourceOptions): InputSource<TKey>;
+  history<TSchema extends InputSchema<AnyInput, AnyInput>>(
+    input: TSchema,
+    config: HistorySourceConfig<InferSchemaOutputObject<TSchema>>,
+  ): HistorySource<InferSchemaInputObject<TSchema>>;
 }
 
 export interface BudgeInstance {
@@ -124,6 +131,9 @@ function createSourceFactory(): SourceFactory {
     rag,
     fromInput(key, options) {
       return createFromInputSource(key, options);
+    },
+    history(input, config) {
+      return createHistorySource(input, config);
     },
   };
 }

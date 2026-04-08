@@ -60,11 +60,12 @@ Today in OSS:
 - typed sources as the unit of abstraction
 - dependency-graph resolution in waves
 - traces for every assembly decision
+- history filtering and sliding compaction
 
 Directionally in Budge Cloud:
 
-- compaction policies
 - budget management configured at runtime
+- runtime compaction tuning
 - semantic selection for tools and retrieved context
 - input attribution across runs
 
@@ -141,6 +142,29 @@ const { context, traces } = await noteGeneration.resolve({
 });
 
 // Developer owns the prompt from here.
+```
+
+History is also a first-class source:
+
+```ts
+const supportReply = budge.window({
+  id: "support-reply",
+  input: z.object({ threadId: z.string() }),
+  sources: ({ source }) => ({
+    history: source.history(z.object({ threadId: z.string() }), {
+      async resolve({ input }) {
+        return getMessages(input.threadId);
+      },
+      filter: {
+        excludeKinds: ["tool_call", "reasoning"],
+      },
+      compaction: {
+        strategy: "sliding",
+        maxMessages: 12,
+      },
+    }),
+  }),
+});
 ```
 
 The current open-source SDK is intentionally narrow:

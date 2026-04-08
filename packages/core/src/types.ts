@@ -21,6 +21,18 @@ export type InferSchemaOutputObject<TSchema extends AnySchema> =
 
 export type SourceTag = string;
 
+export type MessageRole = "user" | "assistant" | "system" | "tool";
+
+export type MessageKind = "tool_call" | "tool_result" | "reasoning" | "text";
+
+export interface Message {
+  id: string;
+  role: MessageRole;
+  content: string;
+  kind?: MessageKind;
+  createdAt?: Date;
+}
+
 export interface Chunk {
   content: string;
   score?: number;
@@ -93,6 +105,21 @@ export interface DependentRagSourceConfig<
   ): Promise<TItem[] | Chunk[]> | TItem[] | Chunk[];
 }
 
+export interface HistoryCompactionConfig {
+  strategy: "sliding";
+  maxMessages?: number;
+}
+
+export interface HistoryFilterConfig {
+  excludeKinds?: MessageKind[];
+}
+
+export interface HistorySourceConfig<TInput extends AnyInput = AnyInput> extends SourceOptions {
+  resolve(args: SourceResolveArgs<TInput>): Promise<Message[]> | Message[];
+  filter?: HistoryFilterConfig;
+  compaction?: HistoryCompactionConfig;
+}
+
 export interface ResolverSource<TResult = unknown, TResolveInput extends AnyInput = AnyInput> {
   _type: "resolver";
   _internalId: string;
@@ -113,9 +140,18 @@ export type RagSource<TResolveInput extends AnyInput = AnyInput> = ResolverSourc
   TResolveInput
 >;
 
+export interface HistorySource<TResolveInput extends AnyInput = AnyInput> {
+  _type: "resolver";
+  _internalId: string;
+  _sourceKind: "history";
+  _dependencySources: Record<string, never>;
+  tags: SourceTag[];
+  resolve(input: TResolveInput, context?: Record<string, unknown>): Promise<Message[]>;
+}
+
 export type AnyResolverSource = ResolverSource<unknown, AnyInput>;
 
-export type AnySource = InputSource<string> | AnyResolverSource;
+export type AnySource = InputSource<string> | AnyResolverSource | HistorySource<AnyInput>;
 
 type InferResolvedValue<TResult> = Awaited<TResult>;
 
@@ -132,11 +168,15 @@ type CompatibleSource<TInput extends AnyInput, TSource> =
     ? TKey extends Extract<keyof TInput, string>
       ? TSource
       : never
-    : TSource extends ResolverSource<unknown, infer TSourceInput>
+    : TSource extends HistorySource<infer TSourceInput>
       ? TSourceInput extends Partial<TInput>
         ? TSource
         : never
-      : never;
+      : TSource extends ResolverSource<unknown, infer TSourceInput>
+        ? TSourceInput extends Partial<TInput>
+          ? TSource
+          : never
+        : never;
 
 export type SourceShape<TInput extends AnyInput, TSourceMap extends Record<string, unknown>> = {
   [K in keyof TSourceMap]: CompatibleSource<TInput, TSourceMap[K]>;
@@ -147,9 +187,11 @@ export type InferWindowSource<TInput extends AnyInput, TSource> =
     ? TKey extends keyof TInput
       ? TInput[TKey]
       : never
-    : TSource extends AnyResolverSource
-      ? InferSource<TSource>
-      : never;
+    : TSource extends HistorySource<AnyInput>
+      ? Message[]
+      : TSource extends AnyResolverSource
+        ? InferSource<TSource>
+        : never;
 
 export type InferSources<TInput extends AnyInput, TSourceMap extends Record<string, unknown>> = {
   [K in keyof TSourceMap]: InferWindowSource<TInput, TSourceMap[K]>;
@@ -178,13 +220,20 @@ export interface WindowSpec<
 export interface SourceTrace {
   key: string;
   sourceId: string;
-  kind: "input" | "value" | "rag";
+  kind: "input" | "value" | "rag" | "history";
   tags: SourceTag[];
   dependsOn: string[];
   completedAt: Date;
   durationMs: number;
   status: "resolved" | "failed";
   itemCount?: number;
+  totalMessages?: number;
+  includedMessages?: number;
+  droppedMessages?: number;
+  droppedByKind?: Record<string, number>;
+  compactionDroppedMessages?: number;
+  strategy?: "sliding";
+  maxMessages?: number;
 }
 
 export interface Trace {
