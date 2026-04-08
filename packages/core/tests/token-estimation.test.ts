@@ -99,7 +99,7 @@ describe("token estimation", () => {
     expect(trace.estimatedTokens).toBeUndefined();
   });
 
-  test("estimatedTokens uses tokenx as fallback when no tokenizer is configured", async () => {
+  test("estimatedTokens uses tokenx when no custom tokenizer is provided", async () => {
     const budge = createBudge();
     const record = {
       id: "enc_123",

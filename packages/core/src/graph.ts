@@ -42,6 +42,8 @@ function serializeForEstimation(value: unknown, kind: SourceTiming["kind"]): str
         return stringify(Object.values(value as Record<string, unknown>)) ?? null;
       }
       default:
+        // input/value traces estimate from the same safe-stable-stringify output used for
+        // arbitrary shapes, so raw strings include JSON quotes as a known approximation.
         return stringify(value) ?? null;
     }
   } catch {
