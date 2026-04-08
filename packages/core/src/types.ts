@@ -140,7 +140,7 @@ export interface MCPClientLike {
   >;
 }
 
-export interface ToolsSourceConfig<_TInput extends AnyInput = AnyInput> extends SourceOptions {
+export interface ToolsSourceConfig extends SourceOptions {
   tools?: Record<
     string,
     {

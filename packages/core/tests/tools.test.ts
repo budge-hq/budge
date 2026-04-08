@@ -246,6 +246,44 @@ describe("tools sources", () => {
     });
   });
 
+  test("normalize receives the full raw MCP payload including extra fields", async () => {
+    const budge = createBudge();
+    const seenAnnotations: unknown[] = [];
+    const client: MCPClientLike = {
+      async tools() {
+        return {
+          searchDocs: {
+            description: "Search docs",
+            inputSchema: { type: "object" },
+            annotations: { readOnlyHint: true },
+          } as Record<string, unknown> as {
+            description?: string;
+            inputSchema?: Record<string, unknown>;
+          },
+        };
+      },
+    };
+
+    await budge.source
+      .tools({
+        mcp: client,
+        normalize(name, raw) {
+          seenAnnotations.push(raw.annotations);
+          return {
+            name,
+            description: typeof raw.description === "string" ? raw.description : undefined,
+            inputSchema:
+              typeof raw.inputSchema === "object" && raw.inputSchema !== null
+                ? (raw.inputSchema as Record<string, unknown>)
+                : {},
+          };
+        },
+      })
+      .resolve({});
+
+    expect(seenAnnotations).toEqual([{ readOnlyHint: true }]);
+  });
+
   test("trace has kind === tools", async () => {
     const budge = createBudge();
 

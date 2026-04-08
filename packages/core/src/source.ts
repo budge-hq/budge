@@ -191,10 +191,9 @@ function toRawToolEntry(tool: {
   description?: string;
   inputSchema?: Record<string, unknown>;
 }): Record<string, unknown> {
-  return {
-    ...(tool.description !== undefined ? { description: tool.description } : {}),
-    ...(tool.inputSchema !== undefined ? { inputSchema: tool.inputSchema } : {}),
-  };
+  // Preserve the full raw payload so normalize() can inspect MCP extensions and other
+  // provider-specific fields beyond the minimal Budge-owned tool shape.
+  return tool as Record<string, unknown>;
 }
 
 function normalizeMcpClients(mcp: MCPClientLike | MCPClientLike[] | undefined): MCPClientLike[] {
