@@ -1,10 +1,10 @@
-import type { SourceTag, SourceTrace, Trace } from "./types.ts";
+import type { SourceTag, SourceTrace, ToolCollision, Trace } from "./types.ts";
 import { generateRunId } from "./utils.ts";
 
 export interface SourceTiming {
   key: string;
   sourceId: string;
-  kind: "input" | "value" | "rag" | "history";
+  kind: "input" | "value" | "rag" | "history" | "tools";
   tags: SourceTag[];
   dependsOn: string[];
   completedAt: Date;
@@ -18,6 +18,15 @@ export interface SourceTiming {
   compactionDroppedMessages?: number;
   strategy?: "sliding";
   maxMessages?: number;
+  totalTools?: number;
+  includedTools?: number;
+  droppedTools?: number;
+  toolNames?: string[];
+  toolSources?: {
+    static: string[];
+    mcp: string[];
+  };
+  toolCollisions?: ToolCollision[];
 }
 
 function toSourceTrace(timing: SourceTiming): SourceTrace {
@@ -40,6 +49,12 @@ function toSourceTrace(timing: SourceTiming): SourceTrace {
     }),
     ...(timing.strategy !== undefined && { strategy: timing.strategy }),
     ...(timing.maxMessages !== undefined && { maxMessages: timing.maxMessages }),
+    ...(timing.totalTools !== undefined && { totalTools: timing.totalTools }),
+    ...(timing.includedTools !== undefined && { includedTools: timing.includedTools }),
+    ...(timing.droppedTools !== undefined && { droppedTools: timing.droppedTools }),
+    ...(timing.toolNames !== undefined && { toolNames: timing.toolNames }),
+    ...(timing.toolSources !== undefined && { toolSources: timing.toolSources }),
+    ...(timing.toolCollisions !== undefined && { toolCollisions: timing.toolCollisions }),
   };
 }
 

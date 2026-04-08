@@ -6,6 +6,7 @@ import {
   createFromInputSource,
   createHistorySource,
   createRagSource,
+  createToolsSource,
   createValueSource,
 } from "./source.ts";
 import type {
@@ -23,6 +24,8 @@ import type {
   InferSchemaOutputObject,
   InputSource,
   InputSchema,
+  ToolsSource,
+  ToolsSourceConfig,
   RagSource,
   RagSourceConfig,
   SourceShape,
@@ -73,6 +76,7 @@ export interface SourceFactory {
     input: TSchema,
     config: HistorySourceConfig<InferSchemaOutputObject<TSchema>>,
   ): HistorySource<InferSchemaInputObject<TSchema>>;
+  tools(config: ToolsSourceConfig): ToolsSource;
 }
 
 export interface BudgeInstance {
@@ -134,6 +138,9 @@ function createSourceFactory(): SourceFactory {
     },
     history(input, config) {
       return createHistorySource(input, config);
+    },
+    tools(config) {
+      return createToolsSource(config);
     },
   };
 }

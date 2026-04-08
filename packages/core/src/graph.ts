@@ -4,7 +4,7 @@ import {
   MissingSourceDependencyError,
   SourceResolutionError,
 } from "./errors.ts";
-import { readHistoryTraceMetadata } from "./source.ts";
+import { readHistoryTraceMetadata, readToolsTraceMetadata } from "./source.ts";
 import type {
   AnyInput,
   AnySource,
@@ -207,6 +207,8 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
               );
           const historyTraceMetadata =
             source._sourceKind === "history" ? readHistoryTraceMetadata(value) : undefined;
+          const toolsTraceMetadata =
+            source._sourceKind === "tools" ? readToolsTraceMetadata(value) : undefined;
 
           const completedAt = new Date();
           const durationMs = Date.now() - startedAt;
@@ -225,6 +227,7 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
               ? { itemCount: value.length }
               : {}),
             ...historyTraceMetadata,
+            ...toolsTraceMetadata,
           });
 
           return value;

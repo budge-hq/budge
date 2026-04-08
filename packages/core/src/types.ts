@@ -120,6 +120,44 @@ export interface HistorySourceConfig<TInput extends AnyInput = AnyInput> extends
   compaction?: HistoryCompactionConfig;
 }
 
+export interface ToolDefinition {
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface ToolCollision {
+  name: string;
+  winner: "static" | "mcp";
+  loser: "static" | "mcp";
+}
+
+export interface MCPClientLike {
+  // Transport-agnostic by design: Budge only relies on a tools() method and does
+  // not care whether the client talks to MCP over stdio, HTTP, SSE, or something else.
+  tools(): Promise<
+    Record<
+      string,
+      {
+        description?: string;
+        inputSchema?: Record<string, unknown>;
+      }
+    >
+  >;
+}
+
+export interface ToolsSourceConfig extends SourceOptions {
+  tools?: Record<
+    string,
+    {
+      description?: string;
+      inputSchema: Record<string, unknown>;
+    }
+  >;
+  mcp?: MCPClientLike | MCPClientLike[];
+  normalize?: (name: string, raw: Record<string, unknown>) => ToolDefinition;
+}
+
 export interface ResolverSource<TResult = unknown, TResolveInput extends AnyInput = AnyInput> {
   _type: "resolver";
   _internalId: string;
@@ -149,9 +187,25 @@ export interface HistorySource<TResolveInput extends AnyInput = AnyInput> {
   resolve(input: TResolveInput, context?: Record<string, unknown>): Promise<Message[]>;
 }
 
+export interface ToolsSource {
+  _type: "resolver";
+  _internalId: string;
+  _sourceKind: "tools";
+  _dependencySources: Record<string, never>;
+  tags: SourceTag[];
+  resolve(
+    input: AnyInput,
+    context?: Record<string, unknown>,
+  ): Promise<Record<string, ToolDefinition>>;
+}
+
 export type AnyResolverSource = ResolverSource<unknown, AnyInput>;
 
-export type AnySource = InputSource<string> | AnyResolverSource | HistorySource<AnyInput>;
+export type AnySource =
+  | InputSource<string>
+  | AnyResolverSource
+  | HistorySource<AnyInput>
+  | ToolsSource;
 
 type InferResolvedValue<TResult> = Awaited<TResult>;
 
@@ -168,15 +222,17 @@ type CompatibleSource<TInput extends AnyInput, TSource> =
     ? TKey extends Extract<keyof TInput, string>
       ? TSource
       : never
-    : TSource extends HistorySource<infer TSourceInput>
-      ? TSourceInput extends Partial<TInput>
-        ? TSource
-        : never
-      : TSource extends ResolverSource<unknown, infer TSourceInput>
+    : TSource extends ToolsSource
+      ? TSource
+      : TSource extends HistorySource<infer TSourceInput>
         ? TSourceInput extends Partial<TInput>
           ? TSource
           : never
-        : never;
+        : TSource extends ResolverSource<unknown, infer TSourceInput>
+          ? TSourceInput extends Partial<TInput>
+            ? TSource
+            : never
+          : never;
 
 export type SourceShape<TInput extends AnyInput, TSourceMap extends Record<string, unknown>> = {
   [K in keyof TSourceMap]: CompatibleSource<TInput, TSourceMap[K]>;
@@ -187,11 +243,13 @@ export type InferWindowSource<TInput extends AnyInput, TSource> =
     ? TKey extends keyof TInput
       ? TInput[TKey]
       : never
-    : TSource extends HistorySource<AnyInput>
-      ? Message[]
-      : TSource extends AnyResolverSource
-        ? InferSource<TSource>
-        : never;
+    : TSource extends ToolsSource
+      ? Record<string, ToolDefinition>
+      : TSource extends HistorySource<AnyInput>
+        ? Message[]
+        : TSource extends AnyResolverSource
+          ? InferSource<TSource>
+          : never;
 
 export type InferSources<TInput extends AnyInput, TSourceMap extends Record<string, unknown>> = {
   [K in keyof TSourceMap]: InferWindowSource<TInput, TSourceMap[K]>;
@@ -220,7 +278,7 @@ export interface WindowSpec<
 export interface SourceTrace {
   key: string;
   sourceId: string;
-  kind: "input" | "value" | "rag" | "history";
+  kind: "input" | "value" | "rag" | "history" | "tools";
   tags: SourceTag[];
   dependsOn: string[];
   completedAt: Date;
@@ -234,6 +292,15 @@ export interface SourceTrace {
   compactionDroppedMessages?: number;
   strategy?: "sliding";
   maxMessages?: number;
+  totalTools?: number;
+  includedTools?: number;
+  droppedTools?: number;
+  toolNames?: string[];
+  toolSources?: {
+    static: string[];
+    mcp: string[];
+  };
+  toolCollisions?: ToolCollision[];
 }
 
 export interface Trace {
