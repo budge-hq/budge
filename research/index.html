@@ -1,0 +1,2495 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Budge</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap"
+      rel="stylesheet"
+    />
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+      :root {
+        --bg: #040f0a;
+        --bg-2: #10301c;
+        --text: #ffffff;
+        --accent: #2d8a4f;
+        --mint: #dbf3dc;
+        --muted: #87c4a7;
+        --red: #ff4444;
+        --green: #dbf3dc;
+        --font-primary: "Space Grotesk", sans-serif;
+        --font-secondary: "Inter Tight", sans-serif;
+        --font-mono: "Space Mono", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: var(--font-secondary);
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      section {
+        min-height: 100vh;
+        padding: 5rem 4rem;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      /* Section dividers */
+      section + section {
+        border-top: 1px solid rgba(45, 138, 79, 0.15);
+      }
+
+      /* Hero Section */
+      h1 {
+        font-size: clamp(2.5rem, 5vw, 4rem);
+        font-family: var(--font-primary);
+        font-weight: 700;
+        line-height: 1.15;
+        margin-bottom: 1.5rem;
+        max-width: 900px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .subhead {
+        font-size: clamp(1.1rem, 2vw, 1.35rem);
+        color: var(--muted);
+        max-width: 720px;
+        line-height: 1.7;
+        margin: 0 auto;
+      }
+
+      /* Panel Layout */
+      .panel {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 3rem;
+        align-items: center;
+        width: 100%;
+      }
+
+      @media (min-width: 900px) {
+        .panel {
+          grid-template-columns: 400px 1fr;
+          gap: 5rem;
+        }
+      }
+
+      .panel-text h2 {
+        font-family: var(--font-primary);
+        font-size: clamp(1.5rem, 2.5vw, 2rem);
+        font-weight: 700;
+        margin-bottom: 2rem;
+        line-height: 1.25;
+        color: var(--text);
+      }
+
+      .chart-container {
+        width: 100%;
+        height: 55vh;
+        max-height: 520px;
+        min-height: 300px;
+        position: relative;
+      }
+
+      /* Panel Text Blocks */
+      .block {
+        margin-bottom: 1.75rem;
+      }
+      .block:last-child {
+        margin-bottom: 0;
+      }
+
+      .block-label {
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+        display: block;
+      }
+
+      .block-label.problem {
+        color: var(--red);
+      }
+      .block-label.proposal {
+        color: var(--accent);
+      }
+      .block-label.roadmap {
+        color: var(--accent);
+      }
+      .block-label.validate {
+        color: var(--muted);
+      }
+
+      .block-body {
+        font-size: 0.95rem;
+        line-height: 1.65;
+        color: var(--text);
+        display: block;
+      }
+
+      .block-body.muted {
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      /* Roadmap bullet list */
+      .roadmap-list {
+        list-style: none;
+        margin-top: 0.5rem;
+      }
+
+      .roadmap-list li {
+        font-size: 0.875rem;
+        color: var(--muted);
+        padding-left: 0.875rem;
+        border-left: 2px solid rgba(45, 138, 79, 0.35);
+        margin-bottom: 0.6rem;
+        line-height: 1.5;
+      }
+
+      /* Panel 4 Features */
+      .final-features {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        margin: 2rem 0;
+        text-align: center;
+      }
+      .final-features span {
+        font-size: 1rem;
+        color: var(--muted);
+      }
+
+      .animate-spring {
+        transform-origin: bottom center;
+        display: inline-block;
+        animation: spring-squish 2s ease-in-out 1 forwards;
+        animation-delay: 0.2s;
+      }
+      @keyframes spring-squish {
+        0%,
+        100% {
+          transform: scaleY(1);
+        }
+        20% {
+          transform: scaleY(0.55);
+        }
+        40% {
+          transform: scaleY(1.15);
+        }
+        55% {
+          transform: scaleY(0.92);
+        }
+        70% {
+          transform: scaleY(1.04);
+        }
+        82% {
+          transform: scaleY(0.98);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- HERO -->
+    <section style="align-items: center; text-align: center">
+      <div
+        style="
+          display: flex;
+          gap: 12px;
+          justify-content: center;
+          align-items: center;
+          margin-bottom: 2.5rem;
+        "
+      >
+        <div class="spring-wrapper animate-spring" style="margin-left: -20px">
+          <svg
+            width="36"
+            height="auto"
+            viewBox="0 0 60 90"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M 10 15 C 55 15, 55 33, 15 33 C 50 33, 50 48, 20 48 C 45 48, 45 60, 25 60 C 40 60, 40 70, 30 70"
+              stroke="#2D6A4F"
+              stroke-width="6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              fill="none"
+            />
+          </svg>
+        </div>
+        <img
+          src="data:image/png;base64,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"
+          alt="Budge"
+          style="height: 48px"
+        />
+      </div>
+      <h1>You have no idea what's in your agent's context window right now.</h1>
+      <p class="subhead">
+        Here's what we found across 8,257 real agent sessions — and what Budge proposes to do about
+        it.
+      </p>
+    </section>
+
+    <!-- PANEL 1 -->
+    <section>
+      <div class="panel">
+        <div class="panel-text">
+          <h2>The window is mostly garbage you've already seen</h2>
+
+          <div class="block">
+            <span class="block-label problem">Problem</span>
+            <span class="block-body"
+              >99.8% of what your agent reads each turn is content it already read. Context grows 6x
+              from session start to end. Nobody measures this.</span
+            >
+          </div>
+
+          <div class="block">
+            <span class="block-label proposal">Proposal</span>
+            <span class="block-body"
+              >window.resolve() gives you visibility into exactly what's in the window at every turn
+              — by source, by type, by age. Before you can fix it you have to be able to see
+              it.</span
+            >
+          </div>
+
+          <div class="block">
+            <span class="block-label roadmap">Roadmap</span>
+            <ul class="roadmap-list">
+              <li>
+                Stable trace schema — session ID, turn ID, source kind, resolver family, estimated
+                tokens, cache read/write/input, content length
+              </li>
+              <li>
+                Session viewer — source breakdown per turn, top cost drivers, cache read vs fresh
+                input, what changed this turn
+              </li>
+              <li>Metadata exporters to Budge Cloud</li>
+            </ul>
+          </div>
+
+          <div class="block">
+            <span class="block-label validate">Validate</span>
+            <span class="block-body muted"
+              >Do developers actually care about this visibility? Is "I can explain why this turn
+              was expensive" valuable enough to instrument?</span
+            >
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="chart1"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- PANEL 2 -->
+    <section>
+      <div class="panel">
+        <div class="panel-text">
+          <h2>Stale content accumulates and nobody evicts it</h2>
+
+          <div class="block">
+            <span class="block-label problem">Problem</span>
+            <span class="block-body"
+              >A file read from turn 18 is still in context at turn 103 even though the file was
+              rewritten at turn 36. Nobody tracks this. An estimated 40–50% of context in coding
+              sessions is deterministically evictable — no model inference required.</span
+            >
+          </div>
+
+          <div class="block">
+            <span class="block-label proposal">Proposal</span>
+            <span class="block-body"
+              >Source-typed assembly means window.resolve() knows about the write at turn 36 and
+              doesn't re-include the stale read. Write-invalidation is mechanical bookkeeping, not
+              summarization.</span
+            >
+          </div>
+
+          <div class="block">
+            <span class="block-label roadmap">Roadmap</span>
+            <ul class="roadmap-list">
+              <li>
+                Automatic source classifiers — giant payload, duplicate payload, replayed payload,
+                deterministic stale read, superseded source
+              </li>
+              <li>
+                Deterministic rules — read then write same file, directory listing then file
+                creation, repeated identical fetch/query, exact duplicate tool result across turns
+              </li>
+              <li>
+                Cache-aware shadow policy — labels each source keep / candidate_drop_duplicate /
+                candidate_drop_stale, estimates net savings vs cache impact before any enforcement
+              </li>
+              <li>
+                Safe autopilot v1 — enforces only deterministic low-risk actions, full audit log,
+                one-click rollback, kill switch
+              </li>
+            </ul>
+          </div>
+
+          <div class="block">
+            <span class="block-label validate">Validate</span>
+            <span class="block-body muted"
+              >Is the 40–50% deterministic eviction estimate real at scale? Does removing stale
+              reads improve outcomes or just reduce cost?</span
+            >
+          </div>
+        </div>
+
+        <div
+          class="chart-container"
+          style="display: flex; flex-direction: column; justify-content: center"
+        >
+          <canvas id="chart2"></canvas>
+        </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PANEL 3 -->
+    <section>
+      <div class="panel">
+        <div class="panel-text">
+          <h2>When context gets too big, the fix makes it worse</h2>
+
+          <div class="block">
+            <span class="block-label problem">Problem</span>
+            <span class="block-body"
+              >Compaction fires at turn 400 on a window of 112,000 tokens. The summary is 87.9% as
+              large as what it replaced. Context is back to baseline in 96 turns. One real session
+              compacted 27 times. The tools to fix this exist — no agent ever used them.</span
+            >
+          </div>
+
+          <div class="block">
+            <span class="block-label proposal">Proposal</span>
+            <span class="block-body"
+              >If stale content is evicted continuously as sources go invalid, the pressure never
+              builds to the point where compaction needs to fire. The window stays clean without a
+              crisis intervention.</span
+            >
+          </div>
+
+          <div class="block">
+            <span class="block-label roadmap">Roadmap</span>
+            <ul class="roadmap-list">
+              <li>
+                Turn-level counterfactuals — baseline vs drop duplicates vs drop stale reads vs
+                preserve prefix / trim tail
+              </li>
+              <li>Project mode flags — observe, shadow, autopilot</li>
+              <li>
+                Private beta — session view, waste drivers, cache-aware recommendations, autopilot
+                toggle, action log
+              </li>
+            </ul>
+          </div>
+
+          <div class="block">
+            <span class="block-label validate">Validate</span>
+            <span class="block-body muted"
+              >Does continuous eviction actually prevent the compaction trigger from firing? Does it
+              change the growth curve meaningfully? Does it hold across non-coding agent
+              workloads?</span
+            >
+          </div>
+        </div>
+
+        <div class="chart-container" style="display: flex; flex-direction: column">
+          <div style="flex: 1; position: relative">
+            <canvas id="chart3"></canvas>
+          </div>
+          <div style="color: #ff4444; font-size: 0.8rem; margin-top: 8px; text-align: left">
+            — 27 compaction events
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PANEL 4 CTA -->
+    <section style="align-items: center; text-align: center">
+      <h2
+        style="
+          font-family: var(--font-primary);
+          font-size: clamp(2rem, 4vw, 3rem);
+          font-weight: 700;
+          margin-bottom: 1rem;
+        "
+      >
+        Budge is in development.
+      </h2>
+      <p style="max-width: 600px; margin: 0 auto; color: var(--text)">
+        Budge does not blindly shrink prompts. It knows what each source is, tracks when it becomes
+        stale, and assembles the window with only what earns its place.
+      </p>
+
+      <div class="final-features">
+        <span>window.resolve() — assemble only what's still valid</span>
+        <span>Deterministic eviction — no model inference required</span>
+        <span>Cache-aware — never costs more than it saves</span>
+      </div>
+
+      <div
+        style="
+          font-family: var(--font-mono);
+          color: var(--accent);
+          font-size: 1.75rem;
+          margin-top: 2.5rem;
+          letter-spacing: 0.02em;
+        "
+      >
+        budge.sh
+      </div>
+    </section>
+
+    <script>
+      // Data Configuration
+      const chart1Data = [
+        { turn: 1, tokens: 5007.0 },
+        { turn: 2, tokens: 10235.0 },
+        { turn: 3, tokens: 13048.0 },
+        { turn: 4, tokens: 14796.0 },
+        { turn: 5, tokens: 18665.0 },
+        { turn: 6, tokens: 30070.0 },
+        { turn: 7, tokens: 30715.0 },
+        { turn: 8, tokens: 31958.0 },
+        { turn: 9, tokens: 36468.0 },
+        { turn: 10, tokens: 37788.0 },
+        { turn: 11, tokens: 39356.0 },
+        { turn: 12, tokens: 40638.0 },
+        { turn: 13, tokens: 41063.0 },
+        { turn: 14, tokens: 41543.0 },
+        { turn: 15, tokens: 43798.0 },
+        { turn: 16, tokens: 43958.0 },
+        { turn: 17, tokens: 44230.0 },
+        { turn: 18, tokens: 46156.0 },
+        { turn: 19, tokens: 46682.0 },
+        { turn: 20, tokens: 48980.0 },
+        { turn: 21, tokens: 51528.0 },
+        { turn: 22, tokens: 52955.0 },
+        { turn: 23, tokens: 53587.0 },
+        { turn: 24, tokens: 53993.0 },
+        { turn: 25, tokens: 58053.0 },
+        { turn: 26, tokens: 58199.0 },
+        { turn: 27, tokens: 58532.0 },
+        { turn: 28, tokens: 61168.0 },
+        { turn: 29, tokens: 62310.0 },
+        { turn: 30, tokens: 62998.0 },
+        { turn: 31, tokens: 63040.0 },
+        { turn: 32, tokens: 63500.0 },
+        { turn: 33, tokens: 63797.0 },
+        { turn: 34, tokens: 64071.0 },
+        { turn: 35, tokens: 64246.0 },
+        { turn: 36, tokens: 64545.0 },
+        { turn: 37, tokens: 64982.0 },
+        { turn: 38, tokens: 65208.0 },
+        { turn: 39, tokens: 65341.0 },
+        { turn: 40, tokens: 65561.0 },
+        { turn: 41, tokens: 65758.0 },
+        { turn: 42, tokens: 65930.0 },
+        { turn: 43, tokens: 66110.0 },
+        { turn: 44, tokens: 66295.0 },
+        { turn: 45, tokens: 66578.0 },
+        { turn: 46, tokens: 66787.0 },
+        { turn: 47, tokens: 66985.0 },
+        { turn: 48, tokens: 67184.0 },
+        { turn: 49, tokens: 67796.0 },
+        { turn: 50, tokens: 67928.0 },
+        { turn: 51, tokens: 68134.0 },
+        { turn: 52, tokens: 69238.0 },
+        { turn: 53, tokens: 73075.0 },
+        { turn: 54, tokens: 75421.0 },
+        { turn: 55, tokens: 77710.0 },
+        { turn: 56, tokens: 79842.0 },
+        { turn: 57, tokens: 81723.0 },
+        { turn: 58, tokens: 84316.0 },
+        { turn: 59, tokens: 86988.0 },
+        { turn: 60, tokens: 88368.0 },
+        { turn: 61, tokens: 92516.0 },
+        { turn: 62, tokens: 98282.0 },
+        { turn: 63, tokens: 9708.0 },
+        { turn: 64, tokens: 33502.0 },
+        { turn: 65, tokens: 33899.0 },
+        { turn: 66, tokens: 34091.0 },
+        { turn: 67, tokens: 34187.0 },
+        { turn: 68, tokens: 38102.0 },
+        { turn: 69, tokens: 49731.0 },
+        { turn: 70, tokens: 54257.0 },
+        { turn: 71, tokens: 54864.0 },
+        { turn: 72, tokens: 54993.0 },
+        { turn: 73, tokens: 55221.0 },
+        { turn: 74, tokens: 55335.0 },
+        { turn: 75, tokens: 55695.0 },
+        { turn: 76, tokens: 56404.0 },
+        { turn: 77, tokens: 57421.0 },
+        { turn: 78, tokens: 57913.0 },
+        { turn: 79, tokens: 58266.0 },
+        { turn: 80, tokens: 59292.0 },
+        { turn: 81, tokens: 60676.0 },
+        { turn: 82, tokens: 66158.0 },
+        { turn: 83, tokens: 66303.0 },
+        { turn: 84, tokens: 66436.0 },
+        { turn: 85, tokens: 66911.0 },
+        { turn: 86, tokens: 69180.0 },
+        { turn: 87, tokens: 69364.0 },
+        { turn: 88, tokens: 69791.0 },
+        { turn: 89, tokens: 70204.0 },
+        { turn: 90, tokens: 70878.0 },
+        { turn: 91, tokens: 71838.0 },
+        { turn: 92, tokens: 72232.0 },
+        { turn: 93, tokens: 72352.0 },
+        { turn: 94, tokens: 72453.0 },
+        { turn: 95, tokens: 73591.0 },
+        { turn: 96, tokens: 73748.0 },
+        { turn: 97, tokens: 74043.0 },
+        { turn: 98, tokens: 74158.0 },
+        { turn: 99, tokens: 74332.0 },
+        { turn: 100, tokens: 74611.0 },
+        { turn: 101, tokens: 74920.0 },
+        { turn: 102, tokens: 75058.0 },
+        { turn: 103, tokens: 76114.0 },
+        { turn: 104, tokens: 76637.0 },
+        { turn: 105, tokens: 76941.0 },
+        { turn: 106, tokens: 77862.0 },
+        { turn: 107, tokens: 78955.0 },
+        { turn: 108, tokens: 79503.0 },
+        { turn: 109, tokens: 79763.0 },
+        { turn: 110, tokens: 81847.0 },
+        { turn: 111, tokens: 85057.0 },
+        { turn: 112, tokens: 86227.0 },
+        { turn: 113, tokens: 86741.0 },
+        { turn: 114, tokens: 87754.0 },
+        { turn: 115, tokens: 88288.0 },
+        { turn: 116, tokens: 88534.0 },
+        { turn: 117, tokens: 89413.0 },
+        { turn: 118, tokens: 89647.0 },
+        { turn: 119, tokens: 92072.0 },
+        { turn: 120, tokens: 92347.0 },
+        { turn: 121, tokens: 93350.0 },
+        { turn: 122, tokens: 93873.0 },
+        { turn: 123, tokens: 94093.0 },
+        { turn: 124, tokens: 94437.0 },
+        { turn: 125, tokens: 94631.0 },
+        { turn: 126, tokens: 94969.0 },
+        { turn: 127, tokens: 96275.0 },
+        { turn: 128, tokens: 96710.0 },
+        { turn: 129, tokens: 97046.0 },
+        { turn: 130, tokens: 97553.0 },
+        { turn: 131, tokens: 97814.0 },
+        { turn: 132, tokens: 98078.0 },
+        { turn: 133, tokens: 98425.0 },
+        { turn: 134, tokens: 98867.0 },
+        { turn: 135, tokens: 99094.0 },
+        { turn: 136, tokens: 99421.0 },
+        { turn: 137, tokens: 99618.0 },
+        { turn: 138, tokens: 99816.0 },
+        { turn: 139, tokens: 100034.0 },
+        { turn: 140, tokens: 100223.0 },
+        { turn: 141, tokens: 100410.0 },
+        { turn: 142, tokens: 100563.0 },
+        { turn: 143, tokens: 100723.0 },
+        { turn: 144, tokens: 100857.0 },
+        { turn: 145, tokens: 101131.0 },
+        { turn: 146, tokens: 101329.0 },
+        { turn: 147, tokens: 101599.0 },
+        { turn: 148, tokens: 101762.0 },
+        { turn: 149, tokens: 102144.0 },
+        { turn: 150, tokens: 102454.0 },
+        { turn: 151, tokens: 102748.0 },
+        { turn: 152, tokens: 103067.0 },
+        { turn: 153, tokens: 103474.0 },
+        { turn: 154, tokens: 103658.0 },
+        { turn: 155, tokens: 103934.0 },
+        { turn: 156, tokens: 104201.0 },
+        { turn: 157, tokens: 104334.0 },
+        { turn: 158, tokens: 106984.0 },
+        { turn: 159, tokens: 107055.0 },
+        { turn: 160, tokens: 107376.0 },
+        { turn: 161, tokens: 107812.0 },
+        { turn: 162, tokens: 108285.0 },
+        { turn: 163, tokens: 108474.0 },
+        { turn: 164, tokens: 108960.0 },
+        { turn: 165, tokens: 110418.0 },
+        { turn: 166, tokens: 110825.0 },
+        { turn: 167, tokens: 111024.0 },
+        { turn: 168, tokens: 114679.0 },
+        { turn: 169, tokens: 115319.0 },
+        { turn: 170, tokens: 115975.0 },
+        { turn: 171, tokens: 116340.0 },
+        { turn: 172, tokens: 117069.0 },
+        { turn: 173, tokens: 117780.0 },
+        { turn: 174, tokens: 118008.0 },
+        { turn: 175, tokens: 118218.0 },
+        { turn: 176, tokens: 118453.0 },
+        { turn: 177, tokens: 118617.0 },
+        { turn: 178, tokens: 118800.0 },
+        { turn: 179, tokens: 118951.0 },
+        { turn: 180, tokens: 119075.0 },
+        { turn: 181, tokens: 119174.0 },
+        { turn: 182, tokens: 119327.0 },
+        { turn: 183, tokens: 119443.0 },
+        { turn: 184, tokens: 119684.0 },
+        { turn: 185, tokens: 119814.0 },
+        { turn: 186, tokens: 119972.0 },
+        { turn: 187, tokens: 120401.0 },
+        { turn: 188, tokens: 120571.0 },
+        { turn: 189, tokens: 120761.0 },
+        { turn: 190, tokens: 121157.0 },
+        { turn: 191, tokens: 121579.0 },
+        { turn: 192, tokens: 121741.0 },
+        { turn: 193, tokens: 121872.0 },
+        { turn: 194, tokens: 122153.0 },
+        { turn: 195, tokens: 0.0 },
+        { turn: 196, tokens: 32923.0 },
+        { turn: 197, tokens: 34123.0 },
+        { turn: 198, tokens: 34675.0 },
+        { turn: 199, tokens: 34785.0 },
+        { turn: 200, tokens: 35451.0 },
+        { turn: 201, tokens: 35556.0 },
+        { turn: 202, tokens: 36032.0 },
+        { turn: 203, tokens: 37078.0 },
+        { turn: 204, tokens: 37827.0 },
+        { turn: 205, tokens: 38194.0 },
+        { turn: 206, tokens: 38712.0 },
+        { turn: 207, tokens: 41224.0 },
+        { turn: 208, tokens: 43300.0 },
+        { turn: 209, tokens: 43698.0 },
+        { turn: 210, tokens: 46542.0 },
+        { turn: 211, tokens: 47860.0 },
+        { turn: 212, tokens: 50337.0 },
+        { turn: 213, tokens: 51426.0 },
+        { turn: 214, tokens: 51753.0 },
+        { turn: 215, tokens: 52839.0 },
+        { turn: 216, tokens: 54020.0 },
+        { turn: 217, tokens: 56539.0 },
+        { turn: 218, tokens: 56666.0 },
+        { turn: 219, tokens: 58381.0 },
+        { turn: 220, tokens: 58732.0 },
+        { turn: 221, tokens: 58888.0 },
+        { turn: 222, tokens: 59105.0 },
+        { turn: 223, tokens: 59334.0 },
+        { turn: 224, tokens: 59509.0 },
+        { turn: 225, tokens: 60444.0 },
+        { turn: 226, tokens: 60545.0 },
+        { turn: 227, tokens: 60788.0 },
+        { turn: 228, tokens: 60997.0 },
+        { turn: 229, tokens: 61206.0 },
+        { turn: 230, tokens: 61419.0 },
+        { turn: 231, tokens: 62160.0 },
+        { turn: 232, tokens: 63573.0 },
+        { turn: 233, tokens: 63904.0 },
+        { turn: 234, tokens: 64067.0 },
+        { turn: 235, tokens: 64313.0 },
+        { turn: 236, tokens: 64926.0 },
+        { turn: 237, tokens: 65146.0 },
+        { turn: 238, tokens: 65366.0 },
+        { turn: 239, tokens: 65561.0 },
+        { turn: 240, tokens: 65722.0 },
+        { turn: 241, tokens: 65864.0 },
+        { turn: 242, tokens: 66134.0 },
+        { turn: 243, tokens: 66297.0 },
+        { turn: 244, tokens: 66667.0 },
+        { turn: 245, tokens: 66951.0 },
+        { turn: 246, tokens: 67030.0 },
+        { turn: 247, tokens: 67250.0 },
+        { turn: 248, tokens: 67338.0 },
+        { turn: 249, tokens: 67665.0 },
+        { turn: 250, tokens: 68166.0 },
+        { turn: 251, tokens: 68681.0 },
+        { turn: 252, tokens: 69039.0 },
+        { turn: 253, tokens: 69605.0 },
+        { turn: 254, tokens: 70202.0 },
+        { turn: 255, tokens: 70414.0 },
+        { turn: 256, tokens: 70952.0 },
+        { turn: 257, tokens: 71082.0 },
+        { turn: 258, tokens: 74206.0 },
+        { turn: 259, tokens: 74859.0 },
+        { turn: 260, tokens: 75117.0 },
+        { turn: 261, tokens: 75233.0 },
+        { turn: 262, tokens: 75385.0 },
+        { turn: 263, tokens: 75605.0 },
+        { turn: 264, tokens: 75691.0 },
+        { turn: 265, tokens: 75807.0 },
+        { turn: 266, tokens: 76103.0 },
+        { turn: 267, tokens: 77277.0 },
+        { turn: 268, tokens: 77679.0 },
+        { turn: 269, tokens: 80023.0 },
+        { turn: 270, tokens: 80543.0 },
+        { turn: 271, tokens: 80886.0 },
+        { turn: 272, tokens: 81169.0 },
+        { turn: 273, tokens: 81324.0 },
+        { turn: 274, tokens: 82061.0 },
+        { turn: 275, tokens: 82186.0 },
+        { turn: 276, tokens: 82277.0 },
+        { turn: 277, tokens: 82405.0 },
+        { turn: 278, tokens: 82513.0 },
+        { turn: 279, tokens: 75283.0 },
+        { turn: 280, tokens: 75522.0 },
+        { turn: 281, tokens: 80736.0 },
+        { turn: 282, tokens: 85281.0 },
+        { turn: 283, tokens: 87114.0 },
+        { turn: 284, tokens: 95027.0 },
+        { turn: 285, tokens: 96222.0 },
+        { turn: 286, tokens: 97251.0 },
+        { turn: 287, tokens: 100287.0 },
+        { turn: 288, tokens: 100493.0 },
+        { turn: 289, tokens: 100950.0 },
+        { turn: 290, tokens: 101057.0 },
+        { turn: 291, tokens: 101503.0 },
+        { turn: 292, tokens: 103167.0 },
+        { turn: 293, tokens: 104684.0 },
+        { turn: 294, tokens: 104786.0 },
+        { turn: 295, tokens: 106440.0 },
+        { turn: 296, tokens: 107528.0 },
+        { turn: 297, tokens: 108439.0 },
+        { turn: 298, tokens: 111967.0 },
+        { turn: 299, tokens: 112922.0 },
+        { turn: 300, tokens: 113066.0 },
+        { turn: 301, tokens: 113208.0 },
+        { turn: 302, tokens: 119991.0 },
+        { turn: 303, tokens: 120222.0 },
+        { turn: 304, tokens: 121111.0 },
+        { turn: 305, tokens: 121741.0 },
+        { turn: 306, tokens: 122417.0 },
+        { turn: 307, tokens: 123476.0 },
+        { turn: 308, tokens: 129792.0 },
+        { turn: 309, tokens: 129953.0 },
+        { turn: 310, tokens: 132503.0 },
+        { turn: 311, tokens: 132947.0 },
+        { turn: 312, tokens: 133236.0 },
+        { turn: 313, tokens: 133403.0 },
+        { turn: 314, tokens: 133695.0 },
+        { turn: 315, tokens: 133894.0 },
+        { turn: 316, tokens: 134029.0 },
+        { turn: 317, tokens: 134253.0 },
+        { turn: 318, tokens: 134740.0 },
+        { turn: 319, tokens: 134913.0 },
+        { turn: 320, tokens: 135085.0 },
+      ];
+
+      const chart1AnnotationsData = {
+        compaction: { turn: 195, label: "compaction fired" },
+        baseline: { turn: 306, label: "back to baseline — 111 turns later" },
+        shadeStart: 195,
+        shadeEnd: 306,
+        shadeLabel: "111 turns of rebuild cost",
+      };
+
+      const chart2Data = Array.from({ length: 120 }, (_, i) => ({
+        turn: i + 1,
+        tokens: Math.round(8000 + (i * 950) + (i > 17 ? 8400 : 0))
+      }));
+
+      const chart3Data = [
+        { turn: 1, tokens: 8049.0 },
+        { turn: 2, tokens: 13806.0 },
+        { turn: 3, tokens: 21224.0 },
+        { turn: 4, tokens: 33780.0 },
+        { turn: 5, tokens: 52571.0 },
+        { turn: 6, tokens: 54935.0 },
+        { turn: 7, tokens: 56671.0 },
+        { turn: 8, tokens: 57754.0 },
+        { turn: 9, tokens: 58753.0 },
+        { turn: 10, tokens: 76457.0 },
+        { turn: 11, tokens: 76548.0 },
+        { turn: 12, tokens: 76955.0 },
+        { turn: 13, tokens: 84515.0 },
+        { turn: 14, tokens: 13427.0 },
+        { turn: 15, tokens: 44897.0 },
+        { turn: 16, tokens: 45748.0 },
+        { turn: 17, tokens: 46702.0 },
+        { turn: 18, tokens: 46902.0 },
+        { turn: 19, tokens: 47444.0 },
+        { turn: 20, tokens: 49813.0 },
+        { turn: 21, tokens: 50864.0 },
+        { turn: 22, tokens: 54516.0 },
+        { turn: 23, tokens: 57701.0 },
+        { turn: 24, tokens: 59055.0 },
+        { turn: 25, tokens: 60749.0 },
+        { turn: 26, tokens: 61423.0 },
+        { turn: 27, tokens: 62213.0 },
+        { turn: 28, tokens: 63098.0 },
+        { turn: 29, tokens: 63969.0 },
+        { turn: 30, tokens: 64049.0 },
+        { turn: 31, tokens: 64619.0 },
+        { turn: 32, tokens: 67016.0 },
+        { turn: 33, tokens: 68441.0 },
+        { turn: 34, tokens: 69787.0 },
+        { turn: 35, tokens: 70560.0 },
+        { turn: 36, tokens: 75450.0 },
+        { turn: 37, tokens: 79365.0 },
+        { turn: 38, tokens: 82575.0 },
+        { turn: 39, tokens: 89956.0 },
+        { turn: 40, tokens: 92693.0 },
+        { turn: 41, tokens: 98408.0 },
+        { turn: 42, tokens: 99561.0 },
+        { turn: 43, tokens: 107054.0 },
+        { turn: 44, tokens: 107987.0 },
+        { turn: 45, tokens: 116084.0 },
+        { turn: 46, tokens: 116547.0 },
+        { turn: 47, tokens: 117451.0 },
+        { turn: 48, tokens: 119878.0 },
+        { turn: 49, tokens: 121418.0 },
+        { turn: 50, tokens: 123621.0 },
+        { turn: 51, tokens: 128296.0 },
+        { turn: 52, tokens: 129876.0 },
+        { turn: 53, tokens: 130679.0 },
+        { turn: 54, tokens: 131222.0 },
+        { turn: 55, tokens: 135274.0 },
+        { turn: 56, tokens: 8049.0 },
+        { turn: 57, tokens: 36954.0 },
+        { turn: 58, tokens: 38303.0 },
+        { turn: 59, tokens: 41108.0 },
+        { turn: 60, tokens: 45048.0 },
+        { turn: 61, tokens: 49602.0 },
+        { turn: 62, tokens: 51549.0 },
+        { turn: 63, tokens: 51719.0 },
+        { turn: 64, tokens: 52224.0 },
+        { turn: 65, tokens: 52368.0 },
+        { turn: 66, tokens: 52648.0 },
+        { turn: 67, tokens: 53419.0 },
+        { turn: 68, tokens: 60287.0 },
+        { turn: 69, tokens: 63517.0 },
+        { turn: 70, tokens: 66254.0 },
+        { turn: 71, tokens: 66317.0 },
+        { turn: 72, tokens: 66576.0 },
+        { turn: 73, tokens: 71989.0 },
+        { turn: 74, tokens: 78223.0 },
+        { turn: 75, tokens: 81564.0 },
+        { turn: 76, tokens: 85178.0 },
+        { turn: 77, tokens: 85661.0 },
+        { turn: 78, tokens: 86178.0 },
+        { turn: 79, tokens: 86344.0 },
+        { turn: 80, tokens: 86642.0 },
+        { turn: 81, tokens: 86808.0 },
+        { turn: 82, tokens: 86961.0 },
+        { turn: 83, tokens: 90066.0 },
+        { turn: 84, tokens: 96507.0 },
+        { turn: 85, tokens: 96678.0 },
+        { turn: 86, tokens: 97237.0 },
+        { turn: 87, tokens: 98269.0 },
+        { turn: 88, tokens: 99484.0 },
+        { turn: 89, tokens: 100398.0 },
+        { turn: 90, tokens: 100562.0 },
+        { turn: 91, tokens: 102008.0 },
+        { turn: 92, tokens: 105046.0 },
+        { turn: 93, tokens: 107436.0 },
+        { turn: 94, tokens: 107680.0 },
+        { turn: 95, tokens: 108102.0 },
+        { turn: 96, tokens: 108256.0 },
+        { turn: 97, tokens: 108606.0 },
+        { turn: 98, tokens: 108772.0 },
+        { turn: 99, tokens: 108947.0 },
+        { turn: 100, tokens: 112529.0 },
+        { turn: 101, tokens: 112859.0 },
+        { turn: 102, tokens: 113069.0 },
+        { turn: 103, tokens: 114494.0 },
+        { turn: 104, tokens: 115297.0 },
+        { turn: 105, tokens: 118698.0 },
+        { turn: 106, tokens: 118848.0 },
+        { turn: 107, tokens: 119364.0 },
+        { turn: 108, tokens: 120242.0 },
+        { turn: 109, tokens: 126016.0 },
+        { turn: 110, tokens: 126179.0 },
+        { turn: 111, tokens: 127668.0 },
+        { turn: 112, tokens: 128262.0 },
+        { turn: 113, tokens: 129452.0 },
+        { turn: 114, tokens: 130197.0 },
+        { turn: 115, tokens: 130686.0 },
+        { turn: 116, tokens: 130852.0 },
+        { turn: 117, tokens: 131023.0 },
+        { turn: 118, tokens: 135352.0 },
+        { turn: 119, tokens: 135713.0 },
+        { turn: 120, tokens: 136460.0 },
+        { turn: 121, tokens: 137624.0 },
+        { turn: 122, tokens: 138777.0 },
+        { turn: 123, tokens: 140324.0 },
+        { turn: 124, tokens: 141183.0 },
+        { turn: 125, tokens: 142333.0 },
+        { turn: 126, tokens: 144238.0 },
+        { turn: 127, tokens: 144382.0 },
+        { turn: 128, tokens: 146143.0 },
+        { turn: 129, tokens: 149219.0 },
+        { turn: 130, tokens: 149398.0 },
+        { turn: 131, tokens: 150775.0 },
+        { turn: 132, tokens: 153137.0 },
+        { turn: 133, tokens: 153802.0 },
+        { turn: 134, tokens: 154299.0 },
+        { turn: 135, tokens: 154465.0 },
+        { turn: 136, tokens: 154630.0 },
+        { turn: 137, tokens: 159700.0 },
+        { turn: 138, tokens: 8049.0 },
+        { turn: 139, tokens: 42329.0 },
+        { turn: 140, tokens: 47248.0 },
+        { turn: 141, tokens: 54558.0 },
+        { turn: 142, tokens: 55891.0 },
+        { turn: 143, tokens: 56138.0 },
+        { turn: 144, tokens: 58677.0 },
+        { turn: 145, tokens: 63348.0 },
+        { turn: 146, tokens: 64297.0 },
+        { turn: 147, tokens: 64900.0 },
+        { turn: 148, tokens: 65370.0 },
+        { turn: 149, tokens: 65536.0 },
+        { turn: 150, tokens: 65749.0 },
+        { turn: 151, tokens: 71745.0 },
+        { turn: 152, tokens: 72027.0 },
+        { turn: 153, tokens: 73011.0 },
+        { turn: 154, tokens: 75929.0 },
+        { turn: 155, tokens: 76064.0 },
+        { turn: 156, tokens: 78074.0 },
+        { turn: 157, tokens: 81890.0 },
+        { turn: 158, tokens: 82676.0 },
+        { turn: 159, tokens: 83750.0 },
+        { turn: 160, tokens: 85110.0 },
+        { turn: 161, tokens: 86385.0 },
+        { turn: 162, tokens: 91066.0 },
+        { turn: 163, tokens: 91509.0 },
+        { turn: 164, tokens: 91845.0 },
+        { turn: 165, tokens: 92346.0 },
+        { turn: 166, tokens: 92901.0 },
+        { turn: 167, tokens: 93067.0 },
+        { turn: 168, tokens: 93312.0 },
+        { turn: 169, tokens: 100191.0 },
+        { turn: 170, tokens: 105142.0 },
+        { turn: 171, tokens: 109628.0 },
+        { turn: 172, tokens: 109940.0 },
+        { turn: 173, tokens: 111202.0 },
+        { turn: 174, tokens: 113795.0 },
+        { turn: 175, tokens: 114076.0 },
+        { turn: 176, tokens: 117227.0 },
+        { turn: 177, tokens: 117516.0 },
+        { turn: 178, tokens: 117872.0 },
+        { turn: 179, tokens: 118502.0 },
+        { turn: 180, tokens: 119003.0 },
+        { turn: 181, tokens: 119169.0 },
+        { turn: 182, tokens: 119406.0 },
+        { turn: 183, tokens: 127165.0 },
+        { turn: 184, tokens: 133675.0 },
+        { turn: 185, tokens: 134562.0 },
+        { turn: 186, tokens: 135234.0 },
+        { turn: 187, tokens: 140063.0 },
+        { turn: 188, tokens: 141536.0 },
+        { turn: 189, tokens: 142351.0 },
+        { turn: 190, tokens: 142726.0 },
+        { turn: 191, tokens: 143316.0 },
+        { turn: 192, tokens: 143754.0 },
+        { turn: 193, tokens: 144223.0 },
+        { turn: 194, tokens: 144497.0 },
+        { turn: 195, tokens: 144919.0 },
+        { turn: 196, tokens: 145085.0 },
+        { turn: 197, tokens: 145299.0 },
+        { turn: 198, tokens: 153831.0 },
+        { turn: 199, tokens: 154664.0 },
+        { turn: 200, tokens: 154983.0 },
+        { turn: 201, tokens: 156193.0 },
+        { turn: 202, tokens: 8049.0 },
+        { turn: 203, tokens: 44454.0 },
+        { turn: 204, tokens: 47614.0 },
+        { turn: 205, tokens: 50079.0 },
+        { turn: 206, tokens: 52672.0 },
+        { turn: 207, tokens: 53353.0 },
+        { turn: 208, tokens: 54381.0 },
+        { turn: 209, tokens: 56836.0 },
+        { turn: 210, tokens: 58006.0 },
+        { turn: 211, tokens: 58989.0 },
+        { turn: 212, tokens: 60806.0 },
+        { turn: 213, tokens: 61661.0 },
+        { turn: 214, tokens: 61948.0 },
+        { turn: 215, tokens: 62174.0 },
+        { turn: 216, tokens: 62484.0 },
+        { turn: 217, tokens: 62875.0 },
+        { turn: 218, tokens: 63170.0 },
+        { turn: 219, tokens: 63351.0 },
+        { turn: 220, tokens: 63871.0 },
+        { turn: 221, tokens: 64102.0 },
+        { turn: 222, tokens: 73599.0 },
+        { turn: 223, tokens: 78682.0 },
+        { turn: 224, tokens: 80001.0 },
+        { turn: 225, tokens: 81405.0 },
+        { turn: 226, tokens: 83239.0 },
+        { turn: 227, tokens: 84932.0 },
+        { turn: 228, tokens: 85358.0 },
+        { turn: 229, tokens: 86740.0 },
+        { turn: 230, tokens: 88569.0 },
+        { turn: 231, tokens: 90215.0 },
+        { turn: 232, tokens: 91040.0 },
+        { turn: 233, tokens: 91399.0 },
+        { turn: 234, tokens: 91752.0 },
+        { turn: 235, tokens: 92194.0 },
+        { turn: 236, tokens: 92531.0 },
+        { turn: 237, tokens: 93142.0 },
+        { turn: 238, tokens: 93338.0 },
+        { turn: 239, tokens: 8049.0 },
+        { turn: 240, tokens: 44375.0 },
+        { turn: 241, tokens: 45522.0 },
+        { turn: 242, tokens: 46809.0 },
+        { turn: 243, tokens: 47420.0 },
+        { turn: 244, tokens: 48949.0 },
+        { turn: 245, tokens: 50811.0 },
+        { turn: 246, tokens: 52909.0 },
+        { turn: 247, tokens: 54933.0 },
+        { turn: 248, tokens: 56561.0 },
+        { turn: 249, tokens: 58224.0 },
+        { turn: 250, tokens: 59480.0 },
+        { turn: 251, tokens: 61143.0 },
+        { turn: 252, tokens: 61501.0 },
+        { turn: 253, tokens: 61855.0 },
+        { turn: 254, tokens: 62389.0 },
+        { turn: 255, tokens: 62585.0 },
+        { turn: 256, tokens: 62901.0 },
+        { turn: 257, tokens: 73957.0 },
+        { turn: 258, tokens: 77214.0 },
+        { turn: 259, tokens: 77707.0 },
+        { turn: 260, tokens: 78900.0 },
+        { turn: 261, tokens: 79417.0 },
+        { turn: 262, tokens: 79993.0 },
+        { turn: 263, tokens: 81733.0 },
+        { turn: 264, tokens: 83968.0 },
+        { turn: 265, tokens: 86588.0 },
+        { turn: 266, tokens: 88584.0 },
+        { turn: 267, tokens: 90598.0 },
+        { turn: 268, tokens: 92595.0 },
+        { turn: 269, tokens: 95470.0 },
+        { turn: 270, tokens: 96089.0 },
+        { turn: 271, tokens: 96587.0 },
+        { turn: 272, tokens: 97478.0 },
+        { turn: 273, tokens: 8049.0 },
+        { turn: 274, tokens: 55418.0 },
+        { turn: 275, tokens: 56497.0 },
+        { turn: 276, tokens: 57152.0 },
+        { turn: 277, tokens: 59788.0 },
+        { turn: 278, tokens: 61058.0 },
+        { turn: 279, tokens: 62996.0 },
+        { turn: 280, tokens: 64833.0 },
+        { turn: 281, tokens: 66891.0 },
+        { turn: 282, tokens: 68804.0 },
+        { turn: 283, tokens: 69837.0 },
+        { turn: 284, tokens: 70745.0 },
+        { turn: 285, tokens: 77828.0 },
+        { turn: 286, tokens: 82171.0 },
+        { turn: 287, tokens: 82814.0 },
+        { turn: 288, tokens: 83469.0 },
+        { turn: 289, tokens: 84164.0 },
+        { turn: 290, tokens: 84360.0 },
+        { turn: 291, tokens: 84717.0 },
+        { turn: 292, tokens: 96901.0 },
+        { turn: 293, tokens: 99803.0 },
+        { turn: 294, tokens: 103425.0 },
+        { turn: 295, tokens: 106263.0 },
+        { turn: 296, tokens: 106385.0 },
+        { turn: 297, tokens: 106966.0 },
+        { turn: 298, tokens: 107697.0 },
+        { turn: 299, tokens: 107977.0 },
+        { turn: 300, tokens: 108813.0 },
+        { turn: 301, tokens: 109938.0 },
+        { turn: 302, tokens: 110395.0 },
+        { turn: 303, tokens: 110891.0 },
+        { turn: 304, tokens: 111200.0 },
+        { turn: 305, tokens: 111620.0 },
+        { turn: 306, tokens: 111921.0 },
+        { turn: 307, tokens: 8049.0 },
+        { turn: 308, tokens: 48482.0 },
+        { turn: 309, tokens: 62358.0 },
+        { turn: 310, tokens: 62576.0 },
+        { turn: 311, tokens: 63057.0 },
+        { turn: 312, tokens: 68299.0 },
+        { turn: 313, tokens: 68454.0 },
+        { turn: 314, tokens: 70795.0 },
+        { turn: 315, tokens: 70962.0 },
+        { turn: 316, tokens: 72239.0 },
+        { turn: 317, tokens: 72397.0 },
+        { turn: 318, tokens: 73512.0 },
+        { turn: 319, tokens: 73790.0 },
+        { turn: 320, tokens: 73889.0 },
+        { turn: 321, tokens: 74422.0 },
+        { turn: 322, tokens: 76498.0 },
+        { turn: 323, tokens: 77083.0 },
+        { turn: 324, tokens: 77709.0 },
+        { turn: 325, tokens: 78388.0 },
+        { turn: 326, tokens: 13515.0 },
+        { turn: 327, tokens: 34071.0 },
+        { turn: 328, tokens: 47967.0 },
+        { turn: 329, tokens: 49293.0 },
+        { turn: 330, tokens: 49747.0 },
+        { turn: 331, tokens: 53981.0 },
+        { turn: 332, tokens: 54342.0 },
+        { turn: 333, tokens: 54959.0 },
+        { turn: 334, tokens: 58984.0 },
+        { turn: 335, tokens: 60242.0 },
+        { turn: 336, tokens: 61880.0 },
+        { turn: 337, tokens: 62664.0 },
+        { turn: 338, tokens: 63432.0 },
+        { turn: 339, tokens: 63768.0 },
+        { turn: 340, tokens: 13515.0 },
+        { turn: 341, tokens: 34018.0 },
+        { turn: 342, tokens: 35015.0 },
+        { turn: 343, tokens: 36898.0 },
+        { turn: 344, tokens: 50611.0 },
+        { turn: 345, tokens: 51993.0 },
+        { turn: 346, tokens: 55803.0 },
+        { turn: 347, tokens: 57907.0 },
+        { turn: 348, tokens: 58013.0 },
+        { turn: 349, tokens: 74871.0 },
+        { turn: 350, tokens: 74960.0 },
+        { turn: 351, tokens: 75220.0 },
+        { turn: 352, tokens: 89600.0 },
+        { turn: 353, tokens: 89952.0 },
+        { turn: 354, tokens: 90143.0 },
+        { turn: 355, tokens: 90530.0 },
+        { turn: 356, tokens: 90735.0 },
+        { turn: 357, tokens: 90878.0 },
+        { turn: 358, tokens: 13427.0 },
+        { turn: 359, tokens: 0.0 },
+        { turn: 360, tokens: 50908.0 },
+        { turn: 361, tokens: 50933.0 },
+        { turn: 362, tokens: 52062.0 },
+        { turn: 363, tokens: 52171.0 },
+        { turn: 364, tokens: 56760.0 },
+        { turn: 365, tokens: 63799.0 },
+        { turn: 366, tokens: 64507.0 },
+        { turn: 367, tokens: 65636.0 },
+        { turn: 368, tokens: 66125.0 },
+        { turn: 369, tokens: 66888.0 },
+        { turn: 370, tokens: 66997.0 },
+        { turn: 371, tokens: 67900.0 },
+        { turn: 372, tokens: 68605.0 },
+        { turn: 373, tokens: 88290.0 },
+        { turn: 374, tokens: 88595.0 },
+        { turn: 375, tokens: 89285.0 },
+        { turn: 376, tokens: 89497.0 },
+        { turn: 377, tokens: 89614.0 },
+        { turn: 378, tokens: 90115.0 },
+        { turn: 379, tokens: 90781.0 },
+        { turn: 380, tokens: 91037.0 },
+        { turn: 381, tokens: 91302.0 },
+        { turn: 382, tokens: 91934.0 },
+        { turn: 383, tokens: 92418.0 },
+        { turn: 384, tokens: 92962.0 },
+        { turn: 385, tokens: 93334.0 },
+        { turn: 386, tokens: 93649.0 },
+        { turn: 387, tokens: 93836.0 },
+        { turn: 388, tokens: 94036.0 },
+        { turn: 389, tokens: 13427.0 },
+        { turn: 390, tokens: 44771.0 },
+        { turn: 391, tokens: 47958.0 },
+        { turn: 392, tokens: 49276.0 },
+        { turn: 393, tokens: 56618.0 },
+        { turn: 394, tokens: 56828.0 },
+        { turn: 395, tokens: 0.0 },
+        { turn: 396, tokens: 57412.0 },
+        { turn: 397, tokens: 57623.0 },
+        { turn: 398, tokens: 58237.0 },
+        { turn: 399, tokens: 60066.0 },
+        { turn: 400, tokens: 60280.0 },
+        { turn: 401, tokens: 61578.0 },
+        { turn: 402, tokens: 61807.0 },
+        { turn: 403, tokens: 61988.0 },
+        { turn: 404, tokens: 62361.0 },
+        { turn: 405, tokens: 62619.0 },
+        { turn: 406, tokens: 62894.0 },
+        { turn: 407, tokens: 63094.0 },
+        { turn: 408, tokens: 64389.0 },
+        { turn: 409, tokens: 13427.0 },
+        { turn: 410, tokens: 38226.0 },
+        { turn: 411, tokens: 38594.0 },
+        { turn: 412, tokens: 40418.0 },
+        { turn: 413, tokens: 41231.0 },
+        { turn: 414, tokens: 42487.0 },
+        { turn: 415, tokens: 43372.0 },
+        { turn: 416, tokens: 43931.0 },
+        { turn: 417, tokens: 44054.0 },
+        { turn: 418, tokens: 44164.0 },
+        { turn: 419, tokens: 45149.0 },
+        { turn: 420, tokens: 46544.0 },
+        { turn: 421, tokens: 46972.0 },
+        { turn: 422, tokens: 48045.0 },
+        { turn: 423, tokens: 48230.0 },
+        { turn: 424, tokens: 48726.0 },
+        { turn: 425, tokens: 49456.0 },
+        { turn: 426, tokens: 49642.0 },
+        { turn: 427, tokens: 50515.0 },
+        { turn: 428, tokens: 50939.0 },
+        { turn: 429, tokens: 51232.0 },
+        { turn: 430, tokens: 51600.0 },
+        { turn: 431, tokens: 53492.0 },
+        { turn: 432, tokens: 53700.0 },
+        { turn: 433, tokens: 53884.0 },
+        { turn: 434, tokens: 54114.0 },
+        { turn: 435, tokens: 54293.0 },
+        { turn: 436, tokens: 54513.0 },
+        { turn: 437, tokens: 54651.0 },
+        { turn: 438, tokens: 54830.0 },
+        { turn: 439, tokens: 55050.0 },
+        { turn: 440, tokens: 55229.0 },
+        { turn: 441, tokens: 55671.0 },
+        { turn: 442, tokens: 56201.0 },
+        { turn: 443, tokens: 56404.0 },
+        { turn: 444, tokens: 56612.0 },
+        { turn: 445, tokens: 56783.0 },
+        { turn: 446, tokens: 58081.0 },
+        { turn: 447, tokens: 58224.0 },
+        { turn: 448, tokens: 59522.0 },
+        { turn: 449, tokens: 59607.0 },
+        { turn: 450, tokens: 59903.0 },
+        { turn: 451, tokens: 60904.0 },
+        { turn: 452, tokens: 61394.0 },
+        { turn: 453, tokens: 61527.0 },
+        { turn: 454, tokens: 61919.0 },
+        { turn: 455, tokens: 62201.0 },
+        { turn: 456, tokens: 63177.0 },
+        { turn: 457, tokens: 64269.0 },
+        { turn: 458, tokens: 65632.0 },
+        { turn: 459, tokens: 67030.0 },
+        { turn: 460, tokens: 68284.0 },
+        { turn: 461, tokens: 68505.0 },
+        { turn: 462, tokens: 68780.0 },
+        { turn: 463, tokens: 68988.0 },
+        { turn: 464, tokens: 69197.0 },
+        { turn: 465, tokens: 69411.0 },
+        { turn: 466, tokens: 69772.0 },
+        { turn: 467, tokens: 70202.0 },
+        { turn: 468, tokens: 70525.0 },
+        { turn: 469, tokens: 70661.0 },
+        { turn: 470, tokens: 70887.0 },
+        { turn: 471, tokens: 71133.0 },
+        { turn: 472, tokens: 71307.0 },
+        { turn: 473, tokens: 71511.0 },
+        { turn: 474, tokens: 72808.0 },
+        { turn: 475, tokens: 72991.0 },
+        { turn: 476, tokens: 74288.0 },
+        { turn: 477, tokens: 74431.0 },
+        { turn: 478, tokens: 75729.0 },
+        { turn: 479, tokens: 75895.0 },
+        { turn: 480, tokens: 77192.0 },
+        { turn: 481, tokens: 77394.0 },
+        { turn: 482, tokens: 77408.0 },
+        { turn: 483, tokens: 79131.0 },
+        { turn: 484, tokens: 79621.0 },
+        { turn: 485, tokens: 80065.0 },
+        { turn: 486, tokens: 80988.0 },
+        { turn: 487, tokens: 81150.0 },
+        { turn: 488, tokens: 81484.0 },
+        { turn: 489, tokens: 81965.0 },
+        { turn: 490, tokens: 83919.0 },
+        { turn: 491, tokens: 84080.0 },
+        { turn: 492, tokens: 84333.0 },
+        { turn: 493, tokens: 85628.0 },
+        { turn: 494, tokens: 0.0 },
+        { turn: 495, tokens: 13427.0 },
+        { turn: 496, tokens: 45346.0 },
+        { turn: 497, tokens: 46450.0 },
+        { turn: 498, tokens: 47561.0 },
+        { turn: 499, tokens: 49136.0 },
+        { turn: 500, tokens: 50257.0 },
+        { turn: 501, tokens: 52505.0 },
+        { turn: 502, tokens: 52911.0 },
+        { turn: 503, tokens: 53072.0 },
+        { turn: 504, tokens: 53366.0 },
+        { turn: 505, tokens: 54663.0 },
+        { turn: 506, tokens: 55527.0 },
+        { turn: 507, tokens: 55648.0 },
+        { turn: 508, tokens: 55858.0 },
+        { turn: 509, tokens: 57167.0 },
+        { turn: 510, tokens: 57362.0 },
+        { turn: 511, tokens: 57487.0 },
+        { turn: 512, tokens: 57598.0 },
+        { turn: 513, tokens: 58054.0 },
+        { turn: 514, tokens: 58168.0 },
+        { turn: 515, tokens: 58599.0 },
+        { turn: 516, tokens: 60037.0 },
+        { turn: 517, tokens: 60158.0 },
+        { turn: 518, tokens: 60366.0 },
+        { turn: 519, tokens: 61664.0 },
+        { turn: 520, tokens: 61802.0 },
+        { turn: 521, tokens: 61878.0 },
+        { turn: 522, tokens: 63593.0 },
+        { turn: 523, tokens: 63886.0 },
+        { turn: 524, tokens: 65318.0 },
+        { turn: 525, tokens: 65687.0 },
+        { turn: 526, tokens: 68401.0 },
+        { turn: 527, tokens: 68522.0 },
+        { turn: 528, tokens: 68781.0 },
+        { turn: 529, tokens: 70079.0 },
+        { turn: 530, tokens: 70224.0 },
+        { turn: 531, tokens: 71523.0 },
+        { turn: 532, tokens: 13427.0 },
+        { turn: 533, tokens: 45258.0 },
+        { turn: 534, tokens: 45290.0 },
+        { turn: 535, tokens: 45666.0 },
+        { turn: 536, tokens: 47455.0 },
+        { turn: 537, tokens: 48722.0 },
+        { turn: 538, tokens: 49680.0 },
+        { turn: 539, tokens: 51245.0 },
+        { turn: 540, tokens: 52305.0 },
+        { turn: 541, tokens: 52913.0 },
+        { turn: 542, tokens: 53941.0 },
+        { turn: 543, tokens: 55513.0 },
+        { turn: 544, tokens: 58067.0 },
+        { turn: 545, tokens: 61004.0 },
+        { turn: 546, tokens: 61125.0 },
+        { turn: 547, tokens: 61378.0 },
+        { turn: 548, tokens: 62673.0 },
+        { turn: 549, tokens: 62827.0 },
+        { turn: 550, tokens: 64123.0 },
+        { turn: 551, tokens: 64277.0 },
+        { turn: 552, tokens: 65573.0 },
+        { turn: 553, tokens: 65728.0 },
+        { turn: 554, tokens: 67024.0 },
+        { turn: 555, tokens: 67266.0 },
+        { turn: 556, tokens: 68561.0 },
+        { turn: 557, tokens: 68700.0 },
+        { turn: 558, tokens: 69996.0 },
+        { turn: 559, tokens: 70272.0 },
+        { turn: 560, tokens: 70289.0 },
+        { turn: 561, tokens: 70539.0 },
+        { turn: 562, tokens: 73483.0 },
+        { turn: 563, tokens: 78450.0 },
+        { turn: 564, tokens: 81050.0 },
+        { turn: 565, tokens: 81626.0 },
+        { turn: 566, tokens: 81747.0 },
+        { turn: 567, tokens: 82000.0 },
+        { turn: 568, tokens: 83295.0 },
+        { turn: 569, tokens: 83447.0 },
+        { turn: 570, tokens: 84743.0 },
+        { turn: 571, tokens: 84907.0 },
+        { turn: 572, tokens: 86203.0 },
+        { turn: 573, tokens: 86477.0 },
+        { turn: 574, tokens: 86644.0 },
+        { turn: 575, tokens: 87939.0 },
+        { turn: 576, tokens: 88066.0 },
+        { turn: 577, tokens: 88428.0 },
+        { turn: 578, tokens: 88905.0 },
+        { turn: 579, tokens: 89175.0 },
+        { turn: 580, tokens: 89791.0 },
+        { turn: 581, tokens: 89946.0 },
+        { turn: 582, tokens: 90248.0 },
+        { turn: 583, tokens: 90746.0 },
+        { turn: 584, tokens: 91252.0 },
+        { turn: 585, tokens: 92300.0 },
+        { turn: 586, tokens: 96616.0 },
+        { turn: 587, tokens: 98370.0 },
+        { turn: 588, tokens: 100404.0 },
+        { turn: 589, tokens: 101674.0 },
+        { turn: 590, tokens: 101795.0 },
+        { turn: 591, tokens: 102053.0 },
+        { turn: 592, tokens: 103350.0 },
+        { turn: 593, tokens: 103524.0 },
+        { turn: 594, tokens: 104822.0 },
+        { turn: 595, tokens: 13427.0 },
+        { turn: 596, tokens: 46412.0 },
+        { turn: 597, tokens: 46761.0 },
+        { turn: 598, tokens: 47731.0 },
+        { turn: 599, tokens: 50309.0 },
+        { turn: 600, tokens: 50854.0 },
+        { turn: 601, tokens: 51122.0 },
+        { turn: 602, tokens: 52419.0 },
+        { turn: 603, tokens: 52562.0 },
+        { turn: 604, tokens: 53860.0 },
+        { turn: 605, tokens: 54019.0 },
+        { turn: 606, tokens: 55317.0 },
+        { turn: 607, tokens: 55462.0 },
+        { turn: 608, tokens: 56761.0 },
+        { turn: 609, tokens: 56844.0 },
+        { turn: 610, tokens: 60923.0 },
+        { turn: 611, tokens: 65734.0 },
+        { turn: 612, tokens: 67219.0 },
+        { turn: 613, tokens: 67340.0 },
+        { turn: 614, tokens: 67597.0 },
+        { turn: 615, tokens: 68894.0 },
+        { turn: 616, tokens: 69143.0 },
+        { turn: 617, tokens: 70441.0 },
+        { turn: 618, tokens: 70626.0 },
+        { turn: 619, tokens: 71924.0 },
+        { turn: 620, tokens: 72099.0 },
+        { turn: 621, tokens: 73430.0 },
+        { turn: 622, tokens: 75511.0 },
+        { turn: 623, tokens: 75723.0 },
+        { turn: 624, tokens: 77488.0 },
+        { turn: 625, tokens: 77755.0 },
+        { turn: 626, tokens: 79052.0 },
+        { turn: 627, tokens: 79195.0 },
+        { turn: 628, tokens: 80493.0 },
+        { turn: 629, tokens: 80576.0 },
+        { turn: 630, tokens: 83022.0 },
+        { turn: 631, tokens: 83336.0 },
+        { turn: 632, tokens: 83837.0 },
+        { turn: 633, tokens: 91250.0 },
+        { turn: 634, tokens: 91656.0 },
+        { turn: 635, tokens: 91953.0 },
+        { turn: 636, tokens: 92525.0 },
+        { turn: 637, tokens: 93176.0 },
+        { turn: 638, tokens: 93329.0 },
+        { turn: 639, tokens: 93615.0 },
+        { turn: 640, tokens: 94255.0 },
+        { turn: 641, tokens: 94418.0 },
+        { turn: 642, tokens: 94673.0 },
+        { turn: 643, tokens: 95969.0 },
+        { turn: 644, tokens: 96148.0 },
+        { turn: 645, tokens: 97444.0 },
+        { turn: 646, tokens: 97678.0 },
+        { turn: 647, tokens: 98974.0 },
+        { turn: 648, tokens: 99192.0 },
+        { turn: 649, tokens: 100488.0 },
+        { turn: 650, tokens: 100705.0 },
+        { turn: 651, tokens: 102001.0 },
+        { turn: 652, tokens: 0.0 },
+        { turn: 653, tokens: 13427.0 },
+        { turn: 654, tokens: 45403.0 },
+        { turn: 655, tokens: 47847.0 },
+        { turn: 656, tokens: 50248.0 },
+        { turn: 657, tokens: 51726.0 },
+        { turn: 658, tokens: 54610.0 },
+        { turn: 659, tokens: 54947.0 },
+        { turn: 660, tokens: 55239.0 },
+        { turn: 661, tokens: 56535.0 },
+        { turn: 662, tokens: 56727.0 },
+        { turn: 663, tokens: 58025.0 },
+        { turn: 664, tokens: 58242.0 },
+        { turn: 665, tokens: 61052.0 },
+        { turn: 666, tokens: 62868.0 },
+        { turn: 667, tokens: 63121.0 },
+        { turn: 668, tokens: 63633.0 },
+        { turn: 669, tokens: 64782.0 },
+        { turn: 670, tokens: 65203.0 },
+        { turn: 671, tokens: 65607.0 },
+        { turn: 672, tokens: 69906.0 },
+        { turn: 673, tokens: 70206.0 },
+        { turn: 674, tokens: 71503.0 },
+        { turn: 675, tokens: 71697.0 },
+        { turn: 676, tokens: 72994.0 },
+        { turn: 677, tokens: 73205.0 },
+        { turn: 678, tokens: 74502.0 },
+        { turn: 679, tokens: 74587.0 },
+        { turn: 680, tokens: 74831.0 },
+        { turn: 681, tokens: 75817.0 },
+        { turn: 682, tokens: 77073.0 },
+        { turn: 683, tokens: 78329.0 },
+        { turn: 684, tokens: 78676.0 },
+        { turn: 685, tokens: 78968.0 },
+        { turn: 686, tokens: 80264.0 },
+        { turn: 687, tokens: 80403.0 },
+        { turn: 688, tokens: 81699.0 },
+        { turn: 689, tokens: 81838.0 },
+        { turn: 690, tokens: 83134.0 },
+        { turn: 691, tokens: 83219.0 },
+        { turn: 692, tokens: 83378.0 },
+        { turn: 693, tokens: 84680.0 },
+        { turn: 694, tokens: 84970.0 },
+        { turn: 695, tokens: 86265.0 },
+        { turn: 696, tokens: 86404.0 },
+        { turn: 697, tokens: 87700.0 },
+        { turn: 698, tokens: 13427.0 },
+        { turn: 699, tokens: 45455.0 },
+        { turn: 700, tokens: 45683.0 },
+        { turn: 701, tokens: 46863.0 },
+        { turn: 702, tokens: 47125.0 },
+        { turn: 703, tokens: 48421.0 },
+        { turn: 704, tokens: 48560.0 },
+        { turn: 705, tokens: 49856.0 },
+        { turn: 706, tokens: 49939.0 },
+        { turn: 707, tokens: 51232.0 },
+        { turn: 708, tokens: 51745.0 },
+        { turn: 709, tokens: 52650.0 },
+        { turn: 710, tokens: 53211.0 },
+        { turn: 711, tokens: 54427.0 },
+        { turn: 712, tokens: 55694.0 },
+        { turn: 713, tokens: 57851.0 },
+        { turn: 714, tokens: 58110.0 },
+        { turn: 715, tokens: 59408.0 },
+        { turn: 716, tokens: 59551.0 },
+        { turn: 717, tokens: 60849.0 },
+        { turn: 718, tokens: 60934.0 },
+        { turn: 719, tokens: 61197.0 },
+        { turn: 720, tokens: 61404.0 },
+        { turn: 721, tokens: 62599.0 },
+        { turn: 722, tokens: 62933.0 },
+        { turn: 723, tokens: 63208.0 },
+        { turn: 724, tokens: 63477.0 },
+        { turn: 725, tokens: 63945.0 },
+        { turn: 726, tokens: 64409.0 },
+        { turn: 727, tokens: 64770.0 },
+        { turn: 728, tokens: 65066.0 },
+        { turn: 729, tokens: 66364.0 },
+        { turn: 730, tokens: 66562.0 },
+        { turn: 731, tokens: 67861.0 },
+        { turn: 732, tokens: 68045.0 },
+        { turn: 733, tokens: 69344.0 },
+        { turn: 734, tokens: 69602.0 },
+        { turn: 735, tokens: 69800.0 },
+        { turn: 736, tokens: 71099.0 },
+        { turn: 737, tokens: 71277.0 },
+        { turn: 738, tokens: 72574.0 },
+        { turn: 739, tokens: 72790.0 },
+        { turn: 740, tokens: 74088.0 },
+        { turn: 741, tokens: 74253.0 },
+        { turn: 742, tokens: 0.0 },
+        { turn: 743, tokens: 13427.0 },
+        { turn: 744, tokens: 44856.0 },
+        { turn: 745, tokens: 45171.0 },
+        { turn: 746, tokens: 47846.0 },
+        { turn: 747, tokens: 48027.0 },
+        { turn: 748, tokens: 48318.0 },
+        { turn: 749, tokens: 48757.0 },
+        { turn: 750, tokens: 50055.0 },
+        { turn: 751, tokens: 50220.0 },
+        { turn: 752, tokens: 51518.0 },
+        { turn: 753, tokens: 53532.0 },
+        { turn: 754, tokens: 54366.0 },
+        { turn: 755, tokens: 55931.0 },
+        { turn: 756, tokens: 61000.0 },
+        { turn: 757, tokens: 61343.0 },
+        { turn: 758, tokens: 62351.0 },
+        { turn: 759, tokens: 62616.0 },
+        { turn: 760, tokens: 63914.0 },
+        { turn: 761, tokens: 64057.0 },
+        { turn: 762, tokens: 65355.0 },
+        { turn: 763, tokens: 65520.0 },
+        { turn: 764, tokens: 66820.0 },
+        { turn: 765, tokens: 67938.0 },
+        { turn: 766, tokens: 67982.0 },
+        { turn: 767, tokens: 68835.0 },
+        { turn: 768, tokens: 71236.0 },
+        { turn: 769, tokens: 73465.0 },
+        { turn: 770, tokens: 74163.0 },
+        { turn: 771, tokens: 75765.0 },
+        { turn: 772, tokens: 75918.0 },
+        { turn: 773, tokens: 76313.0 },
+        { turn: 774, tokens: 77269.0 },
+        { turn: 775, tokens: 78787.0 },
+        { turn: 776, tokens: 80136.0 },
+        { turn: 777, tokens: 80624.0 },
+        { turn: 778, tokens: 81538.0 },
+        { turn: 779, tokens: 81840.0 },
+        { turn: 780, tokens: 84302.0 },
+        { turn: 781, tokens: 85898.0 },
+        { turn: 782, tokens: 86139.0 },
+        { turn: 783, tokens: 86962.0 },
+        { turn: 784, tokens: 87217.0 },
+        { turn: 785, tokens: 88513.0 },
+        { turn: 786, tokens: 88674.0 },
+        { turn: 787, tokens: 89972.0 },
+        { turn: 788, tokens: 90317.0 },
+        { turn: 789, tokens: 90746.0 },
+        { turn: 790, tokens: 91048.0 },
+        { turn: 791, tokens: 91421.0 },
+        { turn: 792, tokens: 91868.0 },
+        { turn: 793, tokens: 92636.0 },
+        { turn: 794, tokens: 92986.0 },
+        { turn: 795, tokens: 93265.0 },
+        { turn: 796, tokens: 13427.0 },
+        { turn: 797, tokens: 48856.0 },
+        { turn: 798, tokens: 51110.0 },
+        { turn: 799, tokens: 53773.0 },
+        { turn: 800, tokens: 54399.0 },
+        { turn: 801, tokens: 55062.0 },
+        { turn: 802, tokens: 55928.0 },
+        { turn: 803, tokens: 57061.0 },
+        { turn: 804, tokens: 57738.0 },
+        { turn: 805, tokens: 58571.0 },
+        { turn: 806, tokens: 59833.0 },
+        { turn: 807, tokens: 60262.0 },
+        { turn: 808, tokens: 63431.0 },
+        { turn: 809, tokens: 68803.0 },
+        { turn: 810, tokens: 68966.0 },
+        { turn: 811, tokens: 69192.0 },
+        { turn: 812, tokens: 70734.0 },
+        { turn: 813, tokens: 70989.0 },
+        { turn: 814, tokens: 72285.0 },
+        { turn: 815, tokens: 72424.0 },
+        { turn: 816, tokens: 73720.0 },
+        { turn: 817, tokens: 73859.0 },
+        { turn: 818, tokens: 75155.0 },
+        { turn: 819, tokens: 75316.0 },
+        { turn: 820, tokens: 13427.0 },
+        { turn: 821, tokens: 47273.0 },
+        { turn: 822, tokens: 48134.0 },
+        { turn: 823, tokens: 48239.0 },
+        { turn: 824, tokens: 48772.0 },
+        { turn: 825, tokens: 49223.0 },
+        { turn: 826, tokens: 49794.0 },
+        { turn: 827, tokens: 50830.0 },
+        { turn: 828, tokens: 53114.0 },
+        { turn: 829, tokens: 54868.0 },
+        { turn: 830, tokens: 57182.0 },
+        { turn: 831, tokens: 61789.0 },
+        { turn: 832, tokens: 63914.0 },
+        { turn: 833, tokens: 64820.0 },
+        { turn: 834, tokens: 65793.0 },
+        { turn: 835, tokens: 65905.0 },
+        { turn: 836, tokens: 66466.0 },
+        { turn: 837, tokens: 67326.0 },
+        { turn: 838, tokens: 68142.0 },
+        { turn: 839, tokens: 71794.0 },
+        { turn: 840, tokens: 72309.0 },
+        { turn: 841, tokens: 72999.0 },
+        { turn: 842, tokens: 73760.0 },
+        { turn: 843, tokens: 74186.0 },
+        { turn: 844, tokens: 75171.0 },
+        { turn: 845, tokens: 76806.0 },
+        { turn: 846, tokens: 77200.0 },
+        { turn: 847, tokens: 77520.0 },
+        { turn: 848, tokens: 79793.0 },
+        { turn: 849, tokens: 83480.0 },
+        { turn: 850, tokens: 87709.0 },
+        { turn: 851, tokens: 89989.0 },
+        { turn: 852, tokens: 92422.0 },
+        { turn: 853, tokens: 92761.0 },
+        { turn: 854, tokens: 93045.0 },
+        { turn: 855, tokens: 93465.0 },
+        { turn: 856, tokens: 99443.0 },
+        { turn: 857, tokens: 111149.0 },
+        { turn: 858, tokens: 111655.0 },
+        { turn: 859, tokens: 111891.0 },
+        { turn: 860, tokens: 112111.0 },
+        { turn: 861, tokens: 113408.0 },
+        { turn: 862, tokens: 113600.0 },
+        { turn: 863, tokens: 114897.0 },
+        { turn: 864, tokens: 115064.0 },
+        { turn: 865, tokens: 116361.0 },
+        { turn: 866, tokens: 116528.0 },
+        { turn: 867, tokens: 117825.0 },
+        { turn: 868, tokens: 118027.0 },
+        { turn: 869, tokens: 119324.0 },
+        { turn: 870, tokens: 119477.0 },
+        { turn: 871, tokens: 120774.0 },
+        { turn: 872, tokens: 121039.0 },
+        { turn: 873, tokens: 122336.0 },
+        { turn: 874, tokens: 122548.0 },
+        { turn: 875, tokens: 123845.0 },
+        { turn: 876, tokens: 13427.0 },
+        { turn: 877, tokens: 47036.0 },
+        { turn: 878, tokens: 47497.0 },
+        { turn: 879, tokens: 48224.0 },
+        { turn: 880, tokens: 51984.0 },
+        { turn: 881, tokens: 54869.0 },
+        { turn: 882, tokens: 56204.0 },
+        { turn: 883, tokens: 57547.0 },
+        { turn: 884, tokens: 58713.0 },
+        { turn: 885, tokens: 61488.0 },
+        { turn: 886, tokens: 65170.0 },
+        { turn: 887, tokens: 66037.0 },
+        { turn: 888, tokens: 72359.0 },
+        { turn: 889, tokens: 73821.0 },
+        { turn: 890, tokens: 73975.0 },
+        { turn: 891, tokens: 75648.0 },
+        { turn: 892, tokens: 75992.0 },
+        { turn: 893, tokens: 76104.0 },
+        { turn: 894, tokens: 76561.0 },
+        { turn: 895, tokens: 76960.0 },
+        { turn: 896, tokens: 77140.0 },
+        { turn: 897, tokens: 77379.0 },
+        { turn: 898, tokens: 77566.0 },
+        { turn: 899, tokens: 78450.0 },
+        { turn: 900, tokens: 78975.0 },
+        { turn: 901, tokens: 79635.0 },
+        { turn: 902, tokens: 79867.0 },
+        { turn: 903, tokens: 80318.0 },
+        { turn: 904, tokens: 80581.0 },
+        { turn: 905, tokens: 80883.0 },
+        { turn: 906, tokens: 81121.0 },
+        { turn: 907, tokens: 81513.0 },
+        { turn: 908, tokens: 82084.0 },
+        { turn: 909, tokens: 82295.0 },
+        { turn: 910, tokens: 83591.0 },
+        { turn: 911, tokens: 83756.0 },
+        { turn: 912, tokens: 85052.0 },
+        { turn: 913, tokens: 85236.0 },
+        { turn: 914, tokens: 86532.0 },
+        { turn: 915, tokens: 86743.0 },
+        { turn: 916, tokens: 88039.0 },
+        { turn: 917, tokens: 88204.0 },
+        { turn: 918, tokens: 89500.0 },
+        { turn: 919, tokens: 89713.0 },
+        { turn: 920, tokens: 91009.0 },
+        { turn: 921, tokens: 91195.0 },
+        { turn: 922, tokens: 92491.0 },
+        { turn: 923, tokens: 93020.0 },
+        { turn: 924, tokens: 93524.0 },
+        { turn: 925, tokens: 94753.0 },
+        { turn: 926, tokens: 96433.0 },
+        { turn: 927, tokens: 96602.0 },
+        { turn: 928, tokens: 96871.0 },
+        { turn: 929, tokens: 97678.0 },
+        { turn: 930, tokens: 97944.0 },
+        { turn: 931, tokens: 98268.0 },
+        { turn: 932, tokens: 100662.0 },
+        { turn: 933, tokens: 100810.0 },
+        { turn: 934, tokens: 101095.0 },
+        { turn: 935, tokens: 101731.0 },
+        { turn: 936, tokens: 101855.0 },
+        { turn: 937, tokens: 102744.0 },
+        { turn: 938, tokens: 103093.0 },
+        { turn: 939, tokens: 103337.0 },
+        { turn: 940, tokens: 103743.0 },
+        { turn: 941, tokens: 104248.0 },
+        { turn: 942, tokens: 104908.0 },
+        { turn: 943, tokens: 106075.0 },
+        { turn: 944, tokens: 106449.0 },
+        { turn: 945, tokens: 106875.0 },
+        { turn: 946, tokens: 107143.0 },
+        { turn: 947, tokens: 107375.0 },
+        { turn: 948, tokens: 107744.0 },
+        { turn: 949, tokens: 107923.0 },
+        { turn: 950, tokens: 108277.0 },
+        { turn: 951, tokens: 108915.0 },
+        { turn: 952, tokens: 109133.0 },
+        { turn: 953, tokens: 110429.0 },
+        { turn: 954, tokens: 110607.0 },
+        { turn: 955, tokens: 111903.0 },
+        { turn: 956, tokens: 112090.0 },
+        { turn: 957, tokens: 113386.0 },
+        { turn: 958, tokens: 113571.0 },
+        { turn: 959, tokens: 114867.0 },
+        { turn: 960, tokens: 115050.0 },
+        { turn: 961, tokens: 116346.0 },
+        { turn: 962, tokens: 116648.0 },
+        { turn: 963, tokens: 116924.0 },
+        { turn: 964, tokens: 117184.0 },
+        { turn: 965, tokens: 117401.0 },
+        { turn: 966, tokens: 118697.0 },
+        { turn: 967, tokens: 118884.0 },
+        { turn: 968, tokens: 119087.0 },
+        { turn: 969, tokens: 13427.0 },
+        { turn: 970, tokens: 49186.0 },
+        { turn: 971, tokens: 49605.0 },
+        { turn: 972, tokens: 49916.0 },
+        { turn: 973, tokens: 50636.0 },
+        { turn: 974, tokens: 51125.0 },
+        { turn: 975, tokens: 51430.0 },
+        { turn: 976, tokens: 52038.0 },
+        { turn: 977, tokens: 52308.0 },
+        { turn: 978, tokens: 52441.0 },
+        { turn: 979, tokens: 52628.0 },
+        { turn: 980, tokens: 52799.0 },
+        { turn: 981, tokens: 52988.0 },
+        { turn: 982, tokens: 53164.0 },
+        { turn: 983, tokens: 53359.0 },
+        { turn: 984, tokens: 53530.0 },
+        { turn: 985, tokens: 53721.0 },
+        { turn: 986, tokens: 54279.0 },
+        { turn: 987, tokens: 54746.0 },
+        { turn: 988, tokens: 55305.0 },
+        { turn: 989, tokens: 55593.0 },
+        { turn: 990, tokens: 56763.0 },
+        { turn: 991, tokens: 56895.0 },
+        { turn: 992, tokens: 57076.0 },
+        { turn: 993, tokens: 57232.0 },
+        { turn: 994, tokens: 58529.0 },
+        { turn: 995, tokens: 58741.0 },
+        { turn: 996, tokens: 60038.0 },
+        { turn: 997, tokens: 61065.0 },
+        { turn: 998, tokens: 62360.0 },
+        { turn: 999, tokens: 62538.0 },
+        { turn: 1000, tokens: 62911.0 },
+        { turn: 1001, tokens: 63846.0 },
+        { turn: 1002, tokens: 64986.0 },
+        { turn: 1003, tokens: 66213.0 },
+        { turn: 1004, tokens: 66384.0 },
+        { turn: 1005, tokens: 66551.0 },
+        { turn: 1006, tokens: 66742.0 },
+        { turn: 1007, tokens: 66923.0 },
+        { turn: 1008, tokens: 67100.0 },
+        { turn: 1009, tokens: 67293.0 },
+        { turn: 1010, tokens: 67481.0 },
+        { turn: 1011, tokens: 67666.0 },
+        { turn: 1012, tokens: 67851.0 },
+        { turn: 1013, tokens: 68140.0 },
+        { turn: 1014, tokens: 68847.0 },
+        { turn: 1015, tokens: 69117.0 },
+        { turn: 1016, tokens: 70413.0 },
+        { turn: 1017, tokens: 71377.0 },
+        { turn: 1018, tokens: 72673.0 },
+        { turn: 1019, tokens: 72899.0 },
+        { turn: 1020, tokens: 74194.0 },
+        { turn: 1021, tokens: 74343.0 },
+        { turn: 1022, tokens: 74470.0 },
+        { turn: 1023, tokens: 76478.0 },
+        { turn: 1024, tokens: 76744.0 },
+        { turn: 1025, tokens: 78040.0 },
+        { turn: 1026, tokens: 78217.0 },
+        { turn: 1027, tokens: 79513.0 },
+        { turn: 1028, tokens: 79749.0 },
+        { turn: 1029, tokens: 81045.0 },
+        { turn: 1030, tokens: 81322.0 },
+        { turn: 1031, tokens: 82618.0 },
+        { turn: 1032, tokens: 82738.0 },
+        { turn: 1033, tokens: 82849.0 },
+        { turn: 1034, tokens: 83161.0 },
+        { turn: 1035, tokens: 83415.0 },
+        { turn: 1036, tokens: 84710.0 },
+        { turn: 1037, tokens: 85251.0 },
+        { turn: 1038, tokens: 85455.0 },
+        { turn: 1039, tokens: 86751.0 },
+        { turn: 1040, tokens: 86874.0 },
+        { turn: 1041, tokens: 87850.0 },
+        { turn: 1042, tokens: 91808.0 },
+        { turn: 1043, tokens: 92005.0 },
+        { turn: 1044, tokens: 92398.0 },
+        { turn: 1045, tokens: 92600.0 },
+        { turn: 1046, tokens: 92978.0 },
+        { turn: 1047, tokens: 93084.0 },
+        { turn: 1048, tokens: 93583.0 },
+        { turn: 1049, tokens: 93859.0 },
+        { turn: 1050, tokens: 94250.0 },
+        { turn: 1051, tokens: 94978.0 },
+        { turn: 1052, tokens: 95103.0 },
+        { turn: 1053, tokens: 95697.0 },
+        { turn: 1054, tokens: 95948.0 },
+        { turn: 1055, tokens: 13427.0 },
+        { turn: 1056, tokens: 46389.0 },
+        { turn: 1057, tokens: 48112.0 },
+        { turn: 1058, tokens: 49200.0 },
+        { turn: 1059, tokens: 49471.0 },
+        { turn: 1060, tokens: 50322.0 },
+        { turn: 1061, tokens: 50822.0 },
+        { turn: 1062, tokens: 51854.0 },
+        { turn: 1063, tokens: 54212.0 },
+        { turn: 1064, tokens: 54549.0 },
+        { turn: 1065, tokens: 54745.0 },
+        { turn: 1066, tokens: 55706.0 },
+        { turn: 1067, tokens: 55906.0 },
+        { turn: 1068, tokens: 57201.0 },
+        { turn: 1069, tokens: 57444.0 },
+        { turn: 1070, tokens: 57563.0 },
+        { turn: 1071, tokens: 58761.0 },
+        { turn: 1072, tokens: 58963.0 },
+        { turn: 1073, tokens: 60259.0 },
+        { turn: 1074, tokens: 60369.0 },
+        { turn: 1075, tokens: 60406.0 },
+        { turn: 1076, tokens: 61112.0 },
+        { turn: 1077, tokens: 62101.0 },
+        { turn: 1078, tokens: 63292.0 },
+        { turn: 1079, tokens: 64903.0 },
+        { turn: 1080, tokens: 70314.0 },
+        { turn: 1081, tokens: 70768.0 },
+        { turn: 1082, tokens: 71455.0 },
+        { turn: 1083, tokens: 71820.0 },
+        { turn: 1084, tokens: 72470.0 },
+        { turn: 1085, tokens: 74058.0 },
+        { turn: 1086, tokens: 74839.0 },
+        { turn: 1087, tokens: 75633.0 },
+        { turn: 1088, tokens: 76896.0 },
+        { turn: 1089, tokens: 77044.0 },
+        { turn: 1090, tokens: 77463.0 },
+        { turn: 1091, tokens: 77602.0 },
+        { turn: 1092, tokens: 77809.0 },
+        { turn: 1093, tokens: 79254.0 },
+        { turn: 1094, tokens: 79510.0 },
+        { turn: 1095, tokens: 80806.0 },
+        { turn: 1096, tokens: 80981.0 },
+        { turn: 1097, tokens: 82277.0 },
+        { turn: 1098, tokens: 13427.0 },
+        { turn: 1099, tokens: 48685.0 },
+        { turn: 1100, tokens: 50397.0 },
+        { turn: 1101, tokens: 56722.0 },
+        { turn: 1102, tokens: 60466.0 },
+        { turn: 1103, tokens: 60844.0 },
+        { turn: 1104, tokens: 61332.0 },
+        { turn: 1105, tokens: 61666.0 },
+        { turn: 1106, tokens: 68509.0 },
+        { turn: 1107, tokens: 68791.0 },
+        { turn: 1108, tokens: 69024.0 },
+        { turn: 1109, tokens: 69203.0 },
+        { turn: 1110, tokens: 69441.0 },
+        { turn: 1111, tokens: 71010.0 },
+        { turn: 1112, tokens: 71266.0 },
+        { turn: 1113, tokens: 72562.0 },
+        { turn: 1114, tokens: 72731.0 },
+        { turn: 1115, tokens: 74027.0 },
+        { turn: 1116, tokens: 75662.0 },
+        { turn: 1117, tokens: 75950.0 },
+        { turn: 1118, tokens: 76511.0 },
+        { turn: 1119, tokens: 76844.0 },
+        { turn: 1120, tokens: 78140.0 },
+        { turn: 1121, tokens: 78331.0 },
+        { turn: 1122, tokens: 78567.0 },
+        { turn: 1123, tokens: 79595.0 },
+        { turn: 1124, tokens: 79881.0 },
+        { turn: 1125, tokens: 80270.0 },
+        { turn: 1126, tokens: 80546.0 },
+        { turn: 1127, tokens: 80735.0 },
+        { turn: 1128, tokens: 80990.0 },
+        { turn: 1129, tokens: 81267.0 },
+        { turn: 1130, tokens: 84486.0 },
+        { turn: 1131, tokens: 84668.0 },
+        { turn: 1132, tokens: 85005.0 },
+        { turn: 1133, tokens: 85010.0 },
+        { turn: 1134, tokens: 85161.0 },
+        { turn: 1135, tokens: 85447.0 },
+        { turn: 1136, tokens: 88693.0 },
+        { turn: 1137, tokens: 91983.0 },
+        { turn: 1138, tokens: 92265.0 },
+        { turn: 1139, tokens: 93561.0 },
+        { turn: 1140, tokens: 93700.0 },
+        { turn: 1141, tokens: 94996.0 },
+        { turn: 1142, tokens: 95155.0 },
+        { turn: 1143, tokens: 95345.0 },
+        { turn: 1144, tokens: 96345.0 },
+        { turn: 1145, tokens: 96684.0 },
+        { turn: 1146, tokens: 97032.0 },
+        { turn: 1147, tokens: 100307.0 },
+        { turn: 1148, tokens: 106271.0 },
+        { turn: 1149, tokens: 106578.0 },
+        { turn: 1150, tokens: 106904.0 },
+        { turn: 1151, tokens: 107429.0 },
+        { turn: 1152, tokens: 107670.0 },
+        { turn: 1153, tokens: 107926.0 },
+        { turn: 1154, tokens: 109222.0 },
+        { turn: 1155, tokens: 109361.0 },
+        { turn: 1156, tokens: 110657.0 },
+        { turn: 1157, tokens: 110876.0 },
+        { turn: 1158, tokens: 112172.0 },
+        { turn: 1159, tokens: 13427.0 },
+        { turn: 1160, tokens: 51605.0 },
+        { turn: 1161, tokens: 51859.0 },
+        { turn: 1162, tokens: 52143.0 },
+        { turn: 1163, tokens: 52459.0 },
+        { turn: 1164, tokens: 52609.0 },
+        { turn: 1165, tokens: 52804.0 },
+        { turn: 1166, tokens: 53257.0 },
+        { turn: 1167, tokens: 53509.0 },
+        { turn: 1168, tokens: 53765.0 },
+        { turn: 1169, tokens: 55061.0 },
+        { turn: 1170, tokens: 55231.0 },
+        { turn: 1171, tokens: 55363.0 },
+        { turn: 1172, tokens: 55827.0 },
+        { turn: 1173, tokens: 59069.0 },
+        { turn: 1174, tokens: 64226.0 },
+        { turn: 1175, tokens: 64706.0 },
+        { turn: 1176, tokens: 65647.0 },
+        { turn: 1177, tokens: 65870.0 },
+        { turn: 1178, tokens: 66543.0 },
+        { turn: 1179, tokens: 67539.0 },
+        { turn: 1180, tokens: 67774.0 },
+        { turn: 1181, tokens: 68004.0 },
+        { turn: 1182, tokens: 68254.0 },
+        { turn: 1183, tokens: 68443.0 },
+        { turn: 1184, tokens: 68619.0 },
+        { turn: 1185, tokens: 69915.0 },
+        { turn: 1186, tokens: 70073.0 },
+        { turn: 1187, tokens: 71369.0 },
+        { turn: 1188, tokens: 71553.0 },
+        { turn: 1189, tokens: 72849.0 },
+        { turn: 1190, tokens: 73012.0 },
+        { turn: 1191, tokens: 74308.0 },
+        { turn: 1192, tokens: 13427.0 },
+        { turn: 1193, tokens: 47322.0 },
+        { turn: 1194, tokens: 48258.0 },
+        { turn: 1195, tokens: 48516.0 },
+        { turn: 1196, tokens: 51091.0 },
+        { turn: 1197, tokens: 52236.0 },
+        { turn: 1198, tokens: 52687.0 },
+        { turn: 1199, tokens: 52897.0 },
+        { turn: 1200, tokens: 54322.0 },
+        { turn: 1201, tokens: 57723.0 },
+        { turn: 1202, tokens: 61123.0 },
+        { turn: 1203, tokens: 62333.0 },
+        { turn: 1204, tokens: 62535.0 },
+        { turn: 1205, tokens: 63196.0 },
+        { turn: 1206, tokens: 63748.0 },
+        { turn: 1207, tokens: 64372.0 },
+        { turn: 1208, tokens: 64940.0 },
+        { turn: 1209, tokens: 65487.0 },
+        { turn: 1210, tokens: 66338.0 },
+        { turn: 1211, tokens: 68692.0 },
+        { turn: 1212, tokens: 69053.0 },
+        { turn: 1213, tokens: 69453.0 },
+        { turn: 1214, tokens: 70051.0 },
+        { turn: 1215, tokens: 70313.0 },
+        { turn: 1216, tokens: 71609.0 },
+        { turn: 1217, tokens: 71766.0 },
+        { turn: 1218, tokens: 73062.0 },
+        { turn: 1219, tokens: 73290.0 },
+        { turn: 1220, tokens: 73557.0 },
+        { turn: 1221, tokens: 75267.0 },
+        { turn: 1222, tokens: 76350.0 },
+        { turn: 1223, tokens: 77109.0 },
+        { turn: 1224, tokens: 77456.0 },
+        { turn: 1225, tokens: 79231.0 },
+        { turn: 1226, tokens: 81230.0 },
+        { turn: 1227, tokens: 88406.0 },
+        { turn: 1228, tokens: 88989.0 },
+        { turn: 1229, tokens: 89161.0 },
+        { turn: 1230, tokens: 89358.0 },
+        { turn: 1231, tokens: 89586.0 },
+        { turn: 1232, tokens: 89848.0 },
+        { turn: 1233, tokens: 91144.0 },
+        { turn: 1234, tokens: 91295.0 },
+        { turn: 1235, tokens: 92591.0 },
+        { turn: 1236, tokens: 92776.0 },
+        { turn: 1237, tokens: 94072.0 },
+        { turn: 1238, tokens: 94211.0 },
+        { turn: 1239, tokens: 95507.0 },
+        { turn: 1240, tokens: 95646.0 },
+        { turn: 1241, tokens: 96942.0 },
+        { turn: 1242, tokens: 97098.0 },
+        { turn: 1243, tokens: 97351.0 },
+        { turn: 1244, tokens: 98108.0 },
+        { turn: 1245, tokens: 98220.0 },
+        { turn: 1246, tokens: 98333.0 },
+        { turn: 1247, tokens: 98737.0 },
+        { turn: 1248, tokens: 98936.0 },
+        { turn: 1249, tokens: 99328.0 },
+        { turn: 1250, tokens: 99935.0 },
+        { turn: 1251, tokens: 100065.0 },
+        { turn: 1252, tokens: 100311.0 },
+        { turn: 1253, tokens: 100693.0 },
+        { turn: 1254, tokens: 100823.0 },
+        { turn: 1255, tokens: 101147.0 },
+        { turn: 1256, tokens: 101854.0 },
+        { turn: 1257, tokens: 42220.0 },
+        { turn: 1258, tokens: 42648.0 },
+        { turn: 1259, tokens: 42768.0 },
+        { turn: 1260, tokens: 43423.0 },
+        { turn: 1261, tokens: 44025.0 },
+        { turn: 1262, tokens: 44093.0 },
+        { turn: 1263, tokens: 44220.0 },
+        { turn: 1264, tokens: 44325.0 },
+        { turn: 1265, tokens: 44407.0 },
+        { turn: 1266, tokens: 44679.0 },
+        { turn: 1267, tokens: 45088.0 },
+        { turn: 1268, tokens: 47170.0 },
+        { turn: 1269, tokens: 54242.0 },
+        { turn: 1270, tokens: 55537.0 },
+        { turn: 1271, tokens: 56081.0 },
+        { turn: 1272, tokens: 56900.0 },
+        { turn: 1273, tokens: 57184.0 },
+        { turn: 1274, tokens: 57364.0 },
+        { turn: 1275, tokens: 57535.0 },
+        { turn: 1276, tokens: 57666.0 },
+        { turn: 1277, tokens: 57802.0 },
+        { turn: 1278, tokens: 57915.0 },
+        { turn: 1279, tokens: 58059.0 },
+        { turn: 1280, tokens: 58182.0 },
+        { turn: 1281, tokens: 58350.0 },
+        { turn: 1282, tokens: 58486.0 },
+        { turn: 1283, tokens: 58632.0 },
+        { turn: 1284, tokens: 58874.0 },
+        { turn: 1285, tokens: 58974.0 },
+        { turn: 1286, tokens: 59142.0 },
+        { turn: 1287, tokens: 59319.0 },
+        { turn: 1288, tokens: 65927.0 },
+        { turn: 1289, tokens: 66191.0 },
+        { turn: 1290, tokens: 66383.0 },
+        { turn: 1291, tokens: 71614.0 },
+        { turn: 1292, tokens: 71891.0 },
+        { turn: 1293, tokens: 72053.0 },
+        { turn: 1294, tokens: 72228.0 },
+        { turn: 1295, tokens: 72388.0 },
+        { turn: 1296, tokens: 73070.0 },
+        { turn: 1297, tokens: 73246.0 },
+        { turn: 1298, tokens: 73325.0 },
+        { turn: 1299, tokens: 73842.0 },
+        { turn: 1300, tokens: 70577.0 },
+        { turn: 1301, tokens: 71735.0 },
+        { turn: 1302, tokens: 72893.0 },
+        { turn: 1303, tokens: 77874.0 },
+        { turn: 1304, tokens: 77970.0 },
+        { turn: 1305, tokens: 82248.0 },
+        { turn: 1306, tokens: 83698.0 },
+        { turn: 1307, tokens: 84132.0 },
+        { turn: 1308, tokens: 84299.0 },
+        { turn: 1309, tokens: 84602.0 },
+        { turn: 1310, tokens: 85152.0 },
+        { turn: 1311, tokens: 85251.0 },
+        { turn: 1312, tokens: 85556.0 },
+        { turn: 1313, tokens: 86128.0 },
+        { turn: 1314, tokens: 86657.0 },
+        { turn: 1315, tokens: 87035.0 },
+        { turn: 1316, tokens: 87269.0 },
+        { turn: 1317, tokens: 87457.0 },
+        { turn: 1318, tokens: 87596.0 },
+        { turn: 1319, tokens: 88114.0 },
+        { turn: 1320, tokens: 88274.0 },
+        { turn: 1321, tokens: 86902.0 },
+        { turn: 1322, tokens: 87984.0 },
+        { turn: 1323, tokens: 88881.0 },
+        { turn: 1324, tokens: 88950.0 },
+        { turn: 1325, tokens: 0.0 },
+      ];
+
+      const chart3Compactions = [
+        { turn: 14, pre: 84515.0, post: 13427.0 },
+        { turn: 56, pre: 135274.0, post: 8049.0 },
+        { turn: 138, pre: 159700.0, post: 8049.0 },
+        { turn: 202, pre: 156193.0, post: 8049.0 },
+        { turn: 239, pre: 93338.0, post: 8049.0 },
+        { turn: 273, pre: 97478.0, post: 8049.0 },
+        { turn: 307, pre: 111921.0, post: 8049.0 },
+        { turn: 326, pre: 78388.0, post: 13515.0 },
+        { turn: 340, pre: 63768.0, post: 13515.0 },
+        { turn: 359, pre: 13427.0, post: 0.0 },
+        { turn: 389, pre: 94036.0, post: 13427.0 },
+        { turn: 409, pre: 64389.0, post: 13427.0 },
+        { turn: 494, pre: 85628.0, post: 0.0 },
+        { turn: 532, pre: 71523.0, post: 13427.0 },
+        { turn: 595, pre: 104822.0, post: 13427.0 },
+        { turn: 652, pre: 102001.0, post: 0.0 },
+        { turn: 698, pre: 87700.0, post: 13427.0 },
+        { turn: 742, pre: 74253.0, post: 0.0 },
+        { turn: 796, pre: 93265.0, post: 13427.0 },
+        { turn: 820, pre: 75316.0, post: 13427.0 },
+        { turn: 876, pre: 123845.0, post: 13427.0 },
+        { turn: 969, pre: 119087.0, post: 13427.0 },
+        { turn: 1055, pre: 95948.0, post: 13427.0 },
+        { turn: 1098, pre: 82277.0, post: 13427.0 },
+        { turn: 1159, pre: 112172.0, post: 13427.0 },
+        { turn: 1192, pre: 74308.0, post: 13427.0 },
+        { turn: 1257, pre: 101854.0, post: 42220.0 },
+      ];
+
+      // Chart defaults
+      Chart.defaults.color = "#87C4A7";
+      Chart.defaults.font.family = '"Space Mono", monospace';
+
+      // Chart 1 Plugin for custom annotations
+      const chart1Annotations = {
+        id: "chart1Annotations",
+        beforeDraw: (chart) => {
+          const ctx = chart.ctx;
+          const xAxis = chart.scales.x;
+          const yAxis = chart.scales.y;
+
+          const turn195 = chart1AnnotationsData.shadeStart;
+          const turn306 = chart1AnnotationsData.shadeEnd;
+
+          // Only draw if the turns are within the current view
+          const x195 = xAxis.getPixelForValue(turn195);
+          const x306 = xAxis.getPixelForValue(turn306);
+
+          ctx.save();
+
+          // Draw shaded region
+          if (x195 && x306) {
+            ctx.fillStyle = "rgba(255, 68, 68, 0.12)";
+            ctx.fillRect(x195, yAxis.top, x306 - x195, yAxis.bottom - yAxis.top);
+
+            // Region label
+            ctx.fillStyle = "#ff4444";
+            ctx.font = "12px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(
+              chart1AnnotationsData.shadeLabel,
+              x195 + (x306 - x195) / 2,
+              yAxis.top + 20,
+            );
+          }
+
+          // Draw lines
+          ctx.beginPath();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+          ctx.setLineDash([5, 5]);
+
+          if (x195) {
+            ctx.moveTo(x195, yAxis.top);
+            ctx.lineTo(x195, yAxis.bottom);
+          }
+
+          if (x306) {
+            ctx.moveTo(x306, yAxis.top);
+            ctx.lineTo(x306, yAxis.bottom);
+          }
+
+          ctx.stroke();
+
+          if (x195) {
+            ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+            ctx.textAlign = "right";
+            ctx.fillText(chart1AnnotationsData.compaction.label, x195 - 10, yAxis.top + 40);
+          }
+
+          if (x306) {
+            ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+            ctx.textAlign = "left";
+            ctx.fillText(chart1AnnotationsData.baseline.label, x306 + 10, yAxis.top + 60);
+          }
+
+          ctx.restore();
+        },
+      };
+
+      // Initialize Chart 1
+      new Chart(document.getElementById("chart1"), {
+        type: "line",
+        data: {
+          datasets: [
+            {
+              data: chart1Data.map((d) => ({ x: d.turn, y: d.tokens })),
+              borderColor: "#2D8A4F",
+              borderWidth: 2,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              fill: false,
+              tension: 0.1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.raw.y.toLocaleString()} tokens`,
+              },
+            },
+          },
+          scales: {
+            x: {
+              type: "linear",
+              title: { display: true, text: "Turn Number" },
+              grid: { color: "rgba(255, 255, 255, 0.04)" },
+            },
+            y: {
+              title: { display: true, text: "Tokens" },
+              grid: { color: "rgba(255, 255, 255, 0.04)" },
+              ticks: {
+                callback: (value) => value / 1000 + "k",
+                stepSize: 25000,
+              },
+              min: 0,
+              max: 135000,
+            },
+          },
+        },
+        plugins: [chart1Annotations],
+      });
+
+      // Chart 2 Plugin for annotations
+      const chart2Annotations = {
+        id: 'chart2Annotations',
+        beforeDraw: (chart) => {
+          const ctx = chart.ctx;
+          const xAxis = chart.scales.x;
+          const yAxis = chart.scales.y;
+          
+          const turn18 = 18;
+          const turn36 = 36;
+          const turn103 = 103;
+
+          const x18 = xAxis.getPixelForValue(turn18);
+          const x36 = xAxis.getPixelForValue(turn36);
+          const x103 = xAxis.getPixelForValue(turn103);
+          
+          ctx.save();
+          
+          // Draw shaded region
+          if (x36 && x103) {
+            ctx.fillStyle = 'rgba(255, 68, 68, 0.12)';
+            ctx.fillRect(x36, yAxis.top, x103 - x36, yAxis.bottom - yAxis.top);
+            
+            // Region label
+            ctx.fillStyle = '#ff4444';
+            ctx.font = '11px "Space Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('8,400 stale tokens carried for 67 turns', x36 + (x103 - x36)/2, yAxis.top + 20);
+          }
+
+          // Draw lines
+          ctx.beginPath();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+          ctx.setLineDash([5, 5]);
+
+          if (x36) {
+            ctx.moveTo(x36, yAxis.top);
+            ctx.lineTo(x36, yAxis.bottom);
+          }
+
+          if (x103) {
+            ctx.moveTo(x103, yAxis.top);
+            ctx.lineTo(x103, yAxis.bottom);
+          }
+          
+          ctx.stroke();
+          
+          if (x36) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.textAlign = 'center';
+            ctx.font = '11px "Space Mono", monospace';
+            ctx.fillText('file rewritten', x36, yAxis.top - 10);
+          }
+
+          if (x103) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.textAlign = 'center';
+            ctx.font = '11px "Space Mono", monospace';
+            ctx.fillText('compaction fires', x103, yAxis.top - 10);
+          }
+
+          // Draw dot
+          if (x18) {
+            const chart2DataObj = chart2Data.find(d => d.turn === 18);
+            if(chart2DataObj) {
+                const y18 = yAxis.getPixelForValue(chart2DataObj.tokens);
+                ctx.beginPath();
+                ctx.arc(x18, y18, 5, 0, 2 * Math.PI);
+                ctx.fillStyle = '#DBF3DC';
+                ctx.fill();
+                
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.textAlign = 'left';
+                ctx.font = '11px "Space Mono", monospace';
+                ctx.fillText("read_file('src/index.ts') +8,400 tokens", x18 + 10, y18 + 4);
+            }
+          }
+
+          ctx.restore();
+        }
+      };
+
+      // Initialize Chart 2
+      new Chart(document.getElementById('chart2'), {
+        type: 'line',
+        data: {
+          datasets: [{
+            data: chart2Data.map(d => ({x: d.turn, y: d.tokens})),
+            borderColor: '#2D8A4F',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            fill: false,
+            tension: 0.1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: {
+            padding: {
+              top: 30
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.raw.y.toLocaleString()} tokens`
+              }
+            }
+          },
+          scales: {
+            x: {
+              type: 'linear',
+              title: { display: true, text: 'Turn Number' },
+              grid: { color: 'rgba(255, 255, 255, 0.04)' }
+            },
+            y: {
+              title: { display: true, text: 'Tokens' },
+              grid: { color: 'rgba(255, 255, 255, 0.04)' },
+              ticks: {
+                callback: (value) => value / 1000 + 'k'
+              },
+              min: 0,
+              max: 130000
+            }
+          }
+        },
+        plugins: [chart2Annotations]
+      });
+
+      // Chart 3 Plugin for compaction lines
+      const chart3Annotations = {
+        id: "chart3Annotations",
+        beforeDraw: (chart) => {
+          const ctx = chart.ctx;
+          const xAxis = chart.scales.x;
+          const yAxis = chart.scales.y;
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = "rgba(255, 68, 68, 0.45)";
+          ctx.setLineDash([4, 4]);
+
+          chart3Compactions.forEach((comp) => {
+            const x = xAxis.getPixelForValue(comp.turn);
+            if (x >= xAxis.left && x <= xAxis.right) {
+              ctx.moveTo(x, yAxis.top);
+              ctx.lineTo(x, yAxis.bottom);
+            }
+          });
+
+          ctx.stroke();
+          ctx.restore();
+        },
+      };
+
+      // Initialize Chart 3
+      new Chart(document.getElementById("chart3"), {
+        type: "line",
+        data: {
+          datasets: [
+            {
+              data: chart3Data.map((d) => ({ x: d.turn, y: d.tokens })),
+              borderColor: "#2D8A4F",
+              borderWidth: 1.5,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              fill: true,
+              backgroundColor: "rgba(45, 138, 79, 0.08)",
+              tension: 0,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.raw.y.toLocaleString()} tokens`,
+              },
+            },
+          },
+          scales: {
+            x: {
+              type: "linear",
+              title: { display: true, text: "Turn Number" },
+              grid: { color: "rgba(255, 255, 255, 0.04)" },
+              min: 0,
+              max: 1325,
+            },
+            y: {
+              title: { display: true, text: "Tokens" },
+              grid: { color: "rgba(255, 255, 255, 0.04)" },
+              ticks: {
+                callback: (value) => value / 1000 + "k",
+                stepSize: 50000,
+              },
+              min: 0,
+              max: 180000,
+            },
+          },
+        },
+        plugins: [chart3Annotations],
+      });
+    </script>
+  </body>
+</html>

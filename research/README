@@ -1,0 +1,58 @@
+# Research
+
+Trace-analysis workspace for Budge. This directory holds the scripts, exported tables, and notes used to answer one question: what is actually happening inside agent context windows before the model call?
+
+## Current Scope
+
+- `research/scripts/pi_analysis.py` analyzes four Hugging Face Pi session corpora with turn-level token usage and explicit compaction markers.
+- `research/scripts/toolathlon_analysis.py` analyzes `hkust-nlp/Toolathlon-Trajectories` for final-window composition, retention, and cross-model outcome patterns.
+- Outputs are written to `research/output/`.
+
+## Output Layout
+
+- `research/output/pi/`: turn-level and session-level Pi exports such as `pi_turn_stats.csv`, `pi_session_stats.csv`, and `pi_compaction_events.csv`.
+- `research/output/toolathlon/`: Toolathlon exports such as `session_stats.csv`, `composition.csv`, and `outcome_matrix.csv`.
+- `research/output/*/METHOD.md`: dataset-specific parsing rules, claims, and reproducibility notes.
+- `research/output/*-smoke/` and `research/output/toolathlon-parsecheck/`: smaller validation runs used while building the parsers.
+
+## What This Round Established
+
+- Tool results dominate steady-state context. In Toolathlon, tool content is 97.1% of final-window character volume on a weighted basis.
+- Tool dominance rises quickly with session length. Short sessions are less extreme, but by 6+ turns the window is already mostly tool payload.
+- Pi context growth is stepwise, not smooth. The biggest jumps are usually cache re-reads and replay events, not ordinary user/assistant turns.
+- Pi sessions often stay near peak context for long stretches. 41.3% of sessions end with their last 5 turns within 5% of peak live context.
+- Explicit compaction exists in Pi but is concentrated and rare overall. Only 51 of 783 sessions contain it, and most of those come from `pi-for-excel`.
+- When explicit compaction does fire, it can reduce hard, but context regrows. For explicit reduction events, median post/pre ratio is 0.121 and median return to pre-compaction size is 96 turns.
+- Early tool results still outweigh late ones. Toolathlon median early/late tool-mass ratio is 1.258, with 55.3% of sessions above 1.
+- Single tool results can dominate a whole session. The largest observed Toolathlon tool payload is 18.5M characters.
+- Useful-work ratios are low. In both corpora the model typically reads far more than it emits.
+
+## What This Means For Budge
+
+- Budge should stay input-side. The highest-value product surface is still source attribution, stale detection, replay, and policy enforcement before the model call.
+- Budge should be zero-config by default. Requiring developers to hand-author budgets or source priorities is a major adoption risk.
+- Budge can deliver meaningful value without model outputs. The current wedge is metadata-rich trace analysis, duplicate detection, stale-read invalidation, and cache-aware shadow policy.
+- Budge should be cache-aware, not just token-aware. Naive eviction can destroy prompt-cache reuse, so net session economics matter more than raw prompt shrinkage.
+- The right early product shape is `observe -> shadow -> autopilot`, with deterministic low-risk actions first.
+
+## Privacy And Data Boundary
+
+- This research reinforced that Budge does not need model outputs to find a large class of context waste.
+- The likely product architecture is local inspection plus metadata export: fingerprints, source kinds, resource keys, token estimates, cache usage, and dependency traces.
+- Raw content should remain optional for debugging, not a default cloud requirement.
+
+## Reproduce
+
+Run the analysis scripts directly:
+
+```bash
+python3 research/scripts/pi_analysis.py
+python3 research/scripts/toolathlon_analysis.py
+```
+
+Read the dataset-specific method notes before reusing any number in external materials:
+
+```bash
+research/output/pi/METHOD.md
+research/output/toolathlon/METHOD.md
+```
