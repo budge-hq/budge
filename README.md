@@ -170,7 +170,7 @@ The boundary is the model call. Budge hands you `context` and `traces`. What you
 
 ---
 
-## Budge Spring
+## Budge Cloud
 
 The open-source SDK is the instrumentation layer. Budge is where the data becomes useful:
 
