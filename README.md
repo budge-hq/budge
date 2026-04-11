@@ -56,7 +56,7 @@ import { z } from "zod";
 const budge = createBudge({
   sessionId: "ses_abc123",
   onTrace(trace) {
-    // ship to Budge Spring or your own backend
+    // ship to Budge cloud or your own backend
     fetch("https://your-ingestor/traces", {
       method: "POST",
       body: JSON.stringify(trace),
