@@ -14,14 +14,25 @@
 
 # Budge
 
-**The context assembly layer for AI agents.** Budge is a typed framework for assembling model context windows. It resolves your sources, builds the dependency graph, and returns traces alongside every result.
+**The context intelligence layer for AI agents.** Budge is a typed framework for assembling model context windows. It resolves your sources, builds the dependency graph, and returns traces alongside every result — so you always know exactly what went into the model and why.
 
 ---
 
 ## The problem
 
 Eval tools measure what comes out of the model. Nothing measures what goes in.
-Braintrust and LangSmith start at the model call. Everything before it is invisible to them: which sources you included, which history you compacted, which tools you loaded. When a score moves you see the output that changed, not the assembly decisions that caused it.
+
+Braintrust and LangSmith start at the model call. Everything before it is invisible: which sources you included, which history you compacted, which tools you loaded. When a score moves you see the output that changed, not the assembly decisions that caused it.
+
+We analyzed 8,257 real agent sessions across three independent sources. The findings are consistent:
+
+- At the median turn, **99.8% of what the model sees is content it already read**
+- Context grows **6x** from session start to end and never comes back down
+- When compaction fires, summaries are **87.9% as large as what they replaced** — and context returns to baseline in 96 turns
+- Across 7,003 benchmark sessions and 22 frontier models, **zero agents ever invoked the context management tools** available to them
+
+The problem is not that context windows are too small. It is that nobody knows what is in them.
+
 Budge covers the input side.
 
 ---
@@ -46,7 +57,16 @@ You declare a context window as a graph of typed sources. Budge resolves them in
 import { createBudge } from "@budge/core";
 import { z } from "zod";
 
-const budge = createBudge();
+const budge = createBudge({
+  sessionId: "ses_abc123",
+  onTrace(trace) {
+    // ship to Budge Spring or your own backend
+    fetch("https://your-ingestor/traces", {
+      method: "POST",
+      body: JSON.stringify(trace),
+    });
+  },
+});
 
 const noteGeneration = budge.window({
   id: "note-generation",
@@ -91,6 +111,8 @@ const noteGeneration = budge.window({
 
 const { context, traces } = await noteGeneration.resolve({
   input: { patientId: "pat_123", transcript: "Patient reports less pain." },
+  sessionId: "ses_abc123",
+  turnIndex: 4,
 });
 
 // You own the prompt from here.
@@ -100,9 +122,19 @@ const { context, traces } = await noteGeneration.resolve({
 Every `resolve` returns `traces` alongside `context`:
 
 ```ts
-traces.sources; // per-source: kind, status, durationMs, estimatedTokens, contentLength
-// history: totalMessages, includedMessages, droppedMessages, droppedByKind
-// tools: totalTools, includedTools, toolNames, toolCollisions
+traces.runId;       // unique identifier for this resolve
+traces.sessionId;   // groups resolves into a session
+traces.turnIndex;   // position in the session sequence — required for replay
+
+traces.sources;     // per-source:
+                    //   key, kind, status, durationMs
+                    //   estimatedTokens, contentLength, contentHash
+                    //   fingerprint — stable "${windowId}:${key}" identifier
+                    //
+                    // history: totalMessages, includedMessages,
+                    //          droppedMessages, droppedByKind
+                    // tools:   totalTools, includedTools,
+                    //          toolNames, toolCollisions
 ```
 
 ---
@@ -142,16 +174,17 @@ The boundary is the model call. Budge hands you `context` and `traces`. What you
 
 ---
 
-## Budge Cloud
+## Budge Spring
 
-The open-source SDK is the instrumentation layer. Budge Cloud is where the data becomes useful:
+The open-source SDK is the instrumentation layer. Budge is where the data becomes useful:
 
-- **input attribution across runs** which sources drove better outcomes, not just which runs scored higher
-- **causal analysis** treat source inclusions as experiments and measure their effect on output quality
-- **runtime budget** and **compaction tuning** from the dashboard, no redeploy required
-- **semantic tool selection** load only the tools relevant to the current task
+- **Session viewer** — see exactly what went into every turn, by source, with token attribution
+- **Waste classification** — automatic detection of stale reads, duplicate payloads, and superseded sources
+- **Shadow policy** — estimate savings before touching runtime behavior; distinguish raw token reduction from actual cost reduction with cache awareness
+- **Autopilot** — deterministic eviction of exact duplicates and stale reads, with full audit log and one-click rollback
+- **Replay and counterfactuals** — re-run historical sessions against updated assembly logic without re-fetching live data
 
-The SDK works standalone. Cloud is opt-in.
+The SDK works standalone.
 
 ---
 
