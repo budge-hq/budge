@@ -12,6 +12,7 @@ export interface SourceTiming {
   status: "resolved" | "failed";
   estimatedTokens?: number;
   contentLength?: number;
+  contentHash?: string;
   itemCount?: number;
   totalMessages?: number;
   includedMessages?: number;
@@ -31,9 +32,10 @@ export interface SourceTiming {
   toolCollisions?: ToolCollision[];
 }
 
-function toSourceTrace(timing: SourceTiming): SourceTrace {
+function toSourceTrace(windowId: string, timing: SourceTiming): SourceTrace {
   return {
     key: timing.key,
+    fingerprint: `${windowId}:${timing.key}`,
     sourceId: timing.sourceId,
     kind: timing.kind,
     tags: timing.tags,
@@ -43,6 +45,7 @@ function toSourceTrace(timing: SourceTiming): SourceTrace {
     status: timing.status,
     ...(timing.estimatedTokens !== undefined && { estimatedTokens: timing.estimatedTokens }),
     ...(timing.contentLength !== undefined && { contentLength: timing.contentLength }),
+    ...(timing.contentHash !== undefined && { contentHash: timing.contentHash }),
     ...(timing.itemCount !== undefined && { itemCount: timing.itemCount }),
     ...(timing.totalMessages !== undefined && { totalMessages: timing.totalMessages }),
     ...(timing.includedMessages !== undefined && { includedMessages: timing.includedMessages }),
@@ -64,18 +67,22 @@ function toSourceTrace(timing: SourceTiming): SourceTrace {
 
 export function buildTrace(options: {
   windowId: string;
+  sessionId?: string;
+  turnIndex?: number;
   startedAt: Date;
   completedAt: Date;
   sourceTimings: SourceTiming[];
 }): Trace {
-  const { windowId, startedAt, completedAt, sourceTimings } = options;
+  const { windowId, sessionId, turnIndex, startedAt, completedAt, sourceTimings } = options;
 
   return {
     version: 1,
     runId: generateRunId(),
+    ...(sessionId !== undefined && { sessionId }),
+    ...(turnIndex !== undefined && { turnIndex }),
     windowId,
     startedAt,
     completedAt,
-    sources: sourceTimings.map(toSourceTrace),
+    sources: sourceTimings.map((timing) => toSourceTrace(windowId, timing)),
   };
 }

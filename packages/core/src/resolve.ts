@@ -6,6 +6,7 @@ import type {
   AnySource,
   BudgeTokenizer,
   InferSources,
+  ResolvePayload,
   ResolveResult,
   WindowSpec,
 } from "./types.ts";
@@ -36,7 +37,7 @@ export async function resolveWindowSpec<
   TSourceMap extends Record<string, AnySource> = Record<string, AnySource>,
 >(
   windowSpec: WindowSpec<TInput, TResolveInput, TSourceMap>,
-  payload: { input: TResolveInput },
+  payload: ResolvePayload<TResolveInput>,
   tokenizer?: BudgeTokenizer,
 ): Promise<ResolveResult<InferSources<TInput, TSourceMap>>> {
   const startedAt = new Date();
@@ -64,6 +65,8 @@ export async function resolveWindowSpec<
       context: Object.fromEntries(resolved) as InferSources<TInput, TSourceMap>,
       traces: buildTrace({
         windowId: windowSpec._id,
+        sessionId: payload.sessionId,
+        turnIndex: payload.turnIndex,
         startedAt,
         completedAt,
         sourceTimings,
@@ -72,6 +75,8 @@ export async function resolveWindowSpec<
   } catch (error) {
     const trace = buildTrace({
       windowId: windowSpec._id,
+      sessionId: payload.sessionId,
+      turnIndex: payload.turnIndex,
       startedAt,
       completedAt: new Date(),
       sourceTimings,

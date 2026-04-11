@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.2",
-    "turbo": "^2.9.3",
+    "turbo": "^2.9.6",
     "typescript": "catalog:",
     "vite-plus": "^0.1.16"
   },

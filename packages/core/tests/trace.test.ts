@@ -35,12 +35,17 @@ describe("traces", () => {
       input: {
         encounterId: "enc_123",
       },
+      sessionId: "sess_123",
+      turnIndex: 7,
     });
 
     expect(onTrace).toHaveBeenCalledTimes(1);
     expect(onTrace).toHaveBeenCalledWith(result.traces);
     expect(result.traces.version).toBe(1);
+    expect(result.traces.sessionId).toBe("sess_123");
+    expect(result.traces.turnIndex).toBe(7);
     expect(result.traces.sources[0]?.sourceId).toBeTruthy();
+    expect(result.traces.sources[0]?.fingerprint).toBe("trace-window:encounter");
     expect(result.traces.sources[0]?.status).toBe("resolved");
   });
 

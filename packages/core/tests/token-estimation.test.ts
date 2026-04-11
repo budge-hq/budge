@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createBudge } from "../src/index.ts";
 import { resolveWindowSpec } from "../src/resolve.ts";
 import { createWindowSpec } from "../src/window-spec.ts";
+import { computeHash } from "../src/graph.ts";
 
 const mockTokenizer = {
   estimate(text: string): number {
@@ -47,6 +48,31 @@ describe("token estimation", () => {
     const trace = getTrace(result, "record");
 
     expect(trace.contentLength).toBe(stringify(record)?.length);
+  });
+
+  test("contentHash is populated from the serialized content", async () => {
+    const budge = createBudge({ tokenizer: mockTokenizer });
+    const record = {
+      id: "enc_123",
+      status: "ready",
+    };
+
+    const window = budge.window({
+      id: "value-content-hash-window",
+      input: z.object({}),
+      sources: ({ source }) => ({
+        record: source.value(z.object({}), {
+          async resolve() {
+            return record;
+          },
+        }),
+      }),
+    });
+
+    const result = await window.resolve({ input: {} });
+    const trace = getTrace(result, "record");
+
+    expect(trace.contentHash).toBe((await computeHash(stringify(record) ?? "")).slice(0, 16));
   });
 
   test("estimatedTokens is populated for a value source when tokenizer is configured", async () => {
@@ -428,6 +454,7 @@ describe("token estimation", () => {
 
     expect(result.context.record).toBeUndefined();
     expect(trace.contentLength).toBeUndefined();
+    expect(trace.contentHash).toBeUndefined();
     expect(trace.estimatedTokens).toBeUndefined();
   });
 });

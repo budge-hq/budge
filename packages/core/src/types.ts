@@ -277,6 +277,7 @@ export interface WindowSpec<
 
 export interface SourceTrace {
   key: string;
+  fingerprint: string;
   sourceId: string;
   kind: "input" | "value" | "rag" | "history" | "tools";
   tags: SourceTag[];
@@ -286,6 +287,7 @@ export interface SourceTrace {
   status: "resolved" | "failed";
   estimatedTokens?: number;
   contentLength?: number;
+  contentHash?: string;
   itemCount?: number;
   totalMessages?: number;
   includedMessages?: number;
@@ -308,6 +310,8 @@ export interface SourceTrace {
 export interface Trace {
   version: 1;
   runId: string;
+  sessionId?: string;
+  turnIndex?: number;
   windowId: string;
   startedAt: Date;
   completedAt: Date;
@@ -321,6 +325,8 @@ export interface ResolveResult<TContext extends Record<string, unknown> = Record
 
 export interface ResolvePayload<TResolveInput extends AnyInput> {
   input: TResolveInput;
+  sessionId?: string;
+  turnIndex?: number;
 }
 
 export interface WindowHandle<

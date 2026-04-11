@@ -10,6 +10,15 @@ import {
 const budge = createBudge();
 const emptyInputSchema = z.object({});
 
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+
+  return { promise, resolve };
+}
+
 describe("source graph", () => {
   test("throws when a selected source depends on an unselected source", () => {
     const account = budge.source.value(
@@ -43,7 +52,7 @@ describe("source graph", () => {
           return { priorNote };
         },
       }),
-    ).toThrowError(MissingSourceDependencyError);
+    ).toThrow(MissingSourceDependencyError);
   });
 
   test("throws when the source graph contains a cycle", () => {
@@ -67,11 +76,14 @@ describe("source graph", () => {
         input: emptyInputSchema,
         sources: () => ({ first, second }),
       }),
-    ).toThrowError(CircularSourceDependencyError);
+    ).toThrow(CircularSourceDependencyError);
   });
 
   test("resolves independent sources in parallel waves", async () => {
-    const started: string[] = [];
+    const firstStarted = createDeferred();
+    const secondStarted = createDeferred();
+    const firstGate = createDeferred();
+    const secondGate = createDeferred();
 
     const window = budge.window({
       id: "parallel-window",
@@ -79,30 +91,96 @@ describe("source graph", () => {
       sources: ({ source }) => ({
         first: source.value(emptyInputSchema, {
           async resolve() {
-            started.push("first");
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            firstStarted.resolve();
+            await firstGate.promise;
             return "first-value";
           },
         }),
         second: source.value(emptyInputSchema, {
           async resolve() {
-            started.push("second");
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            secondStarted.resolve();
+            await secondGate.promise;
             return "second-value";
           },
         }),
       }),
     });
 
-    const startedAt = Date.now();
-    const result = await window.resolve({ input: {} });
-    const durationMs = Date.now() - startedAt;
+    const resolving = window.resolve({ input: {} });
 
-    expect(started).toContain("first");
-    expect(started).toContain("second");
+    await firstStarted.promise;
+    await secondStarted.promise;
+
+    firstGate.resolve();
+    secondGate.resolve();
+
+    const result = await resolving;
+
     expect(result.context.first).toBe("first-value");
     expect(result.context.second).toBe("second-value");
-    expect(durationMs).toBeLessThan(18);
+  });
+
+  test("waits for one wave to finish before starting dependent sources", async () => {
+    const firstStarted = createDeferred();
+    const secondStarted = createDeferred();
+    const thirdStarted = createDeferred();
+    const firstGate = createDeferred();
+    const secondGate = createDeferred();
+    let didThirdStart = false;
+
+    const first = budge.source.value(emptyInputSchema, {
+      async resolve() {
+        firstStarted.resolve();
+        await firstGate.promise;
+        return "first-value";
+      },
+    });
+
+    const second = budge.source.value(emptyInputSchema, {
+      async resolve() {
+        secondStarted.resolve();
+        await secondGate.promise;
+        return "second-value";
+      },
+    });
+
+    const window = budge.window({
+      id: "dependent-wave-window",
+      input: emptyInputSchema,
+      sources: ({ source }) => ({
+        first,
+        second,
+        third: source.value(
+          emptyInputSchema,
+          { first, second },
+          {
+            async resolve({ first, second }) {
+              didThirdStart = true;
+              thirdStarted.resolve();
+              return `${first}:${second}`;
+            },
+          },
+        ),
+      }),
+    });
+
+    const resolving = window.resolve({ input: {} });
+
+    await firstStarted.promise;
+    await secondStarted.promise;
+
+    expect(didThirdStart).toBe(false);
+
+    firstGate.resolve();
+    secondGate.resolve();
+
+    await thirdStarted.promise;
+
+    const result = await resolving;
+
+    expect(result.context.first).toBe("first-value");
+    expect(result.context.second).toBe("second-value");
+    expect(result.context.third).toBe("first-value:second-value");
   });
 
   test("throws AggregateError when multiple sources fail in the same wave", async () => {

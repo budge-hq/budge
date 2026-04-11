@@ -17,6 +17,13 @@ import type {
 } from "./types.ts";
 import type { SourceTiming } from "./trace.ts";
 
+export async function computeHash(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function serializeForEstimation(value: unknown, kind: SourceTiming["kind"]): string | null {
   try {
     switch (kind) {
@@ -249,9 +256,11 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
           const serialized = serializeForEstimation(value, source._sourceKind);
           let estimatedTokens: number | undefined;
           let contentLength: number | undefined;
+          let contentHash: string | undefined;
 
           if (serialized !== null) {
             contentLength = serialized.length;
+            contentHash = (await computeHash(serialized)).slice(0, 16);
 
             if (tokenizer) {
               try {
@@ -276,6 +285,7 @@ export async function executeWaves<TSourceMap extends Record<string, unknown>>(
             durationMs,
             status: "resolved",
             ...(contentLength !== undefined && { contentLength }),
+            ...(contentHash !== undefined && { contentHash }),
             ...(estimatedTokens !== undefined && { estimatedTokens }),
             ...(Array.isArray(value) && source._sourceKind === "rag"
               ? { itemCount: value.length }
