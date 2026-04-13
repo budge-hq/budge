@@ -44,12 +44,21 @@ const DEFAULT_EXCLUDE = ["node_modules", ".git", "dist", ".next", ".turbo", "cov
  */
 export class FsAdapter implements SourceAdapter {
   private readonly root: string;
+  private readonly realRoot: string;
   private readonly maxFileSize: number;
   private readonly include: string[] | undefined;
   private readonly exclude: string[];
 
   constructor(rootPath: string, options: FsAdapterOptions = {}) {
     this.root = path.resolve(rootPath);
+    // Resolve the root's own symlinks once at construction so the realpath
+    // check in resolve() compares against the true on-disk path.
+    // Fall back to the string-resolved path if the root doesn't exist yet.
+    try {
+      this.realRoot = fs.realpathSync.native(this.root);
+    } catch {
+      this.realRoot = this.root;
+    }
     this.maxFileSize = options.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
     this.include = options.include;
     this.exclude = options.exclude ?? DEFAULT_EXCLUDE;
@@ -77,7 +86,7 @@ export class FsAdapter implements SourceAdapter {
   }
 
   async list(dirPath?: string): Promise<string[]> {
-    const target = dirPath ? this.resolve(dirPath) : this.root;
+    const target = dirPath ? await this.resolve(dirPath) : this.root;
 
     const entries = await fs.promises.readdir(target, { withFileTypes: true });
     const results: string[] = [];
@@ -99,7 +108,7 @@ export class FsAdapter implements SourceAdapter {
   }
 
   async read(filePath: string): Promise<string> {
-    const absolute = this.resolve(filePath);
+    const absolute = await this.resolve(filePath);
     const stat = await fs.promises.stat(absolute);
 
     if (!stat.isFile()) {
@@ -119,10 +128,24 @@ export class FsAdapter implements SourceAdapter {
 
   /**
    * Resolves a relative path against the root, guarding against traversal.
+   *
+   * Two-stage check:
+   * 1. String check on the resolved path — catches simple `../` traversal.
+   * 2. `realpath` check — dereferences symlinks and re-validates, catching
+   *    symlinks that point outside the root (e.g. `lib -> /etc`).
+   *
+   * Returns the original `absolute` path (not the realpath) so that listings
+   * and tool call results use the correct relative labels.
    */
-  private resolve(rel: string): string {
+  private async resolve(rel: string): Promise<string> {
     const absolute = path.resolve(this.root, rel);
     if (!absolute.startsWith(this.root + path.sep) && absolute !== this.root) {
+      throw new Error(`Path traversal detected: ${rel}`);
+    }
+    // Dereference symlinks and re-check against the real root — catches
+    // symlinks inside the tree that point outside it (e.g. lib -> /etc).
+    const real = await fs.promises.realpath(absolute).catch(() => absolute);
+    if (!real.startsWith(this.realRoot + path.sep) && real !== this.realRoot) {
       throw new Error(`Path traversal detected: ${rel}`);
     }
     return absolute;

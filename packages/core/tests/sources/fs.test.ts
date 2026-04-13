@@ -148,6 +148,19 @@ describe("FsAdapter.read()", () => {
     await expect(adapter.read("../../../etc/passwd")).rejects.toThrow(/traversal/i);
   });
 
+  it("throws on symlink pointing outside root", async () => {
+    // Create a symlink inside the root that points to a directory outside it
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "budge-outside-"));
+    fs.writeFileSync(path.join(outsideDir, "secret.txt"), "secret");
+    const symlinkPath = path.join(tmpDir, "escape");
+    fs.symlinkSync(outsideDir, symlinkPath);
+
+    const adapter = new FsAdapter(tmpDir);
+    await expect(adapter.read("escape/secret.txt")).rejects.toThrow(/traversal/i);
+
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  });
+
   it("throws for a directory path", async () => {
     const adapter = new FsAdapter(tmpDir);
     await expect(adapter.read("lib")).rejects.toThrow(/not a file/i);
