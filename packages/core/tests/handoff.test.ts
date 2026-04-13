@@ -212,6 +212,19 @@ describe("buildHandoff()", () => {
     expect(handoff.trim().startsWith("{")).toBe(false);
   });
 
+  describe("buildFallbackHandoff()", () => {
+    it("does not start with a blank line when system is omitted", () => {
+      const handoff = buildFallbackHandoff({
+        task: "Review auth flows",
+        answer: "Prepared auth analysis.",
+        trace: makeTrace(),
+      });
+
+      expect(handoff.startsWith("\n")).toBe(false);
+      expect(handoff.startsWith("# Context")).toBe(true);
+    });
+  });
+
   it("only includes meaningful tool calls in the worker prompt", async () => {
     mockGenerateText.mockImplementation(async (args) => {
       const prompt = promptText(args.messages?.[0]?.content);

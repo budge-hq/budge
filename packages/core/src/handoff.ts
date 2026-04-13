@@ -126,7 +126,7 @@ export function buildFallbackHandoff(opts: {
   }
 
   return [
-    opts.system ? `# System\n${opts.system}` : "",
+    opts.system ? `# System\n${opts.system}` : null,
     "# Context",
     "",
     "## Task",
@@ -141,7 +141,9 @@ export function buildFallbackHandoff(opts: {
     "",
     "## Confidence",
     "Medium. Generated from the trace and final answer with limited synthesis detail.",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function collectReadPaths(trace: RuntimeTrace<any>): Map<string, Set<string>> {
