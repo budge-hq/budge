@@ -79,7 +79,7 @@ export function buildHandoffInput(opts: {
     `- Files read across sources: ${totalReadPaths}`,
     `- Sources read from: ${readPaths.size}`,
     `- Worker call paths: ${trace.tree.children.length === 0 ? "none" : trace.tree.children.map((child) => `${child.source}/${child.path}`).join(", ")}`,
-    formatListedButNotRead(listedNotRead),
+    `- ${formatListedButNotRead(listedNotRead)}`,
     "",
     "Reads by source:",
     formatSourcePathMap(readPaths),
@@ -115,12 +115,9 @@ export function buildFallbackHandoff(opts: {
     );
   }
 
-  const listedButNotReadText = formatListedButNotRead(listedNotRead).replace(
-    /^The following were listed but not read: /,
-    "",
-  );
-  if (listedButNotReadText !== "Coverage limited to files listed in trace.") {
-    coverageParts.push(`The following were listed but not read: ${listedButNotReadText}`);
+  const listedButNotReadEntries = formatListedButNotReadEntries(listedNotRead);
+  if (listedButNotReadEntries) {
+    coverageParts.push(`The following were listed but not read: ${listedButNotReadEntries}`);
   }
 
   return [
@@ -217,16 +214,24 @@ function formatSourcePathMap(pathMap: Map<string, Set<string>>): string {
 }
 
 function formatListedButNotRead(listedButNotRead: Map<string, string[]>): string {
-  if (listedButNotRead.size === 0) {
+  const entries = formatListedButNotReadEntries(listedButNotRead);
+
+  if (!entries) {
     return "Coverage limited to files listed in trace.";
   }
 
-  const entries = Array.from(listedButNotRead.entries())
+  return `The following were listed but not read: ${entries}`;
+}
+
+function formatListedButNotReadEntries(listedButNotRead: Map<string, string[]>): string | null {
+  if (listedButNotRead.size === 0) {
+    return null;
+  }
+
+  return Array.from(listedButNotRead.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([source, paths]) => `${source}: ${paths.join(", ")}`)
     .join("; ");
-
-  return `The following were listed but not read: ${entries}`;
 }
 
 function formatSubcalls(subcallsBySource: Map<string, SubcallTraceNode[]>): string {
