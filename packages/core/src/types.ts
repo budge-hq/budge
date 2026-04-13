@@ -89,8 +89,12 @@ export interface RunOptions<
   /**
    * Maximum number of agent steps before the loop is forcibly stopped.
    *
-   * A "step" is one round-trip to the model. Default: 30.
-   * Raise this for complex tasks, lower it for cost control.
+   * A "step" is one round-trip to the model. Default: 100.
+   *
+   * This is a safety valve against runaway loops, not a budget. Normal
+   * tasks complete well under this ceiling. If `result.finishReason` is
+   * `"max_steps"`, raise this value — the agent was cut off before it
+   * could call `finish`.
    */
   maxSteps?: number;
 }
@@ -233,6 +237,17 @@ export interface RuntimeTrace<
 // ---------------------------------------------------------------------------
 
 /**
+ * How the agent loop ended.
+ *
+ * - `"finish"` — the agent called the `finish` tool and returned a complete answer.
+ * - `"max_steps"` — the loop was stopped after reaching `maxSteps` without a
+ *   `finish` call. `answer` contains the model's last produced text, which may
+ *   be a partial response or an empty string. Raise `maxSteps` on `RunOptions`
+ *   if you hit this in production.
+ */
+export type RunFinishReason = "finish" | "max_steps";
+
+/**
  * The result of a `runtime.run()` call.
  *
  * @typeParam S - The sources map type. Inferred automatically.
@@ -242,6 +257,20 @@ export interface RuntimeResult<
 > {
   /** The agent's final answer to the task. */
   answer: string;
+
+  /**
+   * How the agent loop ended.
+   *
+   * Check this when you need to distinguish a complete answer from a
+   * truncated one:
+   *
+   * ```ts
+   * if (result.finishReason === "max_steps") {
+   *   console.warn("Agent hit step limit — answer may be incomplete")
+   * }
+   * ```
+   */
+  finishReason: RunFinishReason;
 
   /** Full trace of everything that happened during the run. */
   trace: RuntimeTrace<S>;

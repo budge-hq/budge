@@ -1,14 +1,15 @@
 {
   "name": "@budge/example-local",
   "version": "0.0.0",
-  "description": "Local codebase exploration example for @budge/core.",
   "private": true,
+  "description": "Local codebase exploration example for @budge/core.",
   "type": "module",
   "scripts": {
     "start": "tsx index.ts",
     "dev": "tsx index.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.69",
     "@ai-sdk/openai": "^3.0.52",
     "@budge/core": "workspace:*"
   },

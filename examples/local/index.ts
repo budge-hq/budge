@@ -11,29 +11,29 @@
  *   --verbose   Stream each tool call to stdout as it happens
  */
 
-import { createRuntime, source, type ToolCallEvent } from "@budge/core"
-import { openai } from "@ai-sdk/openai"
+import { createRuntime, source, type ToolCallEvent } from "@budge/core";
+import { anthropic } from "@ai-sdk/anthropic";
 
 // ---------------------------------------------------------------------------
 // Args
 // ---------------------------------------------------------------------------
 
-const args = process.argv.slice(2)
-const verbose = args.includes("--verbose")
+const args = process.argv.slice(2);
+const verbose = args.includes("--verbose");
 
 // The task is the first non-flag argument, or the default
 const task =
   args.find((a) => !a.startsWith("-")) ??
-  "Summarize the main entry point and what this codebase does"
+  "Summarize the main entry point and what this codebase does";
 
 // ---------------------------------------------------------------------------
 // Runtime
 // ---------------------------------------------------------------------------
 
 const runtime = createRuntime({
-  model: openai("gpt-5.4"),
-  subModel: openai("gpt-5.4-mini"),
-})
+  model: anthropic("claude-sonnet-4-6"),
+  subModel: anthropic("claude-haiku-4-5"),
+});
 
 // ---------------------------------------------------------------------------
 // Verbose streaming
@@ -42,13 +42,13 @@ const runtime = createRuntime({
 function formatToolCall(event: ToolCallEvent): string {
   switch (event.tool) {
     case "read_source":
-      return `read  ${event.args.source}/${event.args.path}`
+      return `read  ${event.args.source}/${event.args.path}`;
     case "list_source":
-      return `list  ${event.args.source}${event.args.path ? `/${event.args.path}` : ""}`
+      return `list  ${event.args.source}${event.args.path ? `/${event.args.path}` : ""}`;
     case "run_subcall":
-      return `sub   ${event.args.source}/${event.args.path} — "${event.args.task}"`
+      return `sub   ${event.args.source}/${event.args.path} — "${event.args.task}"`;
     case "finish":
-      return `done  (answer ready)`
+      return `done  (answer ready)`;
   }
 }
 
@@ -57,31 +57,31 @@ function formatToolCall(event: ToolCallEvent): string {
 // ---------------------------------------------------------------------------
 
 if (verbose) {
-  console.log(`\nTask: ${task}`)
-  console.log("─".repeat(60))
+  console.log(`\nTask: ${task}`);
+  console.log("─".repeat(60));
 }
 
 const result = await runtime.run({
   task,
   sources: {
-    codebase: source.fs("./", {
+    codebase: source.fs("/tmp/nextjs/packages/next/src", {
       // Scope to source files — skip build artifacts and lockfiles
       exclude: ["node_modules", ".git", "dist", ".next", ".turbo", "coverage", ".cache"],
     }),
   },
   onToolCall: verbose
     ? (event) => {
-        console.log(`  [${event.tool.padEnd(12)}] ${formatToolCall(event)}`)
+        console.log(`  [${event.tool.padEnd(12)}] ${formatToolCall(event)}`);
       }
     : undefined,
-})
+});
 
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
 
-console.log("\n─── answer " + "─".repeat(49))
-console.log(result.answer)
+console.log("\n─── answer " + "─".repeat(49));
+console.log(result.answer);
 
-console.log("\n─── trace " + "─".repeat(50))
-console.log(JSON.stringify(result.trace, null, 2))
+console.log("\n─── trace " + "─".repeat(50));
+console.log(JSON.stringify(result.trace, null, 2));

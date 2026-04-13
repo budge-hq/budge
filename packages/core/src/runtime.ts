@@ -75,7 +75,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 
       const trace = new TraceBuilder<S>(task);
 
-      const answer = await runAgent({
+      const { answer, finishReason } = await runAgent({
         model,
         subModel,
         task,
@@ -87,6 +87,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 
       return {
         answer,
+        finishReason,
         trace: trace.build(),
       };
     },

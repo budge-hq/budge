@@ -1,7 +1,7 @@
 import { generateText, hasToolCall, stepCountIs } from "ai";
 import type { LanguageModel } from "ai";
 import type { SourceAdapter } from "./sources/interface.ts";
-import type { RunOptions, TokenUsage } from "./types.ts";
+import type { RunOptions, RunFinishReason, TokenUsage } from "./types.ts";
 import { TraceBuilder } from "./trace.ts";
 import { buildTools } from "./tools.ts";
 
@@ -29,13 +29,13 @@ export interface RunAgentOptions<S extends Record<string, SourceAdapter>> extend
  *
  * The loop continues until the agent calls `finish` or `maxSteps` is reached.
  *
- * @returns The agent's final answer.
+ * @returns The agent's answer and how the loop ended.
  * @internal
  */
 export async function runAgent<S extends Record<string, SourceAdapter>>(
   opts: RunAgentOptions<S>,
-): Promise<string> {
-  const { model, subModel, task, sources, onToolCall, maxSteps = 30, trace } = opts;
+): Promise<{ answer: string; finishReason: RunFinishReason }> {
+  const { model, subModel, task, sources, onToolCall, maxSteps = 100, trace } = opts;
 
   const tools = buildTools({ sources, subModel, trace, onToolCall });
 
@@ -57,21 +57,25 @@ export async function runAgent<S extends Record<string, SourceAdapter>>(
     },
   });
 
-  // Extract the finish answer from the last step that called finish
+  // Check whether the agent called finish — walk steps in reverse
   for (let i = result.steps.length - 1; i >= 0; i--) {
     const step = result.steps[i]!;
     for (const toolResult of step.toolResults) {
       if (toolResult.toolName === "finish") {
         const out = toolResult.output;
-        return typeof out === "string" ? out : String(out);
+        return {
+          answer: typeof out === "string" ? out : String(out),
+          finishReason: "finish",
+        };
       }
     }
   }
 
-  // Fallback: if the model produced text without calling finish, use that
-  if (result.text) return result.text;
-
-  return "(No answer produced)";
+  // Loop was cut off before finish — return whatever text the model last produced
+  return {
+    answer: result.text || "",
+    finishReason: "max_steps",
+  };
 }
 
 // ---------------------------------------------------------------------------
