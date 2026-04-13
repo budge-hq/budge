@@ -2,10 +2,10 @@
   <picture>
     <source
       media="(prefers-color-scheme: dark)"
-      srcset="./assets/budge-logo-dark.png"
+      srcset="./assets/wordmark-light.png"
     />
     <img
-      src="./assets/budge-logo.png"
+      src="./assets/wordmark-dark.png"
       alt="Budge logo"
       width="240"
     />
@@ -14,37 +14,39 @@
 
 # Budge
 
-The orchestration runtime for agents.
+The agent runtime that navigates your data.
 
-Agents fail on long tasks because they're given everything at once.
-Budge inverts this — your agent navigates context like a librarian,
-not a reader. The model decides what to read and when. You never
-touch a context window.
+Most agent frameworks make you manage the context window. Budge gives that job to the model.
+Your agent navigates context like a librarian, not a reader. The model decides what to read and when. You never touch a context window.
 
 ## Install
 
+```ts
 pnpm add @budge/core @ai-sdk/anthropic
+```
 
 ## Usage
 
-import { createRuntime, source } from "@budge/core"
-import { anthropic } from "@ai-sdk/anthropic"
+```ts
+import { createRuntime, source } from "@budge/core";
+import { anthropic } from "@ai-sdk/anthropic";
 
 const runtime = createRuntime({
-model: anthropic("claude-sonnet-4-6"),
-subModel: anthropic("claude-haiku-4-5"),
-})
+  model: anthropic("claude-sonnet-4-6"),
+  subModel: anthropic("claude-haiku-4-5"),
+});
 
 const result = await runtime.run({
-task: "what does the auth module do and how could it be improved",
-sources: {
-codebase: source.fs("./src"),
-docs: source.files(["./README.md"]),
-}
-})
+  task: "what does the auth module do and how could it be improved",
+  sources: {
+    codebase: source.fs("./src"),
+    docs: source.files(["./README.md"]),
+  },
+});
 
-console.log(result.answer)
-console.log(result.trace)
+console.log(result.answer);
+console.log(result.trace);
+```
 
 ## How it works
 
