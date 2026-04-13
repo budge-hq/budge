@@ -1,3 +1,17 @@
+<p align="center">
+  <picture>
+    <source
+      media="(prefers-color-scheme: dark)"
+      srcset="./assets/wordmark-light.png"
+    />
+    <img
+      src="./assets/wordmark-dark.png"
+      alt="Budge logo"
+      width="240"
+    />
+  </picture>
+</p>
+
 # Budge
 
 Budge is a context engineering runtime. **Budge prepares context. Your agents act on it.**
