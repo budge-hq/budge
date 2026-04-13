@@ -19,8 +19,6 @@ export interface SubcallOptions {
   path: string;
   /** The specific sub-task to accomplish. */
   task: string;
-  /** Maximum number of items to read in a single sub-call. Default: 10. */
-  maxItems?: number;
 }
 
 /**
@@ -28,56 +26,33 @@ export interface SubcallOptions {
  *
  * The sub-call:
  * 1. Attempts `adapter.read(path)` directly (handles slice notation, file paths,
- *    and any addressable path). Falls back to `adapter.list(path)` if read throws
- *    (e.g. path is a directory), then reads up to `maxItems` listed entries.
- * 2. Assembles a focused prompt with the resolved content
- * 3. Calls the sub-model with no tools (direct answer, no recursion)
+ *    and any addressable path).
+ * 2. If the read fails, includes the error in the sub-call context so the root
+ *    agent can recover by listing or trying a different path.
+ * 3. Assembles a focused prompt with the resolved content
+ * 4. Calls the sub-model with no tools (direct answer, no recursion)
  *
  * Returns a SubcallTraceNode that can be added to the root trace.
  *
  * @internal
  */
 export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode> {
-  const { subModel, adapter, sourceName, path, task, maxItems = 10 } = opts;
+  const { subModel, adapter, sourceName, path, task } = opts;
 
   const startMs = Date.now();
 
   // Step 1: Resolve content at path.
-  // Try a direct read first — this correctly handles addressable paths like
-  // slice notation ("80:90"), explicit file paths, and single-item addresses.
-  // If read() throws (e.g. path is a directory), fall back to list() so the
-  // agent can explore container paths as intended.
+  // Sub-calls operate on one readable path. If the path cannot be read,
+  // surface that error to the sub-model instead of silently analyzing
+  // unrelated content from a broad list() fallback.
   const contentParts: string[] = [];
-  let items: string[];
 
   try {
     const direct = await adapter.read(path);
     contentParts.push(`--- ${path} ---\n${direct}`);
-    items = []; // direct read consumed the path; nothing left to list
-  } catch {
-    try {
-      items = await adapter.list(path);
-    } catch {
-      items = [path]; // last resort: treat path itself as the item
-    }
-  }
-
-  // Step 2: Read up to maxItems from the listing (skipped if direct read succeeded)
-  const toRead = items.slice(0, maxItems);
-
-  for (const item of toRead) {
-    try {
-      const content = await adapter.read(item);
-      contentParts.push(`--- ${item} ---\n${content}`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      contentParts.push(`--- ${item} ---\n[Error reading: ${message}]`);
-    }
-  }
-
-  const omitted = items.length - toRead.length;
-  if (omitted > 0) {
-    contentParts.push(`\n[${omitted} additional item${omitted === 1 ? "" : "s"} omitted]`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    contentParts.push(`--- ${path} ---\n[Could not read: ${message}]`);
   }
 
   const content = contentParts.join("\n\n");

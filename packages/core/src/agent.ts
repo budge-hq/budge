@@ -71,10 +71,10 @@ export async function runAgent<S extends Record<string, SourceAdapter>>(
     }
   }
 
-  // Loop was cut off before finish — return whatever text the model last produced
+  // No finish tool call — use the model's last text and classify step-limit truncation
   return {
     answer: result.text || "",
-    finishReason: "max_steps",
+    finishReason: result.finishReason === "length" ? "max_steps" : "finish",
   };
 }
 

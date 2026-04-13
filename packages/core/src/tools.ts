@@ -113,6 +113,8 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
         "Spawn a focused analysis on a specific slice of a source.",
         "This is more powerful than read_source for complex sub-tasks —",
         "it uses a dedicated model call with the content in full context.",
+        "The path should point to a single readable item or addressable slice,",
+        "not a directory listing.",
         "Use this when you need synthesis, comparison, or deeper analysis",
         "of content at a particular path.",
       ].join(" "),
@@ -123,7 +125,7 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
           .string()
           .describe(
             "A specific, self-contained task for the sub-call to accomplish. " +
-              "Be precise — the sub-call only sees the content at this path.",
+              "Be precise — the sub-call only sees the content at this readable path.",
           ),
       }),
       execute: async ({ source, path, task }) => {
@@ -140,6 +142,12 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
         });
 
         trace.recordSubcall(subcallNode);
+        trace.recordToolCall({
+          tool: "run_subcall",
+          args: { source, path, task },
+          result: subcallNode.answer,
+          durationMs: subcallNode.durationMs,
+        });
 
         return subcallNode.answer;
       },
@@ -160,7 +168,14 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
           ),
       }),
       execute: async ({ answer }) => {
+        const startMs = Date.now();
         onToolCall?.({ tool: "finish", args: { answer } });
+        trace.recordToolCall({
+          tool: "finish",
+          args: { answer },
+          result: answer,
+          durationMs: Date.now() - startMs,
+        });
         return answer;
       },
     }),
