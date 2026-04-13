@@ -252,9 +252,16 @@ function formatSubcalls(subcallsBySource: Map<string, SubcallTraceNode[]>): stri
 }
 
 function formatToolCalls(toolCalls: ToolCallRecord[]): string {
-  if (toolCalls.length === 0) return "- none";
+  const meaningful = toolCalls.filter(
+    (toolCall) =>
+      toolCall.tool === "run_subcall" ||
+      toolCall.tool === "run_subcalls" ||
+      toolCall.tool === "finish",
+  );
 
-  return toolCalls
+  if (meaningful.length === 0) return "- none";
+
+  return meaningful
     .map((toolCall) => {
       const source = getStringArg(toolCall, "source");
       const path = getStringArg(toolCall, "path");

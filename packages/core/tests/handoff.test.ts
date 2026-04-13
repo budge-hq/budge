@@ -83,6 +83,38 @@ function makeTrace(): RuntimeTrace<any> {
   };
 }
 
+function makeTraceWithMeaningfulToolCalls(): RuntimeTrace<any> {
+  const trace = makeTrace();
+
+  return {
+    ...trace,
+    tree: {
+      ...trace.tree,
+      toolCalls: [
+        ...trace.tree.toolCalls,
+        {
+          tool: "run_subcall",
+          args: {
+            source: "codebase",
+            path: "src/auth.ts",
+            task: "Summarize the login flow",
+          },
+          result: "Focused summary of the login flow.",
+          durationMs: 11,
+        },
+        {
+          tool: "finish",
+          args: {
+            answer: "Prepared auth analysis.",
+          },
+          result: "Prepared auth analysis.",
+          durationMs: 1,
+        },
+      ],
+    },
+  };
+}
+
 function makeAdapter() {
   return {
     describe: () => "fixture source",
@@ -177,6 +209,30 @@ describe("buildHandoff()", () => {
 
     expect(typeof handoff).toBe("string");
     expect(handoff.trim().startsWith("{")).toBe(false);
+  });
+
+  it("only includes meaningful tool calls in the worker prompt", async () => {
+    mockGenerateText.mockImplementation(async (args) => {
+      const prompt = promptText(args.messages?.[0]?.content);
+
+      expect(prompt).toContain("Root tool calls:");
+      expect(prompt).toContain("run_subcall @ codebase/src/auth.ts");
+      expect(prompt).toContain("finish @ n/a");
+      expect(prompt).not.toContain("read_source @ codebase/src/auth.ts");
+      expect(prompt).not.toContain("list_source @ codebase/src");
+
+      return {
+        text: "# Context Prepared by Budge\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
+        usage: { inputTokens: 3, outputTokens: 4 },
+      } as Awaited<ReturnType<typeof generateText>>;
+    });
+
+    await buildHandoff({
+      task: "Review auth flows",
+      answer: "The auth module coordinates login state and session handling.",
+      trace: makeTraceWithMeaningfulToolCalls(),
+      worker,
+    });
   });
 });
 
