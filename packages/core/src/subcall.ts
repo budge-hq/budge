@@ -27,10 +27,11 @@ export interface SubcallOptions {
  * Spawns a focused model call scoped to a specific slice of a source.
  *
  * The sub-call:
- * 1. Lists what's available at `path` within the source
- * 2. Reads up to `maxItems` items from that listing
- * 3. Assembles a focused prompt with the content
- * 4. Calls the sub-model with no tools (direct answer, no recursion)
+ * 1. Attempts `adapter.read(path)` directly (handles slice notation, file paths,
+ *    and any addressable path). Falls back to `adapter.list(path)` if read throws
+ *    (e.g. path is a directory), then reads up to `maxItems` listed entries.
+ * 2. Assembles a focused prompt with the resolved content
+ * 3. Calls the sub-model with no tools (direct answer, no recursion)
  *
  * Returns a SubcallTraceNode that can be added to the root trace.
  *
@@ -41,17 +42,28 @@ export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode
 
   const startMs = Date.now();
 
-  // Step 1: Enumerate what's available at the path
+  // Step 1: Resolve content at path.
+  // Try a direct read first — this correctly handles addressable paths like
+  // slice notation ("80:90"), explicit file paths, and single-item addresses.
+  // If read() throws (e.g. path is a directory), fall back to list() so the
+  // agent can explore container paths as intended.
+  const contentParts: string[] = [];
   let items: string[];
+
   try {
-    items = await adapter.list(path);
+    const direct = await adapter.read(path);
+    contentParts.push(`--- ${path} ---\n${direct}`);
+    items = []; // direct read consumed the path; nothing left to list
   } catch {
-    items = [path]; // Fall back to treating path itself as the item
+    try {
+      items = await adapter.list(path);
+    } catch {
+      items = [path]; // last resort: treat path itself as the item
+    }
   }
 
-  // Step 2: Read up to maxItems
+  // Step 2: Read up to maxItems from the listing (skipped if direct read succeeded)
   const toRead = items.slice(0, maxItems);
-  const contentParts: string[] = [];
 
   for (const item of toRead) {
     try {
