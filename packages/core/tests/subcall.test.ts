@@ -327,10 +327,12 @@ describe("buildTools().run_subcall", () => {
 
   it("throws before starting work when a batch schema name is invalid", async () => {
     const adapter = makeAdapter();
+    const events: Array<unknown> = [];
     const tools = buildTools({
       sources: { codebase: adapter },
       subModel,
       trace: new TraceBuilder("audit fetch handling"),
+      onToolCall: (event) => events.push(event),
       subcallSchemas: {
         audit: z.string(),
       },
@@ -354,6 +356,7 @@ describe("buildTools().run_subcall", () => {
 
     expect(adapter.read).not.toHaveBeenCalled();
     expect(mockGenerateText).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
   });
 
   it("degrades execution failures into per-result answers", async () => {
