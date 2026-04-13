@@ -3,34 +3,32 @@ import type { LanguageModel } from "ai";
 import safeStableStringify from "safe-stable-stringify";
 import type { RuntimeTrace, SubcallTraceNode, ToolCallRecord } from "./types.ts";
 
-const HANDOFF_SYSTEM_PROMPT = [
-  "You turn Budge research output into a briefing for a downstream action agent.",
-  "Return Markdown only. Do not return JSON. Do not wrap the response in code fences.",
-  "Use exactly this structure:",
-  "# Context Prepared by Budge",
-  "",
-  "## Task",
-  "...",
-  "",
-  "## Findings",
-  "### <sourceName>",
-  "- <path>: <finding>",
-  "",
-  "## Coverage",
-  "...",
-  "",
-  "## Confidence",
-  "High | Medium | Low. <brief rationale>",
-  "",
-  "## Gaps",
-  "- ...",
-  "Omit the Gaps section entirely if there are no meaningful gaps.",
-  "Write the Coverage section based only on what the trace shows was actually accessed.",
-  "Do not invent skipped counts.",
-  'Use language like "X files read across Y sources", "Worker calls covered: [...]", and "The following were listed but not read: [...]" when supported by the trace.',
-  'If you cannot determine coverage confidently, say "Coverage limited to files listed in trace."',
-  "Base findings on the final answer plus the trace evidence. Keep them concrete and source-aware.",
-].join("\n");
+const HANDOFF_SYSTEM_PROMPT = `You turn Budge research output into a briefing for a downstream action agent.
+Return Markdown only. Do not return JSON. Do not wrap the response in code fences.
+Use exactly this structure:
+# Context Prepared by Budge
+
+## Task
+...
+
+## Findings
+### <sourceName>
+- <path>: <finding>
+
+## Coverage
+...
+
+## Confidence
+High | Medium | Low. <brief rationale>
+
+## Gaps
+- ...
+Omit the Gaps section entirely if there are no meaningful gaps.
+Write the Coverage section based only on what the trace shows was actually accessed.
+Do not invent skipped counts.
+Use language like "X files read across Y sources", "Worker calls covered: [...]", and "The following were listed but not read: [...]" when supported by the trace.
+If you cannot determine coverage confidently, say "Coverage limited to files listed in trace."
+Base findings on the final answer plus the trace evidence. Keep them concrete and source-aware.`;
 
 export async function buildHandoff(opts: {
   task: string;
@@ -46,7 +44,12 @@ export async function buildHandoff(opts: {
     messages: [{ role: "user", content: buildHandoffInput({ task, answer, trace }) }],
   });
 
-  return result.text.trim() || buildFallbackHandoff({ task, answer, trace });
+  const handoff = result.text.trim();
+  if (!handoff) {
+    throw new Error("Worker returned empty handoff");
+  }
+
+  return handoff;
 }
 
 export function buildHandoffInput(opts: {

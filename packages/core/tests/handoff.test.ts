@@ -266,7 +266,33 @@ describe("createBudge().prepare()", () => {
       answer: "Prepared auth analysis.",
       finishReason: "finish",
     });
-    vi.spyOn(handoffModule, "buildHandoff").mockRejectedValue(new Error("worker exploded"));
+    vi.spyOn(handoffModule, "buildHandoff").mockRejectedValueOnce(new Error("worker exploded"));
+
+    const budge = createBudge({ orchestrator, worker });
+    const context = await budge.prepare({
+      task: "Review auth flows",
+      sources: { codebase: makeAdapter() },
+    });
+
+    expect(context.handoff).toBe(
+      buildFallbackHandoff({
+        task: "Review auth flows",
+        answer: "Prepared auth analysis.",
+        trace: context.trace,
+      }),
+    );
+    expect(context.handoffFailed).toBe(true);
+  });
+
+  it("sets handoffFailed when the worker returns empty handoff text", async () => {
+    vi.spyOn(agentModule, "runAgent").mockResolvedValue({
+      answer: "Prepared auth analysis.",
+      finishReason: "finish",
+    });
+    mockGenerateText.mockResolvedValue({
+      text: "   ",
+      usage: { inputTokens: 4, outputTokens: 0 },
+    } as Awaited<ReturnType<typeof generateText>>);
 
     const budge = createBudge({ orchestrator, worker });
     const context = await budge.prepare({
