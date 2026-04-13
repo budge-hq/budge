@@ -6,7 +6,7 @@ import type { RuntimeTrace, SubcallTraceNode, ToolCallRecord } from "./types.ts"
 const HANDOFF_SYSTEM_PROMPT = `You turn Budge research output into a briefing for a downstream action agent.
 Return Markdown only. Do not return JSON. Do not wrap the response in code fences.
 Use exactly this structure:
-# Context Prepared by Budge
+# Context
 
 ## Task
 ...
@@ -35,6 +35,7 @@ export async function buildHandoff(opts: {
   answer: string;
   trace: RuntimeTrace<any>;
   worker: LanguageModel;
+  system?: string;
 }): Promise<string> {
   const { task, answer, trace, worker } = opts;
 
@@ -49,10 +50,10 @@ export async function buildHandoff(opts: {
     throw new Error("Worker returned empty handoff");
   }
 
-  return handoff;
+  return [opts.system ? `# System\n${opts.system}` : "", handoff].join("\n\n");
 }
 
-export function buildHandoffInput(opts: {
+function buildHandoffInput(opts: {
   task: string;
   answer: string;
   trace: RuntimeTrace<any>;
@@ -102,6 +103,7 @@ export function buildFallbackHandoff(opts: {
   task: string;
   answer: string;
   trace: RuntimeTrace<any>;
+  system?: string;
 }): string {
   const readPaths = collectReadPaths(opts.trace);
   const listedNotRead = collectListedButNotRead(
@@ -124,7 +126,8 @@ export function buildFallbackHandoff(opts: {
   }
 
   return [
-    "# Context Prepared by Budge",
+    opts.system ? `# System\n${opts.system}` : "",
+    "# Context",
     "",
     "## Task",
     opts.task,

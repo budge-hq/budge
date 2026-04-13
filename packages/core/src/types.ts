@@ -112,6 +112,11 @@ export interface PrepareOptions<
    * could call `finish`.
    */
   maxSteps?: number;
+
+  /**
+   * System prompt to prepend the prepared context.
+   */
+  system?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -104,9 +104,15 @@ export function createBudge(options: BudgeOptions): Budge {
           answer,
           trace: builtTrace,
           worker,
+          system: prepareOptions.system,
         });
       } catch {
-        handoff = buildFallbackHandoff({ task, answer, trace: builtTrace });
+        handoff = buildFallbackHandoff({
+          task,
+          answer,
+          trace: builtTrace,
+          system: prepareOptions.system,
+        });
         handoffFailed = true;
       }
 

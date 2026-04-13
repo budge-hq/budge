@@ -144,7 +144,7 @@ describe("buildHandoff()", () => {
 
       return {
         text: [
-          "# Context Prepared by Budge",
+          "# Context",
           "",
           "## Task",
           "Review auth flows",
@@ -170,14 +170,14 @@ describe("buildHandoff()", () => {
       worker,
     });
 
-    expect(handoff).toContain("# Context Prepared by Budge");
+    expect(handoff).toContain("# Context");
     expect(handoff).toContain("Review auth flows");
     expect(handoff.trim().length).toBeGreaterThan(0);
   });
 
   it("passes source names from the trace into the worker prompt", async () => {
     mockGenerateText.mockResolvedValue({
-      text: "# Context Prepared by Budge\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
+      text: "# Context\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
       usage: { inputTokens: 3, outputTokens: 4 },
     } as Awaited<ReturnType<typeof generateText>>);
 
@@ -197,7 +197,7 @@ describe("buildHandoff()", () => {
 
   it("returns markdown as a string, not JSON", async () => {
     mockGenerateText.mockResolvedValue({
-      text: "# Context Prepared by Budge\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
+      text: "# Context\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
       usage: { inputTokens: 2, outputTokens: 3 },
     } as Awaited<ReturnType<typeof generateText>>);
 
@@ -223,7 +223,7 @@ describe("buildHandoff()", () => {
       expect(prompt).not.toContain("list_source @ codebase/src");
 
       return {
-        text: "# Context Prepared by Budge\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
+        text: "# Context\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
         usage: { inputTokens: 3, outputTokens: 4 },
       } as Awaited<ReturnType<typeof generateText>>;
     });
@@ -244,7 +244,7 @@ describe("createBudge().prepare()", () => {
       finishReason: "finish",
     });
     mockGenerateText.mockResolvedValue({
-      text: "# Context Prepared by Budge\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
+      text: "# Context\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
       usage: { inputTokens: 4, outputTokens: 6 },
     } as Awaited<ReturnType<typeof generateText>>);
 
@@ -256,7 +256,7 @@ describe("createBudge().prepare()", () => {
 
     expect(context.task).toBe("Review auth flows");
     expect(context.answer).toBe("Prepared auth analysis.");
-    expect(context.handoff).toContain("# Context Prepared by Budge");
+    expect(context.handoff).toContain("# Context");
     expect(typeof context.handoff).toBe("string");
     expect(context.handoffFailed).toBe(false);
   });
