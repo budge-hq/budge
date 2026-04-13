@@ -1,6 +1,6 @@
 # Budge
 
-**Budge prepares context. Your agents act on it.**
+Budge is a context engineering runtime. **Budge prepares context. Your agents act on it.**
 
 Most agent pipelines spend half their time figuring out what to read. Budge handles that so your agents don't have to.
 
