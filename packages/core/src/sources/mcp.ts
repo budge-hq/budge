@@ -176,8 +176,7 @@ function dedupeByName(tools: ToolDefinition[]): ToolDefinition[] {
 }
 
 function matchesAny(name: string, patterns: readonly string[]): boolean {
-  const matchers = patterns.map((p) => picomatch(p));
-  return matchers.some((matcher) => matcher(name));
+  return picomatch(Array.from(patterns))(name);
 }
 
 function isReadonlyTool(name: string): boolean {
