@@ -8,8 +8,8 @@
  * import { openai } from "@ai-sdk/openai"
  *
  * const runtime = createRuntime({
- *   model: openai("gpt-5.4"),
- *   subModel: openai("gpt-5.4-mini"),
+ *   orchestrator: openai("gpt-5.4"),
+ *   worker: openai("gpt-5.4-mini"),
  * })
  *
  * const result = await runtime.run({

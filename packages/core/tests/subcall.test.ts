@@ -22,6 +22,20 @@ const mockGenerateText = vi.mocked(generateText);
 const subModel = {} as LanguageModel;
 const model = {} as LanguageModel;
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushAsyncWork() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function makeAdapter() {
   return {
     describe: () => "fixture source",
@@ -212,6 +226,195 @@ describe("buildTools().run_subcall", () => {
       ),
     ).rejects.toThrow('Unknown subcall schema: "missing". Available schemas: audit, summary');
   });
+
+  it("runs run_subcalls in parallel while preserving input order", async () => {
+    const readGates = [deferred<void>(), deferred<void>(), deferred<void>()];
+    let readIndex = 0;
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    let activeReadsAtBatchStart = -1;
+    const trace = new TraceBuilder("batch analysis");
+    const adapter = {
+      describe: () => "fixture source",
+      list: vi.fn(async () => []),
+      read: vi.fn(async (path: string) => {
+        const currentIndex = readIndex++;
+        activeReads++;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        await readGates[currentIndex]!.promise;
+        activeReads--;
+        return `contents for ${path}`;
+      }),
+    };
+
+    mockGenerateText.mockImplementation(async (args) => {
+      const content = args.messages?.[0]?.content;
+      const text = typeof content === "string" ? content : "";
+      const path = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
+      return {
+        text: `analysis for ${path}`,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      } as Awaited<ReturnType<typeof generateText>>;
+    });
+
+    const tools = buildTools({
+      sources: { codebase: adapter },
+      subModel,
+      trace,
+      concurrency: 2,
+      onToolCall: (event) => {
+        if (event.tool === "run_subcalls") {
+          activeReadsAtBatchStart = activeReads;
+        }
+      },
+    });
+
+    const resultPromise = tools.run_subcalls.execute!(
+      {
+        calls: [
+          { source: "codebase", path: "src/a.ts", task: "summarize a" },
+          { source: "codebase", path: "src/b.ts", task: "summarize b" },
+          { source: "codebase", path: "src/c.ts", task: "summarize c" },
+        ],
+      },
+      {} as never,
+    );
+
+    await flushAsyncWork();
+
+    expect(activeReadsAtBatchStart).toBe(0);
+    expect(activeReads).toBe(2);
+
+    readGates[1]!.resolve();
+    await flushAsyncWork();
+    expect(activeReads).toBe(2);
+
+    readGates[2]!.resolve();
+    await flushAsyncWork();
+
+    readGates[0]!.resolve();
+
+    const result = await resultPromise;
+    const built = trace.build();
+
+    expect(result).toEqual([
+      {
+        source: "codebase",
+        path: "src/a.ts",
+        task: "summarize a",
+        answer: "analysis for src/a.ts",
+      },
+      {
+        source: "codebase",
+        path: "src/b.ts",
+        task: "summarize b",
+        answer: "analysis for src/b.ts",
+      },
+      {
+        source: "codebase",
+        path: "src/c.ts",
+        task: "summarize c",
+        answer: "analysis for src/c.ts",
+      },
+    ]);
+    expect(maxActiveReads).toBe(2);
+    expect(built.tree.children).toHaveLength(3);
+    expect(built.tree.children.map((child) => child.parallel)).toEqual([true, true, true]);
+    expect(built.tree.toolCalls[0]).toMatchObject({
+      tool: "run_subcalls",
+    });
+  });
+
+  it("throws before starting work when a batch schema name is invalid", async () => {
+    const adapter = makeAdapter();
+    const events: Array<unknown> = [];
+    const tools = buildTools({
+      sources: { codebase: adapter },
+      subModel,
+      trace: new TraceBuilder("audit fetch handling"),
+      onToolCall: (event) => events.push(event),
+      subcallSchemas: {
+        audit: z.string(),
+      },
+    });
+
+    await expect(
+      tools.run_subcalls.execute!(
+        {
+          calls: [
+            {
+              source: "codebase",
+              path: "src/auth.ts",
+              task: "audit fetch handling",
+              schemaName: "missing",
+            },
+          ],
+        },
+        {} as never,
+      ),
+    ).rejects.toThrow('Unknown subcall schema: "missing". Available schemas: audit');
+
+    expect(adapter.read).not.toHaveBeenCalled();
+    expect(mockGenerateText).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
+  it("degrades execution failures into per-result answers", async () => {
+    const trace = new TraceBuilder("batch analysis");
+
+    mockGenerateText.mockImplementation(async (args) => {
+      const content = args.messages?.[0]?.content;
+      const text = typeof content === "string" ? content : "";
+      const path = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
+      if (path === "src/b.ts") {
+        throw new Error("model exploded");
+      }
+      return {
+        text: `analysis for ${path}`,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      } as Awaited<ReturnType<typeof generateText>>;
+    });
+
+    const tools = buildTools({
+      sources: { codebase: makeAdapter() },
+      subModel,
+      trace,
+      concurrency: 2,
+    });
+
+    const result = await tools.run_subcalls.execute!(
+      {
+        calls: [
+          { source: "codebase", path: "src/a.ts", task: "summarize a" },
+          { source: "codebase", path: "src/b.ts", task: "summarize b" },
+        ],
+      },
+      {} as never,
+    );
+
+    const built = trace.build();
+
+    expect(result).toEqual([
+      {
+        source: "codebase",
+        path: "src/a.ts",
+        task: "summarize a",
+        answer: "analysis for src/a.ts",
+      },
+      {
+        source: "codebase",
+        path: "src/b.ts",
+        task: "summarize b",
+        answer: "[Error: model exploded]",
+      },
+    ]);
+    expect(built.tree.children).toHaveLength(2);
+    expect(built.tree.children[1]).toMatchObject({
+      path: "src/b.ts",
+      answer: "[Error: model exploded]",
+      parallel: true,
+    });
+  });
 });
 
 describe("schema propagation", () => {
@@ -231,6 +434,7 @@ describe("schema propagation", () => {
     await runAgent({
       model,
       subModel,
+      concurrency: 7,
       task: "audit fetch handling",
       sources: { codebase: makeAdapter() },
       subcallSchemas,
@@ -240,16 +444,17 @@ describe("schema propagation", () => {
     expect(buildToolsSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         subcallSchemas,
+        concurrency: 7,
       }),
     );
   });
 
-  it("forwards subcallSchemas from runtime.run into runAgent", async () => {
+  it("forwards worker and concurrency from runtime.run into runAgent", async () => {
     const runAgentSpy = vi.spyOn(agentModule, "runAgent").mockResolvedValue({
       answer: "done",
       finishReason: "finish",
     });
-    const runtime = createRuntime({ model, subModel });
+    const runtime = createRuntime({ orchestrator: model, worker: subModel, concurrency: 7 });
     const subcallSchemas = {
       audit: z.object({ verdict: z.enum(["missing", "present"]) }),
     };
@@ -262,6 +467,9 @@ describe("schema propagation", () => {
 
     expect(runAgentSpy).toHaveBeenCalledWith(
       expect.objectContaining({
+        model,
+        subModel,
+        concurrency: 7,
         subcallSchemas,
       }),
     );

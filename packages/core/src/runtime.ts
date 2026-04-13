@@ -13,7 +13,7 @@ export interface Runtime {
    *
    * The agent navigates sources lazily — it calls `describe()`, `list()`,
    * and `read()` on your adapters as needed, and can spawn focused sub-calls
-   * via `run_subcall`. You never manage context windows.
+   * via `run_subcall` and `run_subcalls`. You never manage context windows.
    *
    * Type inference is automatic: the `sources` keys flow through to
    * `result.trace.sourcesAccessed`, giving you typed keys without casting.
@@ -48,8 +48,8 @@ export interface Runtime {
  * import { openai } from "@ai-sdk/openai"
  *
  * const runtime = createRuntime({
- *   model: openai("gpt-5.4"),
- *   subModel: openai("gpt-5.4-mini"),
+ *   orchestrator: openai("gpt-5.4"),
+ *   worker: openai("gpt-5.4-mini"),
  * })
  *
  * const result = await runtime.run({
@@ -65,7 +65,8 @@ export interface Runtime {
  * ```
  */
 export function createRuntime(options: RuntimeOptions): Runtime {
-  const { model, subModel } = options;
+  const { orchestrator, worker, concurrency = 5 } = options;
+  const normalizedConcurrency = Math.max(1, Math.floor(concurrency));
 
   return {
     async run<S extends Record<string, SourceAdapter>>(
@@ -76,13 +77,14 @@ export function createRuntime(options: RuntimeOptions): Runtime {
       const trace = new TraceBuilder<S>(task);
 
       const { answer, finishReason } = await runAgent({
-        model,
-        subModel,
+        model: orchestrator,
+        subModel: worker,
         task,
         sources,
         onToolCall,
         maxSteps,
         subcallSchemas,
+        concurrency: normalizedConcurrency,
         trace,
       });
 

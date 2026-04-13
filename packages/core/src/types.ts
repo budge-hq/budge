@@ -9,7 +9,7 @@ import type { SourceAdapter } from "./sources/interface.ts";
 /**
  * Options for creating a runtime instance.
  *
- * Both `model` and `subModel` accept any AI SDK-compatible model provider,
+ * Both `orchestrator` and `worker` accept any AI SDK-compatible model provider,
  * keeping @budge/core decoupled from any specific provider.
  *
  * @example
@@ -17,8 +17,8 @@ import type { SourceAdapter } from "./sources/interface.ts";
  * import { openai } from "@ai-sdk/openai"
  *
  * const runtime = createRuntime({
- *   model: openai("gpt-5.4"),
- *   subModel: openai("gpt-5.4-mini"),
+ *   orchestrator: openai("gpt-5.4"),
+ *   worker: openai("gpt-5.4-mini"),
  * })
  * ```
  */
@@ -27,13 +27,20 @@ export interface RuntimeOptions {
    * The primary model used for the root agent loop.
    * Should be a capable, instruction-following model.
    */
-  model: LanguageModel;
+  orchestrator: LanguageModel;
 
   /**
    * The model used for focused sub-calls.
    * Typically a faster, cheaper model — sub-calls are narrow tasks.
    */
-  subModel: LanguageModel;
+  worker: LanguageModel;
+
+  /**
+   * Maximum number of worker calls allowed in flight inside `run_subcalls`.
+   *
+   * Default: 5
+   */
+  concurrency?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,8 +95,8 @@ export interface RunOptions<
   onToolCall?: (event: ToolCallEvent) => void;
 
   /**
-   * Named schemas that `run_subcall` can reference via `schemaName` to request
-   * structured output from a focused sub-call.
+   * Named schemas that `run_subcall` and `run_subcalls` can reference via
+   * `schemaName` to request structured output from focused sub-calls.
    */
   subcallSchemas?: Record<string, ZodType>;
 
@@ -120,6 +127,7 @@ export interface RunOptions<
  *   case "read_source":  event.args.path   // string
  *   case "list_source":  event.args.path   // string | undefined
  *   case "run_subcall":  event.args.task   // string
+ *   case "run_subcalls": event.args.calls   // Array<{ ... }>
  *   case "finish":       event.args.answer // string
  * }
  * ```
@@ -130,6 +138,12 @@ export type ToolCallEvent =
   | {
       tool: "run_subcall";
       args: { source: string; path: string; task: string; schemaName?: string };
+    }
+  | {
+      tool: "run_subcalls";
+      args: {
+        calls: Array<{ source: string; path: string; task: string; schemaName?: string }>;
+      };
     }
   | { tool: "finish"; args: { answer: string } };
 
@@ -168,7 +182,8 @@ export interface ToolCallRecord {
  * A node in the decomposition tree.
  *
  * The tree has exactly one root node and zero or more subcall nodes.
- * Each subcall node represents a focused model call spawned by `run_subcall`.
+ * Each subcall node represents a focused model call spawned by `run_subcall`
+ * or `run_subcalls`.
  */
 export type TraceNode = RootTraceNode | SubcallTraceNode;
 
@@ -185,12 +200,12 @@ export interface RootTraceNode {
   durationMs: number;
   /** Every tool call made by the root agent, in order. */
   toolCalls: ToolCallRecord[];
-  /** Sub-calls spawned by the root agent via `run_subcall`. */
+  /** Sub-calls spawned by the root agent via `run_subcall` or `run_subcalls`. */
   children: SubcallTraceNode[];
 }
 
 /**
- * A focused sub-call spawned by `run_subcall`.
+ * A focused sub-call spawned by `run_subcall` or `run_subcalls`.
  */
 export interface SubcallTraceNode {
   type: "subcall";
@@ -210,6 +225,8 @@ export interface SubcallTraceNode {
   usage: TokenUsage;
   /** Wall time for this sub-call in milliseconds. */
   durationMs: number;
+  /** True when this node came from a parallel `run_subcalls` batch. */
+  parallel?: boolean;
 }
 
 /**

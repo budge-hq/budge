@@ -15,6 +15,7 @@ export interface RunAgentOptions<S extends Record<string, SourceAdapter>> extend
 > {
   model: LanguageModel;
   subModel: LanguageModel;
+  concurrency: number;
   trace: TraceBuilder<S>;
 }
 
@@ -25,7 +26,7 @@ export interface RunAgentOptions<S extends Record<string, SourceAdapter>> extend
  * - The task
  * - Descriptions of all available sources (no data, just what's there)
  * - History of tool calls and results from previous steps
- * - Four tools: read_source, list_source, run_subcall, finish
+ * - Five tools: read_source, list_source, run_subcall, run_subcalls, finish
  *
  * The loop continues until the agent calls `finish` or `maxSteps` is reached.
  *
@@ -43,10 +44,11 @@ export async function runAgent<S extends Record<string, SourceAdapter>>(
     onToolCall,
     maxSteps = 100,
     subcallSchemas,
+    concurrency,
     trace,
   } = opts;
 
-  const tools = buildTools({ sources, subModel, trace, onToolCall, subcallSchemas });
+  const tools = buildTools({ sources, subModel, trace, onToolCall, subcallSchemas, concurrency });
 
   const sourceDescriptions = buildSourceDescriptions(sources);
 
@@ -113,14 +115,18 @@ function buildSystemPrompt(sourceDescriptions: string): string {
     "2. Use `read_source` to read specific files or items.",
     "3. Use `run_subcall` when you need deeper analysis of a content slice —",
     "   it spawns a focused call with the content in full context.",
-    "4. Navigate lazily — only read what you need to answer the task.",
-    "5. Once you have enough information, call `finish` with your complete answer.",
+    "4. Use `run_subcalls` when you need to analyze multiple independent paths simultaneously.",
+    "   It runs focused calls in parallel and is much faster than sequential single sub-calls.",
+    "5. Navigate lazily — only read what you need to answer the task.",
+    "6. Once you have enough information, call `finish` with your complete answer.",
     "",
     "## Important",
     "",
     "- Be selective. Don't read everything — read what's relevant.",
     "- `run_subcall` is ideal for summarization, analysis, and comparison tasks",
     "  on a specific file or directory.",
+    "- Prefer `run_subcalls` over repeated sequential `run_subcall` calls when the sub-tasks are independent.",
+    "  Sequential single sub-calls for independent work are an antipattern.",
     "- Call `finish` only when you can give a complete, accurate answer.",
     "- Your answer should be well-structured and address the task directly.",
   ].join("\n");

@@ -1,11 +1,13 @@
 import { tool } from "ai";
+import safeStableStringify from "safe-stable-stringify";
 import { z } from "zod";
 import type { LanguageModel } from "ai";
 import type { ZodType } from "zod";
 import type { SourceAdapter } from "./sources/interface.ts";
 import type { TraceBuilder } from "./trace.ts";
 import type { ToolCallEvent } from "./types.ts";
-import { runSubcall } from "./subcall.ts";
+import { makeSubcallNode } from "./trace.ts";
+import { runConcurrent, runSubcall } from "./subcall.ts";
 
 /**
  * Options for building the agent tool set.
@@ -17,21 +19,23 @@ export interface BuildToolsOptions<S extends Record<string, SourceAdapter>> {
   trace: TraceBuilder<S>;
   onToolCall?: (event: ToolCallEvent) => void;
   subcallSchemas?: Record<string, ZodType>;
+  concurrency?: number;
 }
 
 /**
- * Builds the four agent tools and wires them to the live sources + trace.
+ * Builds the five agent tools and wires them to the live sources + trace.
  *
  * The tools are:
  * - `read_source`  — read a specific path from a named source
  * - `list_source`  — list items at an optional path in a named source
  * - `run_subcall`  — spawn a focused sub-model call on a content slice
+ * - `run_subcalls` — spawn focused sub-model calls on multiple independent slices
  * - `finish`       — return the final answer and stop the loop
  *
  * @internal
  */
 export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildToolsOptions<S>) {
-  const { sources, subModel, trace, onToolCall, subcallSchemas } = opts;
+  const { sources, subModel, trace, onToolCall, subcallSchemas, concurrency = 5 } = opts;
 
   return {
     read_source: tool({
@@ -75,7 +79,7 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
         "List items available at an optional path within a named source.",
         "Omit path to list the root of the source.",
         "Returns a list of navigable paths or identifiers.",
-        "Use these paths with read_source or run_subcall.",
+        "Use these paths with read_source, run_subcall, or run_subcalls.",
       ].join(" "),
       inputSchema: z.object({
         source: z.string().describe("The source name"),
@@ -162,6 +166,99 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
         });
 
         return subcallNode.answer;
+      },
+    }),
+
+    run_subcalls: tool({
+      description: [
+        "Spawn focused analyses on multiple independent slices of sources.",
+        "This runs sub-calls in parallel with a bounded concurrency limit.",
+        "Use this instead of sequential run_subcall calls when the tasks do not depend on each other.",
+        "Each call should point to a single readable item or addressable slice, not a directory listing.",
+      ].join(" "),
+      inputSchema: z.object({
+        calls: z
+          .array(
+            z.object({
+              source: z.string().describe("The source name"),
+              path: z.string().describe("The path within the source to focus the sub-call on"),
+              task: z
+                .string()
+                .describe(
+                  "A specific, self-contained task for the sub-call to accomplish. " +
+                    "Use this only for independent sub-tasks that can run in parallel.",
+                ),
+              schemaName: z
+                .string()
+                .optional()
+                .describe("Optional structured output schema name registered on runtime.run()"),
+            }),
+          )
+          .min(1)
+          .describe("Independent sub-calls to execute in parallel."),
+      }),
+      execute: async ({ calls }) => {
+        const startMs = Date.now();
+
+        const adapters = calls.map(({ source }) => resolveSource(sources, source));
+        const schemas = calls.map(({ schemaName }) =>
+          schemaName ? resolveSubcallSchema(subcallSchemas, schemaName) : undefined,
+        );
+
+        onToolCall?.({ tool: "run_subcalls", args: { calls } });
+
+        const subcallNodes = await runConcurrent(
+          calls.map((call, index) => async () => {
+            const startMs = Date.now();
+
+            try {
+              const node = await runSubcall({
+                subModel,
+                adapter: adapters[index]!,
+                sourceName: call.source,
+                path: call.path,
+                task: call.task,
+                schema: schemas[index],
+                schemaName: call.schemaName,
+              });
+
+              return { ...node, parallel: true };
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              return makeSubcallNode({
+                source: call.source,
+                path: call.path,
+                task: call.task,
+                answer: `[Error: ${message}]`,
+                schemaName: call.schemaName,
+                usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+                startMs,
+                parallel: true,
+              });
+            }
+          }),
+          concurrency,
+        );
+
+        for (const node of subcallNodes) {
+          trace.recordSubcall(node);
+        }
+
+        const result = subcallNodes.map((node) => ({
+          source: node.source,
+          path: node.path,
+          task: node.task,
+          answer: node.answer,
+        }));
+
+        trace.recordToolCall({
+          tool: "run_subcalls",
+          args: { calls },
+          result: safeStableStringify(result) ?? "[]",
+          durationMs: Date.now() - startMs,
+        });
+
+        return result;
       },
     }),
 

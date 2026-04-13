@@ -11,8 +11,10 @@
  *   --verbose   Stream each tool call to stdout as it happens
  */
 
-import { createRuntime, source, type ToolCallEvent } from "@budge/core";
 import { anthropic } from "@ai-sdk/anthropic";
+import { createRuntime, source, type ToolCallEvent } from "../../packages/core/src/index.ts";
+
+declare const process: { argv: string[] };
 
 // ---------------------------------------------------------------------------
 // Args
@@ -23,7 +25,7 @@ const verbose = args.includes("--verbose");
 
 // The task is the first non-flag argument, or the default
 const task =
-  args.find((a) => !a.startsWith("-")) ??
+  args.find((a: string) => !a.startsWith("-")) ??
   "Summarize the main entry point and what this codebase does";
 
 // ---------------------------------------------------------------------------
@@ -31,8 +33,8 @@ const task =
 // ---------------------------------------------------------------------------
 
 const runtime = createRuntime({
-  model: anthropic("claude-sonnet-4-6"),
-  subModel: anthropic("claude-haiku-4-5"),
+  orchestrator: anthropic("claude-sonnet-4-6"),
+  worker: anthropic("claude-haiku-4-5"),
 });
 
 // ---------------------------------------------------------------------------
@@ -47,6 +49,8 @@ function formatToolCall(event: ToolCallEvent): string {
       return `list  ${event.args.source}${event.args.path ? `/${event.args.path}` : ""}`;
     case "run_subcall":
       return `sub   ${event.args.source}/${event.args.path} — "${event.args.task}"`;
+    case "run_subcalls":
+      return `subs  ${event.args.calls.length} parallel sub-calls`;
     case "finish":
       return `done  (answer ready)`;
   }

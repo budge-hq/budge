@@ -32,8 +32,8 @@ import { createRuntime, source } from "@budge/core";
 import { anthropic } from "@ai-sdk/anthropic";
 
 const runtime = createRuntime({
-  model: anthropic("claude-sonnet-4-6"),
-  subModel: anthropic("claude-haiku-4-5"),
+  orchestrator: anthropic("claude-sonnet-4-6"),
+  worker: anthropic("claude-haiku-4-5"),
 });
 
 const result = await runtime.run({
@@ -55,7 +55,8 @@ The root agent receives your task and descriptions of what's
 available — not the data itself. It navigates sources via tool
 calls, reading only what it needs. When a sub-task requires deeper
 focus, it spawns a scoped sub-call against a slice of context using
-the cheaper subModel. Sub-calls can also target registered schemas
+the cheaper worker model. Independent sub-tasks can be batched with
+`run_subcalls` and a bounded concurrency limit. Sub-calls can also target registered schemas
 for typed structured output. The trace captures every decision.
 
 ## Sources

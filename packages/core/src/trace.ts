@@ -101,6 +101,7 @@ export function makeSubcallNode(opts: {
   schemaName?: string;
   usage: TokenUsage;
   startMs: number;
+  parallel?: boolean;
 }): SubcallTraceNode {
   return {
     type: "subcall",
@@ -112,6 +113,7 @@ export function makeSubcallNode(opts: {
     schemaName: opts.schemaName,
     usage: opts.usage,
     durationMs: Date.now() - opts.startMs,
+    parallel: opts.parallel,
   };
 }
 
