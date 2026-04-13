@@ -76,7 +76,9 @@ export const source = {
    * Expose an MCP client's tool catalog as a read-only source.
    *
    * The agent can list exposed tools and read per-tool metadata, but it
-   * cannot invoke MCP tools through the source API.
+   * cannot invoke MCP tools through the source API. Options use one of two
+   * modes: exact allowlist mode via `tools`, or filter mode via
+   * `readonly`/`allow`/`deny`.
    *
    * @param client  - MCP client exposing `listTools()` or `tools()`.
    * @param options - Optional exposure filters. Defaults to `readonly: true`.
@@ -84,9 +86,8 @@ export const source = {
   mcp: <
     const Allow extends readonly string[] | undefined = undefined,
     const Deny extends readonly string[] | undefined = undefined,
-    const Only extends readonly string[] | undefined = undefined,
   >(
     client: McpLikeClient,
-    options?: McpSourceOptions<Allow, Deny, Only>,
+    options?: McpSourceOptions<Allow, Deny>,
   ): McpAdapter => new McpAdapter(client, options),
 } as const;

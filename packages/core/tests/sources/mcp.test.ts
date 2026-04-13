@@ -5,6 +5,7 @@ import {
   type ToolDefinition,
   normalizeMcpClient,
 } from "../../src/sources/mcp.ts";
+import { source } from "../../src/sources/index.ts";
 
 const TOOL_FIXTURES: ToolDefinition[] = [
   {
@@ -68,6 +69,26 @@ function makeToolsClient(): McpLikeClient & {
 
   return { tools };
 }
+
+describe("McpSourceOptions typing", () => {
+  it("separates exact allowlist mode from filter mode", () => {
+    const client = makeToolsClient();
+
+    expect(source.mcp(client, { tools: ["get_patient"] as const })).toBeInstanceOf(McpAdapter);
+    expect(
+      source.mcp(client, {
+        allow: ["get_patient"] as const,
+        deny: ["get_sensitive_phi"] as const,
+      }),
+    ).toBeInstanceOf(McpAdapter);
+
+    // @ts-expect-error tools mode cannot mix with filter fields
+    source.mcp(client, { tools: ["get_patient"] as const, deny: ["get_sensitive_phi"] as const });
+
+    // @ts-expect-error exact overlap is rejected in filter mode
+    source.mcp(client, { allow: ["get_patient"] as const, deny: ["get_patient"] as const });
+  });
+});
 
 describe("normalizeMcpClient()", () => {
   it("paginates official listTools() clients", async () => {
@@ -135,10 +156,9 @@ describe("McpAdapter.list()", () => {
     expect(tools).toContain("delete_patient");
   });
 
-  it("uses tools as the most restrictive override", async () => {
+  it("uses tools as an exact allowlist", async () => {
     const adapter = new McpAdapter(makeToolsClient(), {
       tools: ["get_*", "update_*"],
-      deny: ["get_sensitive_phi"],
     });
 
     await expect(adapter.list()).resolves.toEqual([

@@ -1,5 +1,6 @@
 import picomatch from "picomatch";
 import type { SourceAdapter } from "./interface.ts";
+import safeStableStringify from "safe-stable-stringify";
 
 type PatternList = readonly string[] | undefined;
 
@@ -14,6 +15,29 @@ type NoPatternOverlap<Allow extends PatternList, Deny extends PatternList> = str
     : {
         __allowDenyOverlap__: `allow and deny both include ${Extract<PatternValues<Allow>, PatternValues<Deny>> & string}`;
       };
+
+type ExactToolMode = {
+  /**
+   * Exact allowlist mode. Only matching tools are exposed.
+   */
+  tools: readonly string[];
+  readonly?: never;
+  allow?: never;
+  deny?: never;
+};
+
+type FilterMode<Allow extends PatternList, Deny extends PatternList> = NoPatternOverlap<
+  Allow,
+  Deny
+> & {
+  /**
+   * Filter mode. Defaults to readonly filtering.
+   */
+  tools?: never;
+  readonly?: boolean;
+  allow?: Allow;
+  deny?: Deny;
+};
 
 /**
  * Minimal MCP tool metadata exposed through the source API.
@@ -40,28 +64,7 @@ export type McpLikeClient =
 export type McpSourceOptions<
   Allow extends PatternList = PatternList,
   Deny extends PatternList = PatternList,
-  Only extends PatternList = PatternList,
-> = NoPatternOverlap<Allow, Deny> & {
-  /**
-   * Apply a read-only heuristic filter. Enabled by default.
-   */
-  readonly?: boolean;
-
-  /**
-   * Explicitly add tools by exact name or glob pattern.
-   */
-  allow?: Allow;
-
-  /**
-   * Explicitly remove tools by exact name or glob pattern. Always wins.
-   */
-  deny?: Deny;
-
-  /**
-   * Restrict exposure to exact names or glob patterns only.
-   */
-  tools?: Only;
-};
+> = ExactToolMode | FilterMode<Allow, Deny>;
 
 const READONLY_PREFIXES = ["get_", "list_", "search_", "read_", "fetch_", "query_", "describe_"];
 
@@ -128,14 +131,12 @@ export function normalizeMcpClient(client: McpLikeClient): () => Promise<ToolDef
 }
 
 function filterTools(tools: ToolDefinition[], options: McpSourceOptions): ToolDefinition[] {
-  const byName = new Map(tools.map((tool) => [tool.name, tool]));
-  const onlyTools = options.tools;
-
-  if (onlyTools && onlyTools.length > 0) {
-    const selected = tools.filter((tool) => matchesAny(tool.name, onlyTools));
+  if (options.tools && options.tools.length > 0) {
+    const selected = tools.filter((tool) => matchesAny(tool.name, options.tools));
     return dedupeByName(selected);
   }
 
+  const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const readonlyEnabled = options.readonly ?? true;
   const base = readonlyEnabled ? tools.filter((tool) => isReadonlyTool(tool.name)) : [...tools];
   const selected = new Map(base.map((tool) => [tool.name, tool]));
@@ -175,7 +176,8 @@ function dedupeByName(tools: ToolDefinition[]): ToolDefinition[] {
 }
 
 function matchesAny(name: string, patterns: readonly string[]): boolean {
-  return patterns.some((pattern) => picomatch(pattern)(name));
+  const matchers = patterns.map((p) => picomatch(p));
+  return matchers.some((matcher) => matcher(name));
 }
 
 function isReadonlyTool(name: string): boolean {
@@ -200,5 +202,5 @@ function formatTool(tool: ToolDefinition): string {
 }
 
 function safeStringify(value: unknown): string {
-  return JSON.stringify(value, null, 2) ?? "null";
+  return safeStableStringify(value) ?? "null";
 }
