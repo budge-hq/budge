@@ -11,8 +11,8 @@ import { makeSubcallNode } from "./trace.ts";
  * @internal
  */
 export interface SubcallOptions {
-  /** The sub-model to use (typically a faster, cheaper model). */
-  subModel: LanguageModel;
+  /** The worker to use (typically a faster, cheaper model). */
+  worker: LanguageModel;
   /** The source adapter to scope this call to. */
   adapter: SourceAdapter;
   /** The source name (for trace labeling). */
@@ -59,20 +59,20 @@ export async function runConcurrent<T>(
  * 2. If the read fails, includes the error in the sub-call context so the root
  *    agent can recover by listing or trying a different path.
  * 3. Assembles a focused prompt with the resolved content
- * 4. Calls the sub-model with no tools (direct answer, no recursion)
+ * 4. Calls the worker with no tools (direct answer, no recursion)
  *
  * Returns a SubcallTraceNode that can be added to the root trace.
  *
  * @internal
  */
 export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode> {
-  const { subModel, adapter, sourceName, path, task, schema, schemaName } = opts;
+  const { worker, adapter, sourceName, path, task, schema, schemaName } = opts;
 
   const startMs = Date.now();
 
   // Step 1: Resolve content at path.
   // Sub-calls operate on one readable path. If the path cannot be read,
-  // surface that error to the sub-model instead of silently analyzing
+  // surface that error to the worker instead of silently analyzing
   // unrelated content from a broad list() fallback.
   const contentParts: string[] = [];
 
@@ -88,7 +88,7 @@ export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode
 
   // Step 2: Focused model call
   const basePrompt = {
-    model: subModel,
+    model: worker,
     system: [
       "You are a focused analysis assistant.",
       "You will be given content from a source and a specific task to perform.",

@@ -20,8 +20,8 @@ vi.mock("ai", async () => {
 });
 
 const mockGenerateText = vi.mocked(generateText);
-const subModel = {} as LanguageModel;
-const model = {} as LanguageModel;
+const worker = {} as LanguageModel;
+const orchestrator = {} as LanguageModel;
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -57,7 +57,7 @@ describe("runSubcall()", () => {
     } as Awaited<ReturnType<typeof generateText>>);
 
     const node = await runSubcall({
-      subModel,
+      worker,
       adapter: makeAdapter(),
       sourceName: "codebase",
       path: "src/auth.ts",
@@ -87,7 +87,7 @@ describe("runSubcall()", () => {
     } as Awaited<ReturnType<typeof generateText>>);
 
     const node = await runSubcall({
-      subModel,
+      worker,
       adapter: makeAdapter(),
       sourceName: "codebase",
       path: "src/auth.ts",
@@ -116,7 +116,7 @@ describe("runSubcall()", () => {
 
     await expect(
       runSubcall({
-        subModel,
+        worker,
         adapter: makeAdapter(),
         sourceName: "codebase",
         path: "src/auth.ts",
@@ -150,7 +150,7 @@ describe("buildTools().run_subcall", () => {
 
     const tools = buildTools({
       sources: { codebase: makeAdapter() },
-      subModel,
+      worker,
       trace,
       onToolCall: (event) => events.push(event),
       subcallSchemas: {
@@ -207,7 +207,7 @@ describe("buildTools().run_subcall", () => {
   it("throws a helpful error for unknown schema names", async () => {
     const tools = buildTools({
       sources: { codebase: makeAdapter() },
-      subModel,
+      worker,
       trace: new TraceBuilder("audit fetch handling"),
       subcallSchemas: {
         audit: z.string(),
@@ -260,7 +260,7 @@ describe("buildTools().run_subcall", () => {
 
     const tools = buildTools({
       sources: { codebase: adapter },
-      subModel,
+      worker,
       trace,
       concurrency: 2,
       onToolCall: (event) => {
@@ -331,7 +331,7 @@ describe("buildTools().run_subcall", () => {
     const events: Array<unknown> = [];
     const tools = buildTools({
       sources: { codebase: adapter },
-      subModel,
+      worker,
       trace: new TraceBuilder("audit fetch handling"),
       onToolCall: (event) => events.push(event),
       subcallSchemas: {
@@ -378,7 +378,7 @@ describe("buildTools().run_subcall", () => {
 
     const tools = buildTools({
       sources: { codebase: makeAdapter() },
-      subModel,
+      worker,
       trace,
       concurrency: 2,
     });
@@ -433,8 +433,8 @@ describe("schema propagation", () => {
     } as any);
 
     await runAgent({
-      model,
-      subModel,
+      orchestrator,
+      worker,
       concurrency: 7,
       task: "audit fetch handling",
       sources: { codebase: makeAdapter() },
@@ -457,7 +457,7 @@ describe("schema propagation", () => {
     });
     vi.spyOn(handoffModule, "buildHandoff").mockResolvedValue("briefing");
 
-    const budge = createBudge({ orchestrator: model, worker: subModel, concurrency: 7 });
+    const budge = createBudge({ orchestrator, worker, concurrency: 7 });
     const subcallSchemas = {
       audit: z.object({ verdict: z.enum(["missing", "present"]) }),
     };
@@ -470,8 +470,8 @@ describe("schema propagation", () => {
 
     expect(runAgentSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        model,
-        subModel,
+        orchestrator,
+        worker,
         concurrency: 7,
         subcallSchemas,
       }),

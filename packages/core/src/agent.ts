@@ -13,8 +13,8 @@ export interface RunAgentOptions<S extends Record<string, SourceAdapter>> extend
   PrepareOptions<S>,
   "task" | "sources" | "onToolCall" | "maxSteps" | "subcallSchemas"
 > {
-  model: LanguageModel;
-  subModel: LanguageModel;
+  orchestrator: LanguageModel;
+  worker: LanguageModel;
   concurrency: number;
   trace: TraceBuilder<S>;
 }
@@ -37,8 +37,8 @@ export async function runAgent<S extends Record<string, SourceAdapter>>(
   opts: RunAgentOptions<S>,
 ): Promise<{ answer: string; finishReason: RunFinishReason }> {
   const {
-    model,
-    subModel,
+    orchestrator,
+    worker,
     task,
     sources,
     onToolCall,
@@ -48,12 +48,12 @@ export async function runAgent<S extends Record<string, SourceAdapter>>(
     trace,
   } = opts;
 
-  const tools = buildTools({ sources, subModel, trace, onToolCall, subcallSchemas, concurrency });
+  const tools = buildTools({ sources, worker, trace, onToolCall, subcallSchemas, concurrency });
 
   const sourceDescriptions = buildSourceDescriptions(sources);
 
   const result = await generateText({
-    model,
+    model: orchestrator,
     system: buildSystemPrompt(sourceDescriptions),
     messages: [{ role: "user", content: task }],
     tools,

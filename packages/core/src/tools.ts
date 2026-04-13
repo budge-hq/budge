@@ -15,7 +15,7 @@ import { runConcurrent, runSubcall } from "./subcall.ts";
  */
 export interface BuildToolsOptions<S extends Record<string, SourceAdapter>> {
   sources: S;
-  subModel: LanguageModel;
+  worker: LanguageModel;
   trace: TraceBuilder<S>;
   onToolCall?: (event: ToolCallEvent) => void;
   subcallSchemas?: Record<string, ZodType>;
@@ -28,14 +28,14 @@ export interface BuildToolsOptions<S extends Record<string, SourceAdapter>> {
  * The tools are:
  * - `read_source`  — read a specific path from a named source
  * - `list_source`  — list items at an optional path in a named source
- * - `run_subcall`  — spawn a focused sub-model call on a content slice
- * - `run_subcalls` — spawn focused sub-model calls on multiple independent slices
+ * - `run_subcall`  — spawn a focused worker call on a content slice
+ * - `run_subcalls` — spawn focused worker calls on multiple independent slices
  * - `finish`       — return the final answer and stop the loop
  *
  * @internal
  */
 export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildToolsOptions<S>) {
-  const { sources, subModel, trace, onToolCall, subcallSchemas, concurrency = 5 } = opts;
+  const { sources, worker, trace, onToolCall, subcallSchemas, concurrency = 5 } = opts;
 
   return {
     read_source: tool({
@@ -148,7 +148,7 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
         onToolCall?.({ tool: "run_subcall", args: subcallArgs });
 
         const subcallNode = await runSubcall({
-          subModel,
+          worker,
           adapter,
           sourceName: source,
           path,
@@ -213,7 +213,7 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
 
             try {
               const node = await runSubcall({
-                subModel,
+                worker,
                 adapter: adapters[index]!,
                 sourceName: call.source,
                 path: call.path,

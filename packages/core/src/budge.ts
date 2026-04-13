@@ -43,7 +43,7 @@ export interface Budge {
 /**
  * Creates a `@budge/core` Budge instance.
  *
- * Pass a primary model for the root agent and a sub-model for focused
+ * Pass a primary orchestrator for the root agent and a worker for focused
  * sub-calls. Both accept any AI SDK-compatible `LanguageModel`.
  *
  * @example
@@ -82,8 +82,8 @@ export function createBudge(options: BudgeOptions): Budge {
       const trace = new TraceBuilder<S>(task);
 
       const { answer, finishReason } = await runAgent({
-        model: orchestrator,
-        subModel: worker,
+        orchestrator,
+        worker,
         task,
         sources,
         onToolCall,
