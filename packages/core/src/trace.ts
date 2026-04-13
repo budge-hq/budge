@@ -1,88 +1,124 @@
-import type { SourceTag, SourceTrace, ToolCollision, Trace } from "./types.ts";
-import { generateRunId } from "./utils.ts";
+import type { SourceAdapter } from "./sources/interface.ts";
+import type {
+  RootTraceNode,
+  RuntimeTrace,
+  SubcallTraceNode,
+  ToolCallRecord,
+  TokenUsage,
+} from "./types.ts";
 
-export interface SourceTiming {
-  key: string;
-  sourceId: string;
-  kind: "input" | "value" | "rag" | "history" | "tools";
-  tags: SourceTag[];
-  dependsOn: string[];
-  completedAt: Date;
-  durationMs: number;
-  status: "resolved" | "failed";
-  estimatedTokens?: number;
-  contentLength?: number;
-  contentHash?: string;
-  itemCount?: number;
-  totalMessages?: number;
-  includedMessages?: number;
-  droppedMessages?: number;
-  droppedByKind?: Record<string, number>;
-  compactionDroppedMessages?: number;
-  strategy?: "sliding";
-  maxMessages?: number;
-  totalTools?: number;
-  includedTools?: number;
-  droppedTools?: number;
-  toolNames?: string[];
-  toolSources?: {
-    static: string[];
-    mcp: string[];
-  };
-  toolCollisions?: ToolCollision[];
+// ---------------------------------------------------------------------------
+// Mutable builder — internal only
+// ---------------------------------------------------------------------------
+
+/**
+ * Mutable trace accumulator used during a `runtime.run()` call.
+ * Sealed into an immutable `RuntimeTrace` by `buildTrace()`.
+ *
+ * @internal
+ */
+export class TraceBuilder<S extends Record<string, SourceAdapter>> {
+  private readonly startMs: number;
+  private readonly task: string;
+  private rootUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  private readonly toolCalls: ToolCallRecord[] = [];
+  private readonly subcalls: SubcallTraceNode[] = [];
+  private readonly accessed: Map<string, Set<string>> = new Map();
+
+  constructor(task: string) {
+    this.task = task;
+    this.startMs = Date.now();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mutation methods (called by agent.ts)
+  // ---------------------------------------------------------------------------
+
+  recordToolCall(record: ToolCallRecord): void {
+    this.toolCalls.push(record);
+  }
+
+  recordRead(source: string, path: string): void {
+    if (!this.accessed.has(source)) {
+      this.accessed.set(source, new Set());
+    }
+    this.accessed.get(source)!.add(path);
+  }
+
+  recordSubcall(node: SubcallTraceNode): void {
+    this.subcalls.push(node);
+    this.recordRead(node.source, node.path);
+  }
+
+  addRootUsage(usage: TokenUsage): void {
+    this.rootUsage = addUsage(this.rootUsage, usage);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Seal
+  // ---------------------------------------------------------------------------
+
+  build(): RuntimeTrace<S> {
+    const durationMs = Date.now() - this.startMs;
+
+    const rootNode: RootTraceNode = {
+      type: "root",
+      task: this.task,
+      usage: { ...this.rootUsage },
+      durationMs,
+      toolCalls: [...this.toolCalls],
+      children: [...this.subcalls],
+    };
+
+    const totalSubcallTokens = this.subcalls.reduce((sum, s) => sum + s.usage.totalTokens, 0);
+    const totalTokens = this.rootUsage.totalTokens + totalSubcallTokens;
+
+    const sourcesAccessed: Partial<Record<keyof S & string, string[]>> = {};
+    for (const [source, paths] of this.accessed) {
+      (sourcesAccessed as Record<string, string[]>)[source] = [...paths];
+    }
+
+    return {
+      totalSubcalls: this.subcalls.length,
+      totalTokens,
+      durationMs,
+      sourcesAccessed,
+      tree: rootNode,
+    };
+  }
 }
 
-function toSourceTrace(windowId: string, timing: SourceTiming): SourceTrace {
+// ---------------------------------------------------------------------------
+// Helper for building subcall trace nodes
+// ---------------------------------------------------------------------------
+
+export function makeSubcallNode(opts: {
+  source: string;
+  path: string;
+  task: string;
+  answer: string;
+  usage: TokenUsage;
+  startMs: number;
+}): SubcallTraceNode {
   return {
-    key: timing.key,
-    fingerprint: `${windowId}:${timing.key}`,
-    sourceId: timing.sourceId,
-    kind: timing.kind,
-    tags: timing.tags,
-    dependsOn: timing.dependsOn,
-    completedAt: timing.completedAt,
-    durationMs: timing.durationMs,
-    status: timing.status,
-    ...(timing.estimatedTokens !== undefined && { estimatedTokens: timing.estimatedTokens }),
-    ...(timing.contentLength !== undefined && { contentLength: timing.contentLength }),
-    ...(timing.contentHash !== undefined && { contentHash: timing.contentHash }),
-    ...(timing.itemCount !== undefined && { itemCount: timing.itemCount }),
-    ...(timing.totalMessages !== undefined && { totalMessages: timing.totalMessages }),
-    ...(timing.includedMessages !== undefined && { includedMessages: timing.includedMessages }),
-    ...(timing.droppedMessages !== undefined && { droppedMessages: timing.droppedMessages }),
-    ...(timing.droppedByKind !== undefined && { droppedByKind: timing.droppedByKind }),
-    ...(timing.compactionDroppedMessages !== undefined && {
-      compactionDroppedMessages: timing.compactionDroppedMessages,
-    }),
-    ...(timing.strategy !== undefined && { strategy: timing.strategy }),
-    ...(timing.maxMessages !== undefined && { maxMessages: timing.maxMessages }),
-    ...(timing.totalTools !== undefined && { totalTools: timing.totalTools }),
-    ...(timing.includedTools !== undefined && { includedTools: timing.includedTools }),
-    ...(timing.droppedTools !== undefined && { droppedTools: timing.droppedTools }),
-    ...(timing.toolNames !== undefined && { toolNames: timing.toolNames }),
-    ...(timing.toolSources !== undefined && { toolSources: timing.toolSources }),
-    ...(timing.toolCollisions !== undefined && { toolCollisions: timing.toolCollisions }),
+    type: "subcall",
+    source: opts.source,
+    path: opts.path,
+    task: opts.task,
+    answer: opts.answer,
+    usage: opts.usage,
+    durationMs: Date.now() - opts.startMs,
   };
 }
 
-export function buildTrace(options: {
-  windowId: string;
-  sessionId?: string;
-  turnIndex?: number;
-  startedAt: Date;
-  completedAt: Date;
-  sourceTimings: SourceTiming[];
-}): Trace {
-  const { windowId, sessionId, turnIndex, startedAt, completedAt, sourceTimings } = options;
+// ---------------------------------------------------------------------------
+// Utility
+// ---------------------------------------------------------------------------
 
+function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   return {
-    version: 1,
-    runId: generateRunId(),
-    ...(sessionId !== undefined && { sessionId }),
-    ...(turnIndex !== undefined && { turnIndex }),
-    windowId,
-    startedAt,
-    completedAt,
-    sources: sourceTimings.map((timing) => toSourceTrace(windowId, timing)),
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    totalTokens: a.totalTokens + b.totalTokens,
   };
 }

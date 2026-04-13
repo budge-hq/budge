@@ -2,10 +2,10 @@
   <picture>
     <source
       media="(prefers-color-scheme: dark)"
-      srcset="./assets/budge-logo-dark.png"
+      srcset="./assets/wordmark-light.png"
     />
     <img
-      src="./assets/budge-logo.png"
+      src="./assets/wordmark-dark.png"
       alt="Budge logo"
       width="240"
     />
@@ -14,184 +14,65 @@
 
 # Budge
 
-**Budge makes context windows observable, explainable, and safely optimized.**
+The agent runtime that navigates your data.
 
-Most agents silently re-send duplicate and stale context every turn. This increases cost, latency, and makes behavior hard to reason about.
+Most agent frameworks make you manage the context window. Budge gives that job to the model.
+Your agent navigates context like a librarian, not a reader. The model decides what to read and when. You never touch a context window.
 
-Budge instruments the context assembly layer, shows you exactly what’s in the window, and automatically removes only the safest waste — without requiring prompt access, model outputs, or manual tuning.
-
----
-
-## The problem
-
-We analyzed 8,257 real agent sessions across three independent sources. The findings are consistent:
-
-- At the median turn, **99.8% of what the model sees is content it already read**
-- Context grows **6x** from session start to end and never comes back down
-- When compaction fires, summaries are **87.9% as large as what they replaced** — and context returns to baseline in 96 turns
-- Across 7,003 benchmark sessions and 22 frontier models, **zero agents ever invoked the context management tools** available to them
-
-The problem is not that context windows are too small. It is that nobody knows what is in them.
-
-Budge covers the input side.
-
----
-
-## Where Budge sits
-
-```
-[your data sources] → budge → [model call] → [your eval tool]
- transcripts, docs,   assembly   your prompt,   output scoring
- rag, tools, history  + tracing  your model
-```
-
-Budge starts where your data sources are and ends where the model call begins. It does not wrap the model, touch your prompt, or score outputs. That boundary is intentional. It makes Budge composable with every framework and eval tool you already use.
-
----
-
-## What it does
-
-You declare a context window as a graph of typed sources. Budge resolves them in dependency order, assembles the context, and returns traces alongside every result.
+## Install
 
 ```ts
-import { createBudge } from "@budge/core";
-import { z } from "zod";
+pnpm add @budge/core @ai-sdk/anthropic
+```
 
-const budge = createBudge({
-  sessionId: "ses_abc123",
-  onTrace(trace) {
-    // ship to Budge cloud or your own backend
-    fetch("https://your-ingestor/traces", {
-      method: "POST",
-      body: JSON.stringify(trace),
-    });
+## Usage
+
+```ts
+import { createRuntime, source } from "@budge/core";
+import { anthropic } from "@ai-sdk/anthropic";
+
+const runtime = createRuntime({
+  model: anthropic("claude-sonnet-4-6"),
+  subModel: anthropic("claude-haiku-4-5"),
+});
+
+const result = await runtime.run({
+  task: "what does the auth module do and how could it be improved",
+  sources: {
+    codebase: source.fs("./src"),
+    docs: source.files(["./README.md"]),
   },
 });
 
-const noteGeneration = budge.window({
-  id: "note-generation",
-  input: z.object({
-    patientId: z.string(),
-    transcript: z.string(),
-  }),
-  sources: ({ source }) => {
-    const patient = source.value(z.object({ patientId: z.string() }), {
-      async resolve({ input }) {
-        return getPatient(input.patientId);
-      },
-    });
-
-    const priorNote = source.value(
-      z.object({}),
-      { patient },
-      {
-        async resolve({ patient }) {
-          return getPriorNote(patient.id);
-        },
-      },
-    );
-
-    return {
-      transcript: source.fromInput("transcript"),
-      patient,
-      priorNote,
-      history: source.history(z.object({ patientId: z.string() }), {
-        async resolve({ input }) {
-          return getMessages(input.patientId);
-        },
-        filter: { excludeKinds: ["tool_call", "reasoning"] },
-        compaction: { strategy: "sliding", maxMessages: 12 },
-      }),
-      tools: source.tools({
-        mcp: mcpClient,
-      }),
-    };
-  },
-});
-
-const { context, traces } = await noteGeneration.resolve({
-  input: { patientId: "pat_123", transcript: "Patient reports less pain." },
-  sessionId: "ses_abc123",
-  turnIndex: 4,
-});
-
-// You own the prompt from here.
-// traces tells you exactly what was assembled and how long it took.
+console.log(result.answer);
+console.log(result.trace);
 ```
 
-Every `resolve` returns `traces` alongside `context`:
+## How it works
 
-```ts
-traces.runId;       // unique identifier for this resolve
-traces.sessionId;   // groups resolves into a session
-traces.turnIndex;   // position in the session sequence — required for replay
+The root agent receives your task and descriptions of what's
+available — not the data itself. It navigates sources via tool
+calls, reading only what it needs. When a sub-task requires deeper
+focus, it spawns a scoped sub-call against a slice of context using
+the cheaper subModel. The trace captures every decision.
 
-traces.sources;     // per-source:
-                    //   key, kind, status, durationMs
-                    //   estimatedTokens, contentLength, contentHash
-                    //   fingerprint — stable "${windowId}:${key}" identifier
-                    //
-                    // history: totalMessages, includedMessages,
-                    //          droppedMessages, droppedByKind
-                    // tools:   totalTools, includedTools,
-                    //          toolNames, toolCollisions
-```
+## Sources
 
----
+source.fs(rootPath) — local filesystem
+source.files(paths[]) — explicit file list  
+source.conversation(msgs[]) — message history
 
-## Source kinds
+The source adapter interface is public. Build your own.
 
-| Kind                 | What it does                                                                         |
-| -------------------- | ------------------------------------------------------------------------------------ |
-| `source.value()`     | Resolves a single typed value. Supports dependencies on other sources.               |
-| `source.rag()`       | Resolves a ranked `Chunk[]` from a vector search or retrieval pipeline.              |
-| `source.history()`   | Resolves `Message[]` with filtering by kind and sliding window compaction.           |
-| `source.tools()`     | Resolves a `Record<string, ToolDefinition>` from static definitions and MCP clients. |
-| `source.fromInput()` | Passes a validated field from window input directly into context.                    |
+## Trace
 
-Sources declared outside a window are reusable across windows. Budge builds the dependency graph at window creation time and resolves sources in parallel waves.
+result.trace gives you the full decomposition tree — which sources
+were read, tokens per call, sub-calls spawned, wall time.
 
----
+## Status
 
-## What Budge does not do
+Early. API will change. Build with it anyway.
 
-- Compose prompts
-- Wrap model clients
-- Score outputs
-- Own storage or persistence
-- Require a specific framework
+## License
 
-The boundary is the model call. Budge hands you `context` and `traces`. What you do with context is yours.
-
----
-
-## Packages
-
-| Package                  | Description                                                           |
-| ------------------------ | --------------------------------------------------------------------- |
-| `@budge/core`            | The core SDK — source assembly, tracing, and typed context resolution |
-| `examples/support-reply` | End-to-end example using value, rag, history, and tools sources       |
-
----
-
-## Budge Cloud
-
-The open-source SDK is the instrumentation layer. Budge is where the data becomes useful:
-
-- **Session viewer** — see exactly what went into every turn, by source, with token attribution
-- **Waste classification** — automatic detection of stale reads, duplicate payloads, and superseded sources
-- **Shadow policy** — estimate savings before touching runtime behavior; distinguish raw token reduction from actual cost reduction with cache awareness
-- **Autopilot** — deterministic eviction of exact duplicates and stale reads, with full audit log and one-click rollback
-- **Replay and counterfactuals** — re-run historical sessions against updated assembly logic without re-fetching live data
-
-The SDK works standalone.
-
----
-
-## Development
-
-```bash
-pnpm install
-pnpm check
-pnpm test
-```
+MIT
