@@ -156,7 +156,7 @@ describe("McpAdapter.list()", () => {
     expect(tools).toContain("delete_patient");
   });
 
-  it("uses tools as an exact allowlist", async () => {
+  it("uses tools as a glob-based allowlist", async () => {
     const adapter = new McpAdapter(makeToolsClient(), {
       tools: ["get_*", "update_*"],
     });
