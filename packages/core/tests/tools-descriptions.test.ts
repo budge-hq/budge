@@ -17,7 +17,7 @@ function makeAdapter() {
   };
 }
 
-function getToolDescriptions() {
+const toolDescriptions = (() => {
   const tools = buildTools({
     sources: { docs: makeAdapter() },
     worker: {} as LanguageModel,
@@ -30,7 +30,7 @@ function getToolDescriptions() {
     run_subcall: tools.run_subcall.description ?? "",
     run_subcalls: tools.run_subcalls.description ?? "",
   };
-}
+})();
 
 // ---------------------------------------------------------------------------
 // System prompt
