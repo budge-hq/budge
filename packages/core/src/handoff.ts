@@ -1,34 +1,73 @@
-import { generateText } from "ai";
+import { generateText, Output } from "ai";
 import type { LanguageModel } from "ai";
+import { z } from "zod";
 import safeStableStringify from "safe-stable-stringify";
-import type { RuntimeTrace, SubcallTraceNode, ToolCallRecord } from "./types.ts";
+import type { HandoffStructured, RuntimeTrace, SubcallTraceNode, ToolCallRecord } from "./types.ts";
 
 const HANDOFF_SYSTEM_PROMPT = `You turn Budge research output into a briefing for a downstream action agent.
-Return Markdown only. Do not return JSON. Do not wrap the response in code fences.
-Use exactly this structure:
-# Context
+Return a structured object with these exact fields:
+- goal: string
+- instructions: string[]
+- discoveries: string[]
+- relevantSources: Array<{ source: string; path: string; note: string }>
+- openQuestions: string[]
+- confidence: "High" | "Medium" | "Low"
+- confidenceRationale: string
+Base output on the final answer plus trace evidence. Keep items concrete and source-aware.`;
 
-## Task
-...
+const handoffStructuredSchema = z.object({
+  goal: z.string().min(1),
+  instructions: z.array(z.string().min(1)),
+  discoveries: z.array(z.string().min(1)),
+  relevantSources: z.array(
+    z.object({
+      source: z.string().min(1),
+      path: z.string().min(1),
+      note: z.string().min(1),
+    }),
+  ),
+  openQuestions: z.array(z.string().min(1)),
+  confidence: z.enum(["High", "Medium", "Low"]),
+  confidenceRationale: z.string().min(1),
+});
 
-## Findings
-### <sourceName>
-- <path>: <finding>
+export function renderHandoffMarkdown(structured: HandoffStructured): string {
+  const parts: string[] = ["# Context", "", "## Goal", structured.goal];
 
-## Coverage
-...
+  if (structured.instructions.length > 0) {
+    parts.push("", "## Instructions");
+    for (const instruction of structured.instructions) {
+      parts.push(`- ${instruction}`);
+    }
+  }
 
-## Confidence
-High | Medium | Low. <brief rationale>
+  parts.push("", "## Discoveries");
+  if (structured.discoveries.length > 0) {
+    for (const discovery of structured.discoveries) {
+      parts.push(`- ${discovery}`);
+    }
+  } else {
+    parts.push("- none");
+  }
 
-## Gaps
-- ...
-Omit the Gaps section entirely if there are no meaningful gaps.
-Write the Coverage section based only on what the trace shows was actually accessed.
-Do not invent skipped counts.
-Use language like "X files read across Y sources", "Worker calls covered: [...]", and "The following were listed but not read: [...]" when supported by the trace.
-If you cannot determine coverage confidently, say "Coverage limited to files listed in trace."
-Base findings on the final answer plus the trace evidence. Keep them concrete and source-aware.`;
+  if (structured.relevantSources.length > 0) {
+    parts.push("", "## Relevant files / paths");
+    for (const source of structured.relevantSources) {
+      parts.push(`- ${source.source}: ${source.path} - ${source.note}`);
+    }
+  }
+
+  if (structured.openQuestions.length > 0) {
+    parts.push("", "## Open questions");
+    for (const question of structured.openQuestions) {
+      parts.push(`- ${question}`);
+    }
+  }
+
+  parts.push("", "## Confidence", `${structured.confidence}. ${structured.confidenceRationale}`);
+
+  return parts.join("\n");
+}
 
 export async function buildHandoff(opts: {
   task: string;
@@ -36,21 +75,22 @@ export async function buildHandoff(opts: {
   trace: RuntimeTrace<any>;
   worker: LanguageModel;
   system?: string;
-}): Promise<string> {
+}): Promise<{ structured: HandoffStructured; markdown: string }> {
   const { task, answer, trace, worker } = opts;
 
   const result = await generateText({
     model: worker,
     system: HANDOFF_SYSTEM_PROMPT,
     messages: [{ role: "user", content: buildHandoffInput({ task, answer, trace }) }],
+    output: Output.object({ schema: handoffStructuredSchema, name: "handoff_structured" }),
   });
 
-  const handoff = result.text.trim();
-  if (!handoff) {
-    throw new Error("Worker returned empty handoff");
-  }
+  const structured = handoffStructuredSchema.parse(result.output);
+  const markdown = opts.system
+    ? `# System\n${opts.system}\n\n${renderHandoffMarkdown(structured)}`
+    : renderHandoffMarkdown(structured);
 
-  return [opts.system ? `# System\n${opts.system}` : null, handoff].filter(Boolean).join("\n\n");
+  return { structured, markdown };
 }
 
 function buildHandoffInput(opts: {
@@ -104,46 +144,33 @@ export function buildFallbackHandoff(opts: {
   answer: string;
   trace: RuntimeTrace<any>;
   system?: string;
-}): string {
+}): { structured: HandoffStructured; markdown: string } {
   const readPaths = collectReadPaths(opts.trace);
-  const listedNotRead = collectListedButNotRead(
-    collectListedPaths(opts.trace.tree.toolCalls),
-    readPaths,
-  );
   const totalReadPaths = Array.from(readPaths.values()).reduce((sum, paths) => sum + paths.size, 0);
   const sourceNames = Array.from(readPaths.keys());
-  const coverageParts = [`${totalReadPaths} files read across ${sourceNames.length} sources`];
 
-  if (opts.trace.tree.children.length > 0) {
-    coverageParts.push(
-      `Worker calls covered: ${opts.trace.tree.children.map((child) => `${child.source}/${child.path}`).join(", ")}`,
-    );
+  const relevantSources: HandoffStructured["relevantSources"] = [];
+  for (const [source, paths] of readPaths) {
+    for (const path of paths) {
+      relevantSources.push({ source, path, note: "accessed during prepare" });
+    }
   }
 
-  const listedButNotReadEntries = formatListedButNotReadEntries(listedNotRead);
-  if (listedButNotReadEntries) {
-    coverageParts.push(`The following were listed but not read: ${listedButNotReadEntries}`);
-  }
+  const structured: HandoffStructured = {
+    goal: opts.task,
+    instructions: [],
+    discoveries: [truncate(opts.answer, 500) || "No answer captured."],
+    relevantSources,
+    openQuestions: [],
+    confidence: "Medium",
+    confidenceRationale: `Generated from trace without worker synthesis. ${totalReadPaths} files read across ${sourceNames.length} sources.`,
+  };
 
-  return [
-    opts.system ? `# System\n${opts.system}` : null,
-    "# Context",
-    "",
-    "## Task",
-    opts.task,
-    "",
-    "## Findings",
-    "### synthesis",
-    `- final-answer: ${truncate(opts.answer, 200) || "No answer captured."}`,
-    "",
-    "## Coverage",
-    coverageParts.join(". "),
-    "",
-    "## Confidence",
-    "Medium. Generated from the trace and final answer with limited synthesis detail.",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const markdown = opts.system
+    ? `# System\n${opts.system}\n\n${renderHandoffMarkdown(structured)}`
+    : renderHandoffMarkdown(structured);
+
+  return { structured, markdown };
 }
 
 function collectReadPaths(trace: RuntimeTrace<any>): Map<string, Set<string>> {

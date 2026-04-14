@@ -102,11 +102,11 @@ export function createBudge(options: BudgeOptions): Budge {
 
       const builtTrace = trace.build();
 
-      let handoff: string;
+      let handoffResult: { structured: PreparedContext<S>["handoffStructured"]; markdown: string };
       let handoffFailed = false;
 
       try {
-        handoff = await buildHandoff({
+        handoffResult = await buildHandoff({
           task,
           answer,
           trace: builtTrace,
@@ -114,7 +114,7 @@ export function createBudge(options: BudgeOptions): Budge {
           system: prepareOptions.system,
         });
       } catch {
-        handoff = buildFallbackHandoff({
+        handoffResult = buildFallbackHandoff({
           task,
           answer,
           trace: builtTrace,
@@ -126,7 +126,8 @@ export function createBudge(options: BudgeOptions): Budge {
       return {
         task,
         answer,
-        handoff,
+        handoff: handoffResult.markdown,
+        handoffStructured: handoffResult.structured,
         handoffFailed,
         finishReason,
         trace: builtTrace,
