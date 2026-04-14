@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { FsAdapter } from "../../src/sources/fs.ts";
 
 // ---------------------------------------------------------------------------
@@ -166,12 +166,35 @@ describe("FsAdapter.read()", () => {
     await expect(adapter.read("lib")).rejects.toThrow(/not a file/i);
   });
 
-  it("returns truncation notice for oversized files", async () => {
+  it("returns full content for oversized files", async () => {
     const bigFile = path.join(tmpDir, "big.txt");
-    // Write just over the limit
     fs.writeFileSync(bigFile, "x".repeat(200 * 1024));
-    const adapter = new FsAdapter(tmpDir, { maxFileSize: 128 * 1024 });
+    const adapter = new FsAdapter(tmpDir);
     const content = await adapter.read("big.txt");
-    expect(content).toContain("[File too large to display");
+    expect(content).toHaveLength(200 * 1024);
+    expect(content).not.toContain("[File too large to display");
+  });
+
+  it("throws before reading files above the hard limit", async () => {
+    const hugeFile = path.join(tmpDir, "huge.txt");
+    fs.closeSync(fs.openSync(hugeFile, "w"));
+    fs.truncateSync(hugeFile, 10 * 1024 * 1024 + 1);
+
+    const readFileSpy = vi.spyOn(fs.promises, "readFile");
+    const adapter = new FsAdapter(tmpDir);
+
+    await expect(adapter.read("huge.txt")).rejects.toThrow(/too large.*10\.0 MiB/i);
+    expect(readFileSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows files at the hard limit", async () => {
+    const limitFile = path.join(tmpDir, "limit.txt");
+    fs.closeSync(fs.openSync(limitFile, "w"));
+    fs.truncateSync(limitFile, 10 * 1024 * 1024);
+
+    const adapter = new FsAdapter(tmpDir);
+    const content = await adapter.read("limit.txt");
+
+    expect(content).toHaveLength(10 * 1024 * 1024);
   });
 });

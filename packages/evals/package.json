@@ -1,0 +1,25 @@
+{
+  "name": "@budge/evals",
+  "version": "1.0.0",
+  "description": "",
+  "keywords": [],
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "eval": "promptfoo eval -c promptfooconfig.yaml",
+    "eval:analytical": "promptfoo eval -c promptfooconfig.analytical.yaml"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.69",
+    "@ai-sdk/openai": "^3.0.52",
+    "ai": "^6.0.159",
+    "promptfoo": "^0.121.4"
+  },
+  "devDependencies": {
+    "@budge/core": "workspace:*",
+    "tsx": "^4.19.3",
+    "typescript": "catalog:"
+  }
+}

@@ -182,6 +182,10 @@ export interface ToolCallRecord {
   result: string;
   /** Wall time for this tool call in milliseconds. */
   durationMs: number;
+  /** True when the tool result returned to the model was truncated. */
+  truncated?: boolean;
+  /** Absolute path to the overflow file containing the full tool output. */
+  overflowPath?: string;
 }
 
 /**
@@ -233,6 +237,10 @@ export interface SubcallTraceNode {
   durationMs: number;
   /** True when this node came from a parallel `run_subcalls` batch. */
   parallel?: boolean;
+  /** True when the sub-call answer returned to the model was truncated. */
+  truncated?: boolean;
+  /** Absolute path to the overflow file containing the full sub-call answer. */
+  overflowPath?: string;
 }
 
 /**
@@ -281,8 +289,10 @@ export interface RuntimeTrace<
  *   `finish` call. `answer` contains the model's last produced text, which may
  *   be a partial response or an empty string. Raise `maxSteps` on `PrepareOptions`
  *   if you hit this in production.
+ * - `"no_finish"` — the loop ended without a `finish` call and without hitting
+ *   the configured `maxSteps` ceiling.
  */
-export type RunFinishReason = "finish" | "max_steps";
+export type RunFinishReason = "finish" | "max_steps" | "no_finish";
 
 /**
  * The context Budge prepared for a downstream action agent.
@@ -310,6 +320,10 @@ export interface PreparedContext<
    * ```ts
    * if (context.finishReason === "max_steps") {
    *   console.warn("Agent hit step limit — answer may be incomplete")
+   * }
+   *
+   * if (context.finishReason === "no_finish") {
+   *   console.warn("Agent ended without calling finish")
    * }
    * ```
    */

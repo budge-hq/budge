@@ -39,7 +39,7 @@ export const source = {
    * bulk reading.
    *
    * @param rootPath - Path to the directory root.
-   * @param options  - Optional configuration (maxFileSize, include, exclude).
+   * @param options  - Optional configuration (include, exclude).
    */
   fs: (rootPath: string, options?: FsAdapterOptions): FsAdapter => new FsAdapter(rootPath, options),
 

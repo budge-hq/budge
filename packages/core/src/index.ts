@@ -42,6 +42,7 @@ export {
   TextAdapter,
   McpAdapter,
 } from "./sources/index.ts";
+export { DEFAULT_LIMITS, Truncator } from "./truncation.ts";
 export type {
   FsAdapterOptions,
   ConversationMessage,
@@ -49,6 +50,7 @@ export type {
   McpSourceOptions,
   ToolDefinition,
 } from "./sources/index.ts";
+export type { TruncateContext, TruncateOptions, TruncateResult } from "./truncation.ts";
 
 // Types
 export type {

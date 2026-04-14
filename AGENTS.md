@@ -86,3 +86,12 @@ For GitHub Actions, consider using [`voidzero-dev/setup-vp`](https://github.com/
 - [ ] Run `vp install` after pulling remote changes and before getting started.
 - [ ] Run `vp check` and `vp test` to validate changes.
 <!--VITE PLUS END-->
+
+# Design principles
+
+These are non-negotiable and should be evaluated against every decision:
+
+- Pit of success over configurability. Every new `BudgeOptions` field is a failure of imagination. Developers should get the right behavior without thinking. Config is the escape hatch, not the default.
+- One public surface: budge.prepare(). Everything else should be internal machinery that makes that one call better. If a new feature requires a new API, that's a signal to rethink the feature, not to ship the API.
+- Trace is the substrate. Every feature this quarter either (a) produces signal the trace captures, or (b) consumes signal the trace captures. Features that do neither are postponed.
+- Async-by-default for anything non-critical. Scoring, telemetry, optimization lookups — none of these should block prepare(). If a feature adds latency to the hot path, it's wrong.

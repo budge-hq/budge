@@ -7,14 +7,6 @@ import type { SourceAdapter } from "./interface.ts";
  */
 export interface FsAdapterOptions {
   /**
-   * Maximum file size in bytes to read. Files exceeding this limit
-   * return a truncation notice instead of their contents.
-   *
-   * @default 131072 (128 KiB)
-   */
-  maxFileSize?: number;
-
-  /**
    * File extensions to include when listing. If omitted, all files
    * are included. Use this to scope the agent to relevant files only.
    *
@@ -30,8 +22,8 @@ export interface FsAdapterOptions {
   exclude?: string[];
 }
 
-const DEFAULT_MAX_FILE_SIZE = 128 * 1024; // 128 KiB
 const DEFAULT_EXCLUDE = ["node_modules", ".git", "dist", ".next", ".turbo", "coverage", ".cache"];
+const FS_READ_HARD_LIMIT = 10 * 1024 * 1024; // 10 MiB
 
 /**
  * A source adapter that exposes a local filesystem directory.
@@ -45,7 +37,6 @@ const DEFAULT_EXCLUDE = ["node_modules", ".git", "dist", ".next", ".turbo", "cov
 export class FsAdapter implements SourceAdapter {
   private readonly root: string;
   private readonly realRoot: string;
-  private readonly maxFileSize: number;
   private readonly include: string[] | undefined;
   private readonly exclude: string[];
 
@@ -59,7 +50,6 @@ export class FsAdapter implements SourceAdapter {
     } catch {
       this.realRoot = this.root;
     }
-    this.maxFileSize = options.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
     this.include = options.include;
     this.exclude = options.exclude ?? DEFAULT_EXCLUDE;
   }
@@ -115,12 +105,12 @@ export class FsAdapter implements SourceAdapter {
       throw new Error(`Not a file: ${filePath}`);
     }
 
-    if (stat.size > this.maxFileSize) {
-      return [
-        `[File too large to display: ${filePath}]`,
-        `Size: ${(stat.size / 1024).toFixed(1)} KiB (limit: ${(this.maxFileSize / 1024).toFixed(0)} KiB)`,
-        `Use list() to explore subdirectories or request a specific section.`,
-      ].join("\n");
+    // Prevent loading arbitrarily large files into memory. Display truncation
+    // happens later in the tool layer; this cap only guards the raw read.
+    if (stat.size > FS_READ_HARD_LIMIT) {
+      throw new Error(
+        `File too large to read: ${filePath} (${formatBytes(stat.size)}, limit ${formatBytes(FS_READ_HARD_LIMIT)})`,
+      );
     }
 
     return fs.promises.readFile(absolute, "utf8");
@@ -170,4 +160,16 @@ export class FsAdapter implements SourceAdapter {
     }
     return count;
   }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  }
+
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)} KiB`;
+  }
+
+  return `${bytes} B`;
 }

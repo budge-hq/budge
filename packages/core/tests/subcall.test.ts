@@ -1,6 +1,9 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { LanguageModel } from "ai";
 import { generateText } from "ai";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import { runAgent } from "../src/agent.ts";
 import * as agentModule from "../src/agent.ts";
@@ -10,6 +13,7 @@ import { runSubcall } from "../src/subcall.ts";
 import { TraceBuilder } from "../src/trace.ts";
 import { buildTools } from "../src/tools.ts";
 import * as toolsModule from "../src/tools.ts";
+import { DEFAULT_LIMITS, Truncator } from "../src/truncation.ts";
 
 vi.mock("ai", async () => {
   const actual = await vi.importActual<typeof import("ai")>("ai");
@@ -22,6 +26,7 @@ vi.mock("ai", async () => {
 const mockGenerateText = vi.mocked(generateText);
 const worker = {} as LanguageModel;
 const orchestrator = {} as LanguageModel;
+const tempDirs: string[] = [];
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -47,6 +52,12 @@ function makeAdapter() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 describe("runSubcall()", () => {
@@ -202,6 +213,107 @@ describe("buildTools().run_subcall", () => {
       tool: "run_subcall",
       result,
     });
+  });
+
+  it("tail-truncates oversized subcall answers and records overflow metadata", async () => {
+    const trace = new TraceBuilder("audit fetch handling");
+    const overflowDir = makeTempDir();
+    const longAnswer = `${"prefix-"}${"x".repeat(DEFAULT_LIMITS.SUBCALL_MAX_BYTES + 1_024)}conclusion`;
+
+    mockGenerateText.mockResolvedValue({
+      text: longAnswer,
+      usage: { inputTokens: 2, outputTokens: 3 },
+    } as Awaited<ReturnType<typeof generateText>>);
+
+    const tools = buildTools({
+      sources: { codebase: makeAdapter() },
+      worker,
+      trace,
+      truncator: new Truncator({ overflowDir }),
+    });
+
+    const result = await tools.run_subcall.execute!(
+      {
+        source: "codebase",
+        path: "src/auth.ts",
+        task: "audit fetch handling",
+      },
+      {} as never,
+    );
+
+    const built = trace.build();
+
+    expect(typeof result).toBe("string");
+    if (typeof result !== "string") {
+      throw new Error("Expected run_subcall to return a string");
+    }
+
+    expect(result).toContain("conclusion");
+    expect(result).not.toContain("prefix-");
+    expect(result).toContain("[Output truncated.");
+    expect(built.tree.children[0]).toMatchObject({
+      path: "src/auth.ts",
+      truncated: true,
+    });
+    expect(built.tree.children[0]?.overflowPath).toBeDefined();
+    expect(fs.existsSync(built.tree.children[0]?.overflowPath ?? "")).toBe(true);
+    expect(built.tree.toolCalls[0]).toMatchObject({
+      tool: "run_subcall",
+      truncated: true,
+      overflowPath: built.tree.children[0]?.overflowPath,
+    });
+  });
+
+  it("surfaces oversized structured subcall output as a diagnostic while preserving structured data", async () => {
+    const trace = new TraceBuilder("audit fetch handling");
+    const structured = {
+      verdict: "missing",
+      context: "x".repeat(DEFAULT_LIMITS.SUBCALL_MAX_BYTES + 2_048),
+    };
+
+    mockGenerateText.mockResolvedValue({
+      output: structured,
+      usage: { inputTokens: 2, outputTokens: 3 },
+    } as Awaited<ReturnType<typeof generateText>>);
+
+    const tools = buildTools({
+      sources: { codebase: makeAdapter() },
+      worker,
+      trace,
+      subcallSchemas: {
+        audit: z.object({
+          verdict: z.enum(["missing", "present"]),
+          context: z.string(),
+        }),
+      },
+    });
+
+    const result = await tools.run_subcall.execute!(
+      {
+        source: "codebase",
+        path: "src/auth.ts",
+        task: "audit fetch handling",
+        schemaName: "audit",
+      },
+      {} as never,
+    );
+    const built = trace.build();
+    const structuredNode = built.tree.children[0];
+
+    expect(result).toContain('Structured subcall "audit" output exceeded');
+    expect(result).toContain(`${JSON.stringify(structured).length} bytes`);
+    expect(structuredNode).toMatchObject({
+      schemaName: "audit",
+      structured,
+      truncated: true,
+    });
+    expect(structuredNode?.overflowPath).toBeUndefined();
+    expect(built.tree.toolCalls[0]).toMatchObject({
+      tool: "run_subcall",
+      result,
+      truncated: true,
+    });
+    expect(built.tree.toolCalls[0]?.overflowPath).toBeUndefined();
   });
 
   it("throws a helpful error for unknown schema names", async () => {
@@ -416,6 +528,137 @@ describe("buildTools().run_subcall", () => {
       parallel: true,
     });
   });
+
+  it("truncates oversized batch answers per subcall while keeping the outer batch intact", async () => {
+    const trace = new TraceBuilder("batch analysis");
+    const overflowDir = makeTempDir();
+    const longAnswer = `${"prefix-"}${"x".repeat(DEFAULT_LIMITS.SUBCALL_MAX_BYTES + 2_048)}conclusion-b`;
+
+    mockGenerateText.mockImplementation(async (args) => {
+      const content = args.messages?.[0]?.content;
+      const text = typeof content === "string" ? content : "";
+      const path = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
+      return {
+        text: path === "src/b.ts" ? longAnswer : `analysis for ${path}`,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      } as Awaited<ReturnType<typeof generateText>>;
+    });
+
+    const tools = buildTools({
+      sources: { codebase: makeAdapter() },
+      worker,
+      trace,
+      concurrency: 2,
+      truncator: new Truncator({ overflowDir }),
+    });
+
+    const result = await tools.run_subcalls.execute!(
+      {
+        calls: [
+          { source: "codebase", path: "src/a.ts", task: "summarize a" },
+          { source: "codebase", path: "src/b.ts", task: "summarize b" },
+        ],
+      },
+      {} as never,
+    );
+
+    const built = trace.build();
+    const truncatedChild = built.tree.children.find((child) => child.path === "src/b.ts");
+    const outerToolCall = built.tree.toolCalls[0];
+
+    if (!Array.isArray(result)) {
+      throw new Error("Expected run_subcalls to return an array");
+    }
+
+    expect(result[0]?.answer).toBe("analysis for src/a.ts");
+    expect(result[1]?.answer).toContain("conclusion-b");
+    expect(result[1]?.answer).not.toContain("prefix-");
+    expect(result[1]?.answer).toContain("[Output truncated.");
+    expect(truncatedChild).toMatchObject({
+      path: "src/b.ts",
+      truncated: true,
+    });
+    expect(truncatedChild?.overflowPath).toContain("run_subcalls[1]-");
+    expect(result[1]?.answer).toContain(truncatedChild?.overflowPath ?? "");
+    expect(outerToolCall).toMatchObject({
+      tool: "run_subcalls",
+      truncated: false,
+    });
+    expect(outerToolCall?.overflowPath).toBeUndefined();
+  });
+
+  it("surfaces oversized structured batch output on the child node without truncating the outer batch", async () => {
+    const trace = new TraceBuilder("batch analysis");
+    const structured = {
+      verdict: "missing",
+      context: "x".repeat(DEFAULT_LIMITS.SUBCALL_MAX_BYTES + 2_048),
+    };
+
+    mockGenerateText.mockImplementation(async (args) => {
+      const content = args.messages?.[0]?.content;
+      const text = typeof content === "string" ? content : "";
+      const path = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
+
+      return {
+        output:
+          path === "src/b.ts"
+            ? structured
+            : {
+                verdict: "present",
+                context: `analysis for ${path}`,
+              },
+        usage: { inputTokens: 1, outputTokens: 1 },
+      } as Awaited<ReturnType<typeof generateText>>;
+    });
+
+    const tools = buildTools({
+      sources: { codebase: makeAdapter() },
+      worker,
+      trace,
+      concurrency: 2,
+      subcallSchemas: {
+        audit: z.object({
+          verdict: z.enum(["missing", "present"]),
+          context: z.string(),
+        }),
+      },
+    });
+
+    const result = await tools.run_subcalls.execute!(
+      {
+        calls: [
+          { source: "codebase", path: "src/a.ts", task: "summarize a", schemaName: "audit" },
+          { source: "codebase", path: "src/b.ts", task: "summarize b", schemaName: "audit" },
+        ],
+      },
+      {} as never,
+    );
+    const built = trace.build();
+    const oversizedChild = built.tree.children.find((child) => child.path === "src/b.ts");
+    const outerToolCall = built.tree.toolCalls[0];
+
+    if (!Array.isArray(result)) {
+      throw new Error("Expected run_subcalls to return an array");
+    }
+
+    expect(JSON.parse(result[0]?.answer ?? "null")).toEqual({
+      verdict: "present",
+      context: "analysis for src/a.ts",
+    });
+    expect(result[1]?.answer).toContain('Structured subcall "audit" output exceeded');
+    expect(oversizedChild).toMatchObject({
+      path: "src/b.ts",
+      schemaName: "audit",
+      structured,
+      truncated: true,
+    });
+    expect(oversizedChild?.overflowPath).toBeUndefined();
+    expect(outerToolCall).toMatchObject({
+      tool: "run_subcalls",
+      truncated: false,
+    });
+    expect(outerToolCall?.overflowPath).toBeUndefined();
+  });
 });
 
 describe("schema propagation", () => {
@@ -440,6 +683,7 @@ describe("schema propagation", () => {
       sources: { codebase: makeAdapter() },
       subcallSchemas,
       trace,
+      truncator: new Truncator({ enabled: false }),
     });
 
     expect(buildToolsSpy).toHaveBeenCalledWith(
@@ -478,3 +722,9 @@ describe("schema propagation", () => {
     );
   });
 });
+
+function makeTempDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "budge-subcall-test-"));
+  tempDirs.push(dir);
+  return dir;
+}

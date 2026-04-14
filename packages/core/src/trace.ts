@@ -102,6 +102,8 @@ export function makeSubcallNode(opts: {
   usage: TokenUsage;
   startMs: number;
   parallel?: boolean;
+  truncated?: boolean;
+  overflowPath?: string;
 }): SubcallTraceNode {
   return {
     type: "subcall",
@@ -114,6 +116,8 @@ export function makeSubcallNode(opts: {
     usage: opts.usage,
     durationMs: Date.now() - opts.startMs,
     parallel: opts.parallel,
+    truncated: opts.truncated,
+    overflowPath: opts.overflowPath,
   };
 }
 
