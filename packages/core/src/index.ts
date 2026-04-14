@@ -31,6 +31,7 @@
 // Budge
 export { createBudge } from "./budge.ts";
 export type { Budge } from "./budge.ts";
+export { withPromptCaching } from "./cache.ts";
 
 // Source adapters
 export { source } from "./sources/index.ts";

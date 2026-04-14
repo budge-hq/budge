@@ -24,8 +24,8 @@ vi.mock("ai", async () => {
 });
 
 const mockGenerateText = vi.mocked(generateText);
-const worker = {} as LanguageModel;
-const orchestrator = {} as LanguageModel;
+const worker = { specificationVersion: "v3" as const } as LanguageModel;
+const orchestrator = { specificationVersion: "v3" as const } as LanguageModel;
 const tempDirs: string[] = [];
 
 function deferred<T>() {
@@ -714,8 +714,10 @@ describe("schema propagation", () => {
 
     expect(runAgentSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        orchestrator,
-        worker,
+        // Models are wrapped with withPromptCaching — they are no longer the raw
+        // model instances, but the wrapped versions should still be LanguageModels.
+        orchestrator: expect.objectContaining({ specificationVersion: "v3" }),
+        worker: expect.objectContaining({ specificationVersion: "v3" }),
         concurrency: 7,
         subcallSchemas,
       }),

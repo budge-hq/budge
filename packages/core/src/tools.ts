@@ -281,7 +281,7 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
                 task: call.task,
                 answer: `[Error: ${message}]`,
                 schemaName: call.schemaName,
-                usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+                usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0 },
                 startMs,
                 parallel: true,
               });

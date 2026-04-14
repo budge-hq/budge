@@ -20,7 +20,12 @@ import type {
 export class TraceBuilder<S extends Record<string, SourceAdapter>> {
   private readonly startMs: number;
   private readonly task: string;
-  private rootUsage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  private rootUsage: TokenUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    cachedInputTokens: 0,
+  };
   private readonly toolCalls: ToolCallRecord[] = [];
   private readonly subcalls: SubcallTraceNode[] = [];
   private readonly accessed: Map<string, Set<string>> = new Map();
@@ -73,6 +78,12 @@ export class TraceBuilder<S extends Record<string, SourceAdapter>> {
     const totalSubcallTokens = this.subcalls.reduce((sum, s) => sum + s.usage.totalTokens, 0);
     const totalTokens = this.rootUsage.totalTokens + totalSubcallTokens;
 
+    const totalCachedSubcallTokens = this.subcalls.reduce(
+      (sum, s) => sum + s.usage.cachedInputTokens,
+      0,
+    );
+    const totalCachedTokens = this.rootUsage.cachedInputTokens + totalCachedSubcallTokens;
+
     const sourcesAccessed: Partial<Record<keyof S & string, string[]>> = {};
     for (const [source, paths] of this.accessed) {
       (sourcesAccessed as Record<string, string[]>)[source] = [...paths];
@@ -82,6 +93,7 @@ export class TraceBuilder<S extends Record<string, SourceAdapter>> {
       totalSubcalls: this.subcalls.length,
       totalTokens,
       durationMs,
+      totalCachedTokens,
       sourcesAccessed,
       tree: rootNode,
     };
@@ -130,5 +142,6 @@ function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
     inputTokens: a.inputTokens + b.inputTokens,
     outputTokens: a.outputTokens + b.outputTokens,
     totalTokens: a.totalTokens + b.totalTokens,
+    cachedInputTokens: a.cachedInputTokens + b.cachedInputTokens,
   };
 }

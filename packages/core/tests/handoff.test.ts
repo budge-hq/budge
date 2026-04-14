@@ -27,6 +27,7 @@ function makeTrace(): RuntimeTrace<any> {
     totalSubcalls: 1,
     totalTokens: 42,
     durationMs: 120,
+    totalCachedTokens: 0,
     sourcesAccessed: {
       codebase: ["src/auth.ts"],
       history: ["thread/123"],
@@ -38,6 +39,7 @@ function makeTrace(): RuntimeTrace<any> {
         inputTokens: 20,
         outputTokens: 10,
         totalTokens: 30,
+        cachedInputTokens: 0,
       },
       durationMs: 120,
       toolCalls: [
@@ -77,6 +79,7 @@ function makeTrace(): RuntimeTrace<any> {
             inputTokens: 6,
             outputTokens: 6,
             totalTokens: 12,
+            cachedInputTokens: 0,
           },
           durationMs: 20,
         },

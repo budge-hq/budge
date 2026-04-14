@@ -5,6 +5,7 @@ import type { Truncator } from "./truncation.ts";
 import type { PrepareOptions, RunFinishReason, TokenUsage } from "./types.ts";
 import { TraceBuilder } from "./trace.ts";
 import { buildTools } from "./tools.ts";
+import { extractCachedTokens } from "./cache.ts";
 
 /**
  * Options for running the root agent loop.
@@ -70,10 +71,15 @@ export async function runAgent<S extends Record<string, SourceAdapter>>(
     tools,
     stopWhen: [hasToolCall("finish"), stepCountIs(maxSteps)],
     onStepFinish(step) {
+      const cachedInputTokens = extractCachedTokens(
+        (step as { providerMetadata?: Record<string, unknown> }).providerMetadata,
+        step.usage,
+      );
       const usage: TokenUsage = {
         inputTokens: step.usage.inputTokens ?? 0,
         outputTokens: step.usage.outputTokens ?? 0,
         totalTokens: (step.usage.inputTokens ?? 0) + (step.usage.outputTokens ?? 0),
+        cachedInputTokens,
       };
       trace.addRootUsage(usage);
     },

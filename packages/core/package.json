@@ -32,15 +32,15 @@
     "fix": "vp check --fix"
   },
   "dependencies": {
-    "ai": "^6.0.158",
-    "picomatch": "^4.0.3",
+    "ai": "^6.0.159",
+    "picomatch": "^4.0.4",
     "safe-stable-stringify": "^2.5.0",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@ai-sdk/openai": "^3.0.52",
     "@types/node": "catalog:",
-    "@types/picomatch": "^4.0.2",
+    "@types/picomatch": "^4.0.3",
     "@typescript/native-preview": "catalog:",
     "bumpp": "^11.0.1",
     "typescript": "catalog:"

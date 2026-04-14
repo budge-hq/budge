@@ -164,6 +164,11 @@ export interface TokenUsage {
   outputTokens: number;
   /** Sum of inputTokens + outputTokens. */
   totalTokens: number;
+  /**
+   * Tokens read from the provider's prompt cache. Normalised across providers.
+   * 0 when no cache hit occurred or when the provider does not report cache usage.
+   */
+  cachedInputTokens: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +266,9 @@ export interface RuntimeTrace<
 
   /** Total wall time from `prepare()` invocation to result, in milliseconds. */
   durationMs: number;
+
+  /** Total tokens read from the prompt cache across all model calls. */
+  totalCachedTokens: number;
 
   /**
    * Which paths were read from each source.

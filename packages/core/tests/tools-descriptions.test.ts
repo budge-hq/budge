@@ -72,24 +72,24 @@ describe("buildSystemPrompt()", () => {
 
 describe("read_source tool description", () => {
   it("encourages parallel calls", () => {
-    const { read_source } = getToolDescriptions();
+    const { read_source } = toolDescriptions;
     expect(read_source).toContain("parallel");
   });
 
   it("mentions independent reads", () => {
-    const { read_source } = getToolDescriptions();
+    const { read_source } = toolDescriptions;
     expect(read_source).toContain("independent");
   });
 });
 
 describe("list_source tool description", () => {
   it("encourages parallel calls", () => {
-    const { list_source } = getToolDescriptions();
+    const { list_source } = toolDescriptions;
     expect(list_source).toContain("parallel");
   });
 
   it("mentions independent reads", () => {
-    const { list_source } = getToolDescriptions();
+    const { list_source } = toolDescriptions;
     expect(list_source).toContain("independent");
   });
 });

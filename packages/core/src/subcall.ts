@@ -5,6 +5,7 @@ import safeStableStringify from "safe-stable-stringify";
 import type { SourceAdapter } from "./sources/interface.ts";
 import type { SubcallTraceNode, TokenUsage } from "./types.ts";
 import { makeSubcallNode } from "./trace.ts";
+import { extractCachedTokens } from "./cache.ts";
 
 /**
  * Options for a focused sub-call.
@@ -125,6 +126,10 @@ export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode
       inputTokens: result.usage.inputTokens ?? 0,
       outputTokens: result.usage.outputTokens ?? 0,
       totalTokens: (result.usage.inputTokens ?? 0) + (result.usage.outputTokens ?? 0),
+      cachedInputTokens: extractCachedTokens(
+        result.providerMetadata as Record<string, unknown> | undefined,
+        result.usage,
+      ),
     };
 
     return makeSubcallNode({
@@ -147,6 +152,10 @@ export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode
     inputTokens: result.usage.inputTokens ?? 0,
     outputTokens: result.usage.outputTokens ?? 0,
     totalTokens: (result.usage.inputTokens ?? 0) + (result.usage.outputTokens ?? 0),
+    cachedInputTokens: extractCachedTokens(
+      result.providerMetadata as Record<string, unknown> | undefined,
+      result.usage,
+    ),
   };
 
   return makeSubcallNode({

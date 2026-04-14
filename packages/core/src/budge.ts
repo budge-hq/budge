@@ -4,6 +4,7 @@ import { buildHandoff, buildFallbackHandoff } from "./handoff.ts";
 import { TraceBuilder } from "./trace.ts";
 import { runAgent } from "./agent.ts";
 import { Truncator } from "./truncation.ts";
+import { withPromptCaching } from "./cache.ts";
 
 /**
  * A Budge instance. Create one with `createBudge()` and reuse it
@@ -74,6 +75,8 @@ export function createBudge(options: BudgeOptions): Budge {
   const { orchestrator, worker, concurrency = 5 } = options;
   const normalizedConcurrency = Math.max(1, Math.floor(concurrency));
   const truncator = new Truncator();
+  const cachedOrchestrator = withPromptCaching(orchestrator);
+  const cachedWorker = withPromptCaching(worker);
 
   return {
     async prepare<S extends Record<string, SourceAdapter>>(
@@ -85,8 +88,8 @@ export function createBudge(options: BudgeOptions): Budge {
       const trace = new TraceBuilder<S>(task);
 
       const { answer, finishReason } = await runAgent({
-        orchestrator,
-        worker,
+        orchestrator: cachedOrchestrator,
+        worker: cachedWorker,
         task,
         sources,
         onToolCall,
@@ -107,7 +110,7 @@ export function createBudge(options: BudgeOptions): Budge {
           task,
           answer,
           trace: builtTrace,
-          worker,
+          worker: cachedWorker,
           system: prepareOptions.system,
         });
       } catch {
