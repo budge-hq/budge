@@ -302,6 +302,16 @@ export interface RuntimeTrace<
  */
 export type RunFinishReason = "finish" | "max_steps" | "no_finish";
 
+export interface HandoffStructured {
+  goal: string;
+  instructions: string[];
+  discoveries: string[];
+  relevantSources: Array<{ source: string; path: string; note: string }>;
+  openQuestions: string[];
+  confidence: "High" | "Medium" | "Low";
+  confidenceRationale: string;
+}
+
 /**
  * The context Budge prepared for a downstream action agent.
  *
@@ -318,6 +328,9 @@ export interface PreparedContext<
 
   /** Action-agent-ready briefing synthesized from the answer and trace. */
   handoff: string;
+
+  /** Structured handoff synthesized for action-agent execution. */
+  handoffStructured: HandoffStructured;
 
   /**
    * How the agent loop ended.

@@ -58,6 +58,7 @@ export type {
   BudgeOptions,
   PrepareOptions,
   RunFinishReason,
+  HandoffStructured,
   PreparedContext,
   RuntimeTrace,
   TraceNode,

@@ -5,9 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import * as agentModule from "../src/agent.ts";
 import { createBudge } from "../src/budge.ts";
 import * as handoffModule from "../src/handoff.ts";
-import { buildFallbackHandoff, buildHandoff } from "../src/handoff.ts";
+import { buildFallbackHandoff, buildHandoff, renderHandoffMarkdown } from "../src/handoff.ts";
 import { Truncator } from "../src/truncation.ts";
-import type { RuntimeTrace } from "../src/types.ts";
+import type { HandoffStructured, RuntimeTrace } from "../src/types.ts";
 
 vi.mock("ai", async () => {
   const actual = await vi.importActual<typeof import("ai")>("ai");
@@ -133,12 +133,28 @@ function promptText(value: unknown): string {
   return safeStableStringify(value) ?? "";
 }
 
+function makeStructured(): HandoffStructured {
+  return {
+    goal: "Review auth flows",
+    instructions: ["Prioritize login and session transitions."],
+    discoveries: ["src/auth.ts coordinates login state and token refresh."],
+    relevantSources: [
+      { source: "codebase", path: "src/auth.ts", note: "primary login flow" },
+      { source: "history", path: "thread/123", note: "incident report" },
+    ],
+    openQuestions: ["Should token refresh retries be capped?"],
+    confidence: "High",
+    confidenceRationale: "Findings align with traced reads and focused subcall output.",
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("buildHandoff()", () => {
-  it("returns a non-empty string containing the task", async () => {
+  it("returns structured output and markdown containing the goal", async () => {
+    const structured = makeStructured();
     mockGenerateText.mockImplementation(async (args) => {
       const prompt = promptText(args.messages?.[0]?.content);
 
@@ -147,22 +163,7 @@ describe("buildHandoff()", () => {
       expect(prompt).not.toContain(longSubcallAnswer);
 
       return {
-        text: [
-          "# Context",
-          "",
-          "## Task",
-          "Review auth flows",
-          "",
-          "## Findings",
-          "### codebase",
-          "- src/auth.ts: Handles the login flow and session transitions.",
-          "",
-          "## Coverage",
-          "2 files read across 2 sources. Worker calls covered: codebase/src/auth.ts. The following were listed but not read: codebase: src/legacy/.",
-          "",
-          "## Confidence",
-          "High. The final answer matches the traced reads and worker analysis.",
-        ].join("\n"),
+        output: structured,
         usage: { inputTokens: 5, outputTokens: 7 },
       } as Awaited<ReturnType<typeof generateText>>;
     });
@@ -174,14 +175,15 @@ describe("buildHandoff()", () => {
       worker,
     });
 
-    expect(handoff).toContain("# Context");
-    expect(handoff).toContain("Review auth flows");
-    expect(handoff.trim().length).toBeGreaterThan(0);
+    expect(handoff.structured).toEqual(structured);
+    expect(handoff.markdown).toContain("# Context");
+    expect(handoff.markdown).toContain("Review auth flows");
+    expect(handoff.markdown.trim().length).toBeGreaterThan(0);
   });
 
   it("passes source names from the trace into the worker prompt", async () => {
     mockGenerateText.mockResolvedValue({
-      text: "# Context\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
+      output: makeStructured(),
       usage: { inputTokens: 3, outputTokens: 4 },
     } as Awaited<ReturnType<typeof generateText>>);
 
@@ -199,9 +201,9 @@ describe("buildHandoff()", () => {
     expect(prompt).toContain("history");
   });
 
-  it("returns markdown as a string, not JSON", async () => {
+  it("renders markdown as a string, not JSON", async () => {
     mockGenerateText.mockResolvedValue({
-      text: "# Context\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
+      output: makeStructured(),
       usage: { inputTokens: 2, outputTokens: 3 },
     } as Awaited<ReturnType<typeof generateText>>);
 
@@ -212,21 +214,8 @@ describe("buildHandoff()", () => {
       worker,
     });
 
-    expect(typeof handoff).toBe("string");
-    expect(handoff.trim().startsWith("{")).toBe(false);
-  });
-
-  describe("buildFallbackHandoff()", () => {
-    it("does not start with a blank line when system is omitted", () => {
-      const handoff = buildFallbackHandoff({
-        task: "Review auth flows",
-        answer: "Prepared auth analysis.",
-        trace: makeTrace(),
-      });
-
-      expect(handoff.startsWith("\n")).toBe(false);
-      expect(handoff.startsWith("# Context")).toBe(true);
-    });
+    expect(typeof handoff.markdown).toBe("string");
+    expect(handoff.markdown.trim().startsWith("{")).toBe(false);
   });
 
   it("only includes meaningful tool calls in the worker prompt", async () => {
@@ -240,7 +229,7 @@ describe("buildHandoff()", () => {
       expect(prompt).not.toContain("list_source @ codebase/src");
 
       return {
-        text: "# Context\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
+        output: makeStructured(),
         usage: { inputTokens: 3, outputTokens: 4 },
       } as Awaited<ReturnType<typeof generateText>>;
     });
@@ -252,6 +241,45 @@ describe("buildHandoff()", () => {
       worker,
     });
   });
+
+  it("throws when structured synthesis fails", async () => {
+    mockGenerateText.mockRejectedValueOnce(new Error("structured output validation failed"));
+
+    await expect(
+      buildHandoff({
+        task: "Review auth flows",
+        answer: "The auth module coordinates login state and session handling.",
+        trace: makeTrace(),
+        worker,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("renders markdown from structured handoff deterministically", () => {
+    const structured = makeStructured();
+    const markdown = renderHandoffMarkdown(structured);
+
+    expect(markdown).toContain("## Goal");
+    expect(markdown).toContain("## Discoveries");
+    expect(markdown).toContain("codebase: src/auth.ts - primary login flow");
+    expect(markdown).toContain(
+      "High. Findings align with traced reads and focused subcall output.",
+    );
+  });
+});
+
+describe("buildFallbackHandoff()", () => {
+  it("does not start with a blank line when system is omitted", () => {
+    const handoff = buildFallbackHandoff({
+      task: "Review auth flows",
+      answer: "Prepared auth analysis.",
+      trace: makeTrace(),
+    });
+
+    expect(handoff.markdown.startsWith("\n")).toBe(false);
+    expect(handoff.markdown.startsWith("# Context")).toBe(true);
+    expect(handoff.structured.relevantSources.length).toBeGreaterThan(0);
+  });
 });
 
 describe("createBudge().prepare()", () => {
@@ -261,7 +289,7 @@ describe("createBudge().prepare()", () => {
       finishReason: "finish",
     });
     mockGenerateText.mockResolvedValue({
-      text: "# Context\n\n## Task\nReview auth flows\n\n## Findings\n### codebase\n- src/auth.ts: summary\n\n## Coverage\nCoverage limited to files listed in trace.\n\n## Confidence\nMedium. Limited trace.",
+      output: makeStructured(),
       usage: { inputTokens: 4, outputTokens: 6 },
     } as Awaited<ReturnType<typeof generateText>>);
 
@@ -274,6 +302,7 @@ describe("createBudge().prepare()", () => {
     expect(context.task).toBe("Review auth flows");
     expect(context.answer).toBe("Prepared auth analysis.");
     expect(context.handoff).toContain("# Context");
+    expect(context.handoffStructured.goal).toBe("Review auth flows");
     expect(typeof context.handoff).toBe("string");
     expect(context.handoffFailed).toBe(false);
   });
@@ -291,25 +320,23 @@ describe("createBudge().prepare()", () => {
       sources: { codebase: makeAdapter() },
     });
 
-    expect(context.handoff).toBe(
-      buildFallbackHandoff({
-        task: "Review auth flows",
-        answer: "Prepared auth analysis.",
-        trace: context.trace,
-      }),
-    );
+    const fallback = buildFallbackHandoff({
+      task: "Review auth flows",
+      answer: "Prepared auth analysis.",
+      trace: context.trace,
+    });
+
+    expect(context.handoff).toBe(fallback.markdown);
+    expect(context.handoffStructured).toEqual(fallback.structured);
     expect(context.handoffFailed).toBe(true);
   });
 
-  it("sets handoffFailed when the worker returns empty handoff text", async () => {
+  it("sets handoffFailed when structured synthesis fails", async () => {
     vi.spyOn(agentModule, "runAgent").mockResolvedValue({
       answer: "Prepared auth analysis.",
       finishReason: "finish",
     });
-    mockGenerateText.mockResolvedValue({
-      text: "   ",
-      usage: { inputTokens: 4, outputTokens: 0 },
-    } as Awaited<ReturnType<typeof generateText>>);
+    mockGenerateText.mockRejectedValueOnce(new Error("structured output validation failed"));
 
     const budge = createBudge({ orchestrator, worker });
     const context = await budge.prepare({
@@ -317,13 +344,14 @@ describe("createBudge().prepare()", () => {
       sources: { codebase: makeAdapter() },
     });
 
-    expect(context.handoff).toBe(
-      buildFallbackHandoff({
-        task: "Review auth flows",
-        answer: "Prepared auth analysis.",
-        trace: context.trace,
-      }),
-    );
+    const fallback = buildFallbackHandoff({
+      task: "Review auth flows",
+      answer: "Prepared auth analysis.",
+      trace: context.trace,
+    });
+
+    expect(context.handoff).toBe(fallback.markdown);
+    expect(context.handoffStructured).toEqual(fallback.structured);
     expect(context.handoffFailed).toBe(true);
   });
 
@@ -334,7 +362,10 @@ describe("createBudge().prepare()", () => {
       answer: "Prepared auth analysis.",
       finishReason: "finish",
     });
-    vi.spyOn(handoffModule, "buildHandoff").mockResolvedValue("briefing");
+    vi.spyOn(handoffModule, "buildHandoff").mockResolvedValue({
+      structured: makeStructured(),
+      markdown: "briefing",
+    });
 
     const budge = createBudge({ orchestrator, worker });
 

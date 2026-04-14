@@ -699,7 +699,18 @@ describe("schema propagation", () => {
       answer: "done",
       finishReason: "finish",
     });
-    vi.spyOn(handoffModule, "buildHandoff").mockResolvedValue("briefing");
+    vi.spyOn(handoffModule, "buildHandoff").mockResolvedValue({
+      structured: {
+        goal: "audit fetch handling",
+        instructions: [],
+        discoveries: ["done"],
+        relevantSources: [],
+        openQuestions: [],
+        confidence: "Medium",
+        confidenceRationale: "test fixture",
+      },
+      markdown: "briefing",
+    });
 
     const budge = createBudge({ orchestrator, worker, concurrency: 7 });
     const subcallSchemas = {
