@@ -46,7 +46,7 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
     concurrency = 5,
     truncator = new Truncator(),
   } = opts;
-  const hasSubcalls = true;
+  const hasSubcalls = !!subcallSchemas || true; // all agents currently support subcalls
 
   return {
     read_source: tool({
@@ -77,6 +77,7 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
           result,
           {
             maxLines: DEFAULT_LIMITS.READ_MAX_LINES,
+            maxCharsPerLine: DEFAULT_LIMITS.READ_MAX_CHARS_PER_LINE,
             maxBytes: DEFAULT_LIMITS.READ_MAX_BYTES,
             direction: "head",
           },

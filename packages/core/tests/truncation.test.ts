@@ -2,7 +2,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { Truncator } from "../src/truncation.ts";
+import { TraceBuilder } from "../src/trace.ts";
+import { buildTools } from "../src/tools.ts";
+import { DEFAULT_LIMITS, Truncator } from "../src/truncation.ts";
 
 const writeFileControl = vi.hoisted(() => ({ error: null as Error | null }));
 
@@ -43,8 +45,24 @@ describe("Truncator", () => {
     );
 
     expect(result.truncated).toBe(true);
-    expect(result.removed).toEqual({ unit: "lines", count: 2 });
+    expect(result.removed).toEqual([{ unit: "lines", count: 2 }]);
     expect(preview(result.content)).toBe("a\nb");
+  });
+
+  it("clamps overlong lines before applying other limits", async () => {
+    const truncator = new Truncator({ overflowDir: makeTempDir() });
+    const text = `${"x".repeat(200 * 1024)}\nsecond line`;
+
+    const result = await truncator.apply(
+      text,
+      { maxCharsPerLine: 2_000, maxBytes: DEFAULT_LIMITS.READ_MAX_BYTES },
+      context(),
+    );
+
+    expect(result.truncated).toBe(true);
+    expect(preview(result.content)).toContain("... [line truncated]");
+    expect(result.content).toContain("[Some lines exceeded 2000 characters and were truncated.]");
+    expect(result.removed).toContainEqual({ unit: "chars", count: 200 * 1024 - 2_000 });
   });
 
   it("truncates tail-first by byte count", async () => {
@@ -54,7 +72,10 @@ describe("Truncator", () => {
     const result = await truncator.apply(text, { maxBytes: 32, direction: "tail" }, context());
 
     expect(result.truncated).toBe(true);
-    expect(result.removed?.unit).toBe("bytes");
+    expect(result.removed).toContainEqual({
+      unit: "bytes",
+      count: text.length - preview(result.content).length,
+    });
     expect(preview(result.content)).toContain("conclusion");
     expect(preview(result.content)).not.toContain("prefix-");
   });
@@ -83,6 +104,27 @@ describe("Truncator", () => {
     expect(withSubcalls.content).toContain("run_subcall");
     expect(withoutSubcalls.content).not.toContain("run_subcall");
     expect(withoutSubcalls.content).toContain("smaller offset");
+  });
+
+  it("records chars, lines, and bytes when limits compose", async () => {
+    const truncator = new Truncator({ overflowDir: makeTempDir() });
+    const text = [
+      ...Array.from({ length: 10 }, (_, index) => `line-${index}`),
+      "y".repeat(200 * 1024),
+      ...Array.from({ length: 4_990 }, (_, index) => `tail-${index}`),
+    ].join("\n");
+
+    const result = await truncator.apply(
+      text,
+      { maxCharsPerLine: 50, maxLines: 2_000, maxBytes: 512, direction: "head" },
+      context(),
+    );
+
+    expect(result.truncated).toBe(true);
+    expect(result.removed?.map((entry) => entry.unit)).toEqual(["chars", "lines", "bytes"]);
+    expect(preview(result.content).split("\n").length).toBeLessThanOrEqual(2_000);
+    expect(byteLength(preview(result.content))).toBeLessThanOrEqual(512);
+    expect(preview(result.content)).toContain("... [line truncated]");
   });
 
   it("writes the full output to an overflow file", async () => {
@@ -137,10 +179,39 @@ describe("Truncator", () => {
 
     expect(fs.existsSync(freshFile)).toBe(true);
   });
+
+  it("wires maxCharsPerLine through read_source", async () => {
+    const tools = buildTools({
+      sources: {
+        codebase: {
+          describe: () => "fixture source",
+          list: vi.fn(async () => []),
+          read: vi.fn(async () => "z".repeat(200 * 1024)),
+        },
+      },
+      worker: {} as never,
+      trace: new TraceBuilder("inspect minified file"),
+      truncator: new Truncator({ overflowDir: makeTempDir() }),
+    });
+
+    const result = await tools.read_source.execute!(
+      { source: "codebase", path: "dist/minified.js" },
+      {} as never,
+    );
+
+    expect(result).toContain("... [line truncated]");
+    expect(result).toContain(
+      `[Some lines exceeded ${DEFAULT_LIMITS.READ_MAX_CHARS_PER_LINE} characters and were truncated.]`,
+    );
+  });
 });
 
 function preview(content: string): string {
-  return content.split("\n\n[Output truncated.")[0] ?? content;
+  return content.split("\n\n[")[0] ?? content;
+}
+
+function byteLength(text: string): number {
+  return Buffer.byteLength(text, "utf8");
 }
 
 function context(hasSubcalls = true, toolName = "read_source") {

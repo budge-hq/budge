@@ -14,6 +14,7 @@ export const DEFAULT_LIMITS = {
 export interface TruncateOptions {
   maxLines?: number;
   maxBytes?: number;
+  maxCharsPerLine?: number;
   direction?: "head" | "tail" | "middle";
 }
 
@@ -21,7 +22,7 @@ export interface TruncateResult {
   content: string;
   truncated: boolean;
   overflowPath?: string;
-  removed?: { unit: "lines" | "bytes"; count: number };
+  removed?: Array<{ unit: "lines" | "bytes" | "chars"; count: number }>;
 }
 
 export interface TruncateContext {
@@ -46,25 +47,35 @@ export class Truncator {
     context: TruncateContext,
   ): Promise<TruncateResult> {
     const direction = options.direction ?? "head";
-    const originalLineCount = countLines(text);
-    const originalByteCount = byteLength(text);
 
     let preview = text;
-    let removed: TruncateResult["removed"];
+    const removed: NonNullable<TruncateResult["removed"]> = [];
+    let lineClampNotice: string | undefined;
+
+    if (options.maxCharsPerLine !== undefined) {
+      const charLimited = truncateByLineChars(preview, Math.max(0, options.maxCharsPerLine));
+      if (charLimited) {
+        preview = charLimited.content;
+        removed.push({ unit: "chars", count: charLimited.removedCharCount });
+        lineClampNotice = `[Some lines exceeded ${options.maxCharsPerLine} characters and were truncated.]`;
+      }
+    }
 
     if (options.maxLines !== undefined) {
+      const previousLineCount = countLines(preview);
       const lineLimited = truncateByLines(preview, Math.max(0, options.maxLines), direction);
       if (lineLimited) {
         preview = lineLimited.content;
-        removed = { unit: "lines", count: originalLineCount - lineLimited.keptLineCount };
+        removed.push({ unit: "lines", count: previousLineCount - lineLimited.keptLineCount });
       }
     }
 
     if (options.maxBytes !== undefined) {
+      const previousByteCount = byteLength(preview);
       const byteLimited = truncateByBytes(preview, Math.max(0, options.maxBytes), direction);
       if (byteLimited) {
         preview = byteLimited.content;
-        removed = { unit: "bytes", count: originalByteCount - byteLength(preview) };
+        removed.push({ unit: "bytes", count: previousByteCount - byteLength(preview) });
       }
     }
 
@@ -73,17 +84,13 @@ export class Truncator {
     }
 
     const overflowPath = await this.writeOverflow(text, context.toolName);
-    const hint = buildHint(
-      removed ?? { unit: "bytes", count: 0 },
-      overflowPath,
-      context.hasSubcalls,
-    );
+    const hint = buildHint(removed, overflowPath, context.hasSubcalls, lineClampNotice);
 
     return {
       content: `${preview}${hint}`,
       truncated: true,
       overflowPath,
-      removed,
+      removed: removed.length === 0 ? undefined : removed,
     };
   }
 
@@ -104,7 +111,7 @@ export class Truncator {
     const previewItems = items.slice(0, safeMaxItems);
     const preview = formatter(previewItems);
     const full = formatter(items);
-    const removed = { unit: "lines" as const, count: items.length - previewItems.length };
+    const removed = [{ unit: "lines" as const, count: items.length - previewItems.length }];
     const overflowPath = await this.writeOverflow(full, context.toolName);
     const hint = buildHint(removed, overflowPath, context.hasSubcalls);
 
@@ -153,13 +160,52 @@ function buildHint(
   removed: NonNullable<TruncateResult["removed"]>,
   overflowPath: string | undefined,
   hasSubcalls: boolean,
+  lineClampNotice?: string,
 ): string {
   const saved = overflowPath ? ` Full content saved to ${overflowPath}.` : "";
   const tip = hasSubcalls
     ? " Tip: use run_subcall with this path to have a worker analyze the full content without polluting your context."
     : " Tip: re-run with a narrower path or smaller offset.";
+  const notices = lineClampNotice ? `\n\n${lineClampNotice}` : "";
 
-  return `\n\n[Output truncated. ${removed.count} ${removed.unit} omitted.${saved}]${tip}`;
+  return `${notices}\n\n[Output truncated. ${formatRemoved(removed)} omitted.${saved}]${tip}`;
+}
+
+function formatRemoved(removed: NonNullable<TruncateResult["removed"]>): string {
+  const order = { chars: 0, lines: 1, bytes: 2 } as const;
+
+  return [...removed]
+    .sort((a, b) => order[a.unit] - order[b.unit])
+    .map((entry) => `${entry.count} ${entry.unit}`)
+    .join(", ");
+}
+
+function truncateByLineChars(
+  text: string,
+  maxCharsPerLine: number,
+): { content: string; removedCharCount: number } | undefined {
+  const lines = text.split("\n");
+  let changed = false;
+  let removedCharCount = 0;
+
+  const clamped = lines.map((line) => {
+    if (line.length <= maxCharsPerLine) {
+      return line;
+    }
+
+    changed = true;
+    removedCharCount += line.length - maxCharsPerLine;
+    return `${line.slice(0, maxCharsPerLine)}... [line truncated]`;
+  });
+
+  if (!changed) {
+    return undefined;
+  }
+
+  return {
+    content: clamped.join("\n"),
+    removedCharCount,
+  };
 }
 
 function truncateByLines(

@@ -23,6 +23,7 @@ export interface FsAdapterOptions {
 }
 
 const DEFAULT_EXCLUDE = ["node_modules", ".git", "dist", ".next", ".turbo", "coverage", ".cache"];
+const FS_READ_HARD_LIMIT = 10 * 1024 * 1024; // 10 MiB
 
 /**
  * A source adapter that exposes a local filesystem directory.
@@ -104,6 +105,14 @@ export class FsAdapter implements SourceAdapter {
       throw new Error(`Not a file: ${filePath}`);
     }
 
+    // Prevent loading arbitrarily large files into memory. Display truncation
+    // happens later in the tool layer; this cap only guards the raw read.
+    if (stat.size > FS_READ_HARD_LIMIT) {
+      throw new Error(
+        `File too large to read: ${filePath} (${formatBytes(stat.size)}, limit ${formatBytes(FS_READ_HARD_LIMIT)})`,
+      );
+    }
+
     return fs.promises.readFile(absolute, "utf8");
   }
 
@@ -151,4 +160,16 @@ export class FsAdapter implements SourceAdapter {
     }
     return count;
   }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  }
+
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)} KiB`;
+  }
+
+  return `${bytes} B`;
 }
