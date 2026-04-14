@@ -113,7 +113,7 @@ function buildSourceDescriptions<S extends Record<string, SourceAdapter>>(source
   return entries.map(([name, adapter]) => `- **${name}**: ${adapter.describe()}`).join("\n");
 }
 
-function buildSystemPrompt(sourceDescriptions: string): string {
+export function buildSystemPrompt(sourceDescriptions: string): string {
   return [
     "You are an expert research agent. Your job is to answer a task by intelligently",
     "navigating the available sources.",
@@ -133,6 +133,13 @@ function buildSystemPrompt(sourceDescriptions: string): string {
     "5. Navigate lazily — only read what you need to answer the task.",
     "6. Once you have enough information, call `finish` with your complete answer.",
     "",
+    "Example — parallel reads after a single list:",
+    '  Step 1: list_source({source: "docs"}) → ["intro.md", "api.md", "changelog.md"]',
+    '  Step 2: read_source({source: "docs", path: "intro.md"})',
+    '        + read_source({source: "docs", path: "api.md"})',
+    '        + read_source({source: "docs", path: "changelog.md"})  ← all three in one response',
+    "  Step 3: finish(...)",
+    "",
     "## Important",
     "",
     "- Be selective. Don't read everything — read what's relevant.",
@@ -142,5 +149,20 @@ function buildSystemPrompt(sourceDescriptions: string): string {
     "  Sequential single sub-calls for independent work are an antipattern.",
     "- Once you have read the relevant files and can answer the task, call `finish` immediately. Do not continue exploring after you have enough information. A good answer based on what you've read is better than an incomplete loop.",
     "- Your answer should be well-structured and address the task directly.",
+    "",
+    "## Parallelism",
+    "",
+    "You can call multiple tools in a single response. ALWAYS prefer to do so when",
+    "the calls are independent. Examples:",
+    "",
+    "- Reading three files to answer one question? Issue three `read_source` calls",
+    "  in one response, not three separate responses.",
+    "- Listing two sources to compare them? Issue both `list_source` calls in one",
+    "  response.",
+    "- Already know which paths you want from a previous list? Read them all in",
+    "  parallel, not one at a time.",
+    "",
+    "Sequential single tool calls when the work is independent is an antipattern",
+    "and roughly halves your effective throughput.",
   ].join("\n");
 }

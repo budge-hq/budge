@@ -58,14 +58,14 @@ Each test case runs against both `budge` and `baseline (full-context-dump)`.
 
 ### Key metrics to compare in the UI
 
-| Metric             | Where to find it                                  |
-| ------------------ | ------------------------------------------------- |
-| Answer correctness | Pass/fail on `contains` + `llm-rubric` assertions |
-| Total tokens       | `tokenUsage.total` column                         |
-| Subcalls spawned   | `metadata.totalSubcalls` (budge only)             |
-| Wall time          | `metadata.durationMs`                             |
+| Metric             | Where to find it                                             |
+| ------------------ | ------------------------------------------------------------ |
+| Answer correctness | Pass/fail on `contains` + `llm-rubric` assertions            |
+| Total tokens       | `tokenUsage.total` column                                    |
+| Subcalls spawned   | `metadata.totalSubcalls` (budge only)                        |
+| Wall time          | `metadata.durationMs`                                        |
 | Finish reason      | `metadata.finishReason` (`finish`, `max_steps`, `no_finish`) |
-| Tool call count    | `metadata.toolCallCount` (budge only)             |
+| Tool call count    | `metadata.toolCallCount` (budge only)                        |
 
 The story you're trying to tell: **budge matches baseline quality at significantly lower token cost**.
 

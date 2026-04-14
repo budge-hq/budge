@@ -54,6 +54,7 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
         "Read the content at a specific path within a named source.",
         "Use list_source first to discover what paths are available.",
         "Returns the raw content as a string.",
+        "Issue parallel calls in one response when reads are independent.",
       ].join(" "),
       inputSchema: z.object({
         source: z.string().describe("The source name (one of the keys in your sources map)"),
@@ -103,6 +104,7 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
         "Omit path to list the root of the source.",
         "Returns a list of navigable paths or identifiers.",
         "Use these paths with read_source, run_subcall, or run_subcalls.",
+        "Issue parallel calls in one response when calls are independent.",
       ].join(" "),
       inputSchema: z.object({
         source: z.string().describe("The source name"),
