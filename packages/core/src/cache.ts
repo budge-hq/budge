@@ -98,16 +98,6 @@ function createCachingMiddleware(): LanguageModelMiddleware {
         return params;
       }
     },
-
-    // Defensive passthrough — Budge uses generateText, not streamText, but
-    // both hooks must be present for correctness and future-proofing.
-    async wrapGenerate({ doGenerate }) {
-      return doGenerate();
-    },
-
-    async wrapStream({ doStream }) {
-      return doStream();
-    },
   };
 }
 

@@ -71,10 +71,7 @@ export async function runAgent<S extends Record<string, SourceAdapter>>(
     tools,
     stopWhen: [hasToolCall("finish"), stepCountIs(maxSteps)],
     onStepFinish(step) {
-      const cachedInputTokens = extractCachedTokens(
-        (step as { providerMetadata?: Record<string, unknown> }).providerMetadata,
-        step.usage,
-      );
+      const cachedInputTokens = extractCachedTokens(step.providerMetadata, step.usage);
       const usage: TokenUsage = {
         inputTokens: step.usage.inputTokens ?? 0,
         outputTokens: step.usage.outputTokens ?? 0,
