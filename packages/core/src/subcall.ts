@@ -25,6 +25,10 @@ export interface SubcallOptions {
   schema?: ZodType;
   /** Optional schema name for trace labeling. */
   schemaName?: string;
+  /** Optional truncation metadata for the final answer. */
+  truncated?: boolean;
+  /** Optional overflow path for the final answer. */
+  overflowPath?: string;
 }
 
 export async function runConcurrent<T>(
@@ -66,7 +70,8 @@ export async function runConcurrent<T>(
  * @internal
  */
 export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode> {
-  const { worker, adapter, sourceName, path, task, schema, schemaName } = opts;
+  const { worker, adapter, sourceName, path, task, schema, schemaName, truncated, overflowPath } =
+    opts;
 
   const startMs = Date.now();
 
@@ -131,6 +136,8 @@ export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode
       schemaName,
       usage,
       startMs,
+      truncated,
+      overflowPath,
     });
   }
 
@@ -149,5 +156,7 @@ export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode
     answer: result.text,
     usage,
     startMs,
+    truncated,
+    overflowPath,
   });
 }

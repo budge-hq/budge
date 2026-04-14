@@ -166,12 +166,12 @@ describe("FsAdapter.read()", () => {
     await expect(adapter.read("lib")).rejects.toThrow(/not a file/i);
   });
 
-  it("returns truncation notice for oversized files", async () => {
+  it("returns full content for oversized files", async () => {
     const bigFile = path.join(tmpDir, "big.txt");
-    // Write just over the limit
     fs.writeFileSync(bigFile, "x".repeat(200 * 1024));
-    const adapter = new FsAdapter(tmpDir, { maxFileSize: 128 * 1024 });
+    const adapter = new FsAdapter(tmpDir);
     const content = await adapter.read("big.txt");
-    expect(content).toContain("[File too large to display");
+    expect(content).toHaveLength(200 * 1024);
+    expect(content).not.toContain("[File too large to display");
   });
 });

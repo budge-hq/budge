@@ -7,14 +7,6 @@ import type { SourceAdapter } from "./interface.ts";
  */
 export interface FsAdapterOptions {
   /**
-   * Maximum file size in bytes to read. Files exceeding this limit
-   * return a truncation notice instead of their contents.
-   *
-   * @default 131072 (128 KiB)
-   */
-  maxFileSize?: number;
-
-  /**
    * File extensions to include when listing. If omitted, all files
    * are included. Use this to scope the agent to relevant files only.
    *
@@ -30,7 +22,6 @@ export interface FsAdapterOptions {
   exclude?: string[];
 }
 
-const DEFAULT_MAX_FILE_SIZE = 128 * 1024; // 128 KiB
 const DEFAULT_EXCLUDE = ["node_modules", ".git", "dist", ".next", ".turbo", "coverage", ".cache"];
 
 /**
@@ -45,7 +36,6 @@ const DEFAULT_EXCLUDE = ["node_modules", ".git", "dist", ".next", ".turbo", "cov
 export class FsAdapter implements SourceAdapter {
   private readonly root: string;
   private readonly realRoot: string;
-  private readonly maxFileSize: number;
   private readonly include: string[] | undefined;
   private readonly exclude: string[];
 
@@ -59,7 +49,6 @@ export class FsAdapter implements SourceAdapter {
     } catch {
       this.realRoot = this.root;
     }
-    this.maxFileSize = options.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
     this.include = options.include;
     this.exclude = options.exclude ?? DEFAULT_EXCLUDE;
   }
@@ -113,14 +102,6 @@ export class FsAdapter implements SourceAdapter {
 
     if (!stat.isFile()) {
       throw new Error(`Not a file: ${filePath}`);
-    }
-
-    if (stat.size > this.maxFileSize) {
-      return [
-        `[File too large to display: ${filePath}]`,
-        `Size: ${(stat.size / 1024).toFixed(1)} KiB (limit: ${(this.maxFileSize / 1024).toFixed(0)} KiB)`,
-        `Use list() to explore subdirectories or request a specific section.`,
-      ].join("\n");
     }
 
     return fs.promises.readFile(absolute, "utf8");

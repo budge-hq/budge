@@ -281,14 +281,19 @@ function formatToolCalls(toolCalls: ToolCallRecord[]): string {
 
 function parseListedPaths(result: string): string[] {
   const trimmed = result.trim();
-  if (!trimmed || trimmed === "(empty)" || trimmed.startsWith("[Error listing ")) {
+  if (
+    !trimmed ||
+    trimmed === "(empty)" ||
+    trimmed.startsWith("[Error listing ") ||
+    trimmed.startsWith("[Output truncated.")
+  ) {
     return [];
   }
 
   return trimmed
     .split("\n")
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter((line) => Boolean(line) && !line.startsWith("[Output truncated."));
 }
 
 function getStringArg(toolCall: ToolCallRecord, key: string): string | undefined {

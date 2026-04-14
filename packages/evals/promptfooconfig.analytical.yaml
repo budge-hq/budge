@@ -1,0 +1,300 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+# evals/promptfooconfig.analytical.yaml
+#
+# Analytical eval suite — Budge vs. full-context-dump baseline.
+# These are synthesis and reasoning questions, not factual recall.
+#
+# Scoring philosophy:
+#   - No icontains assertions. Answers are judgments, not string matches.
+#   - llm-rubric rewards depth, specificity, and actionability.
+#   - Rubrics explicitly penalize vague, surface-level, or incomplete answers.
+#   - threshold set per-question based on how hard the rubric is.
+#   - Each test includes a javascript token assertion. This measures whether Budge
+#     actually uses fewer tokens than baseline on synthesis tasks — the core claim.
+#     Baseline will always fail this assertion; that's expected and doesn't affect
+#     baseline's rubric score. For Budge, failing it means the agent over-read.
+#
+# Run:
+#   cd packages/evals
+#   npx promptfoo eval --config promptfooconfig.analytical.yaml
+#   npx promptfoo view
+
+description: "Budge vs. full-context-dump — analytical reasoning suite"
+
+providers:
+  - id: "file://providers/budge.ts"
+    label: "budge"
+    delay: 2000
+    config:
+      root: "../../../packages/core"
+      include: [".ts"]
+      orchestratorModel: "claude-sonnet-4-6"
+      workerModel: "claude-haiku-4-5-20251001"
+      provider: "anthropic"
+
+  - id: "file://providers/baseline.ts"
+    label: "baseline (full-context-dump)"
+    config:
+      root: "../../../packages/core"
+      include: [".ts"]
+      model: "claude-sonnet-4-6"
+      provider: "anthropic"
+
+prompts:
+  - "{{task}}"
+
+tests:
+  # ---------------------------------------------------------------------------
+  # 1. Error handling gaps
+  # ---------------------------------------------------------------------------
+  - description: "Find error handling gaps across the codebase"
+    vars:
+      task: >
+        Find all the places in this codebase where errors are silently swallowed,
+        where error messages lose important context, or where a failure in one place
+        could cause confusing behavior somewhere else. For each finding, name the
+        file, the specific location, and explain why it's a problem.
+    assert:
+      - type: llm-rubric
+        value: >
+          A high-quality answer must:
+          (1) Identify at least 3 specific locations with file names and function/line context — not just general observations.
+          (2) Distinguish between intentional degradation (e.g. run_subcalls catching per-call errors) and unintentional silent failures.
+          (3) Explain the downstream consequence of each gap, not just that it exists.
+          Penalize answers that are vague ("error handling could be improved throughout"),
+          that only list one or two findings, or that don't name specific files and locations.
+      - type: llm-rubric
+        value: >
+          Does the answer mention the catch block in budge.ts that catches buildHandoff failures
+          and falls back silently without logging? This is a specific, non-obvious gap.
+          Award full credit if mentioned, partial credit if a similar handoff-related gap is identified.
+      - type: javascript
+        value: "!output.metadata || output.metadata.totalTokens < 50000"
+        # Budge should use <100k tokens per analytical question.
+        # Baseline will fail this — that's the point. It measures Budge's efficiency claim.
+    threshold: 0.6
+
+  # ---------------------------------------------------------------------------
+  # 2. Implicit module contracts
+  # ---------------------------------------------------------------------------
+  - description: "Identify implicit contracts between modules not enforced by types"
+    vars:
+      task: >
+        Where are the implicit contracts between modules in this codebase that aren't
+        enforced by the type system? These are assumptions one module makes about another
+        that could be violated without a compile error. Name each contract, which modules
+        it spans, and what would break if it were violated.
+    assert:
+      - type: llm-rubric
+        value: >
+          A high-quality answer must:
+          (1) Identify at least 3 distinct implicit contracts, each spanning two named modules/files.
+          (2) For each, explain what assumption is being made and what the violation scenario looks like.
+          (3) Go beyond obvious ones — e.g. not just "SourceAdapter.read() must return a string."
+          Strong answers will identify contracts like: the assumption that finish tool result is
+          always a string (agent.ts assumes toolResult.output is string-coercible),
+          the assumption that TraceBuilder.build() is only called once,
+          or the assumption that subcall answers are always non-empty strings.
+          Penalize answers that only list type-level contracts already enforced by TypeScript,
+          or that give fewer than 3 findings with real specificity.
+      - type: javascript
+        value: "!output.metadata || output.metadata.totalTokens < 50000"
+        # Budge should use <100k tokens per analytical question.
+        # Baseline will fail this — that's the point. It measures Budge's efficiency claim.
+    threshold: 0.6
+
+  # ---------------------------------------------------------------------------
+  # 3. Edge cases missing from test suite
+  # ---------------------------------------------------------------------------
+  - description: "Find meaningful gaps in the test suite"
+    vars:
+      task: >
+        Review the test suite and identify the most meaningful gaps — behaviors that
+        are untested or undertested where a bug could ship undetected. Focus on cases
+        where the gap represents real risk, not just coverage for coverage's sake.
+        For each gap, explain what scenario is missing and what could go wrong.
+    assert:
+      - type: llm-rubric
+        value: >
+          A high-quality answer must:
+          (1) Identify at least 4 specific untested scenarios with enough detail to write the test.
+          (2) Prioritize by risk — not all gaps are equal, and a good answer explains why each matters.
+          (3) Reference specific test files and what they do/don't cover.
+          Strong answers will identify things like: no test for what happens when the orchestrator
+          calls finish before reading any sources, no test for McpAdapter cache invalidation after
+          a partial failure mid-pagination, no integration test for the full prepare() → handoff pipeline
+          with a real filesystem, or no test for ConversationAdapter with messages missing content fields.
+          Penalize answers that list obvious or low-risk gaps, or that don't explain the failure scenario.
+      - type: javascript
+        value: "!output.metadata || output.metadata.totalTokens < 50000"
+        # Budge should use <100k tokens per analytical question.
+        # Baseline will fail this — that's the point. It measures Budge's efficiency claim.
+    threshold: 0.6
+
+  # ---------------------------------------------------------------------------
+  # 4. Agent loop failure modes
+  # ---------------------------------------------------------------------------
+  - description: "Identify ways the agent loop could fail to make progress"
+    vars:
+      task: >
+        What are the ways the root agent loop could get stuck, fail to make progress,
+        or produce a degraded result without the caller knowing something went wrong?
+        Consider both the orchestrator behavior and the tool implementations.
+        For each failure mode, explain the trigger condition and what the caller observes.
+    assert:
+      - type: llm-rubric
+        value: >
+          A high-quality answer must:
+          (1) Identify at least 4 distinct failure modes with specific trigger conditions.
+          (2) Distinguish between failures that surface as errors vs. failures that silently
+          produce a degraded result (the more dangerous category).
+          (3) Explain what the caller observes for each — what does PreparedContext look like?
+          Strong answers will identify: hitting maxSteps with finishReason="max_steps" and
+          an empty answer string, the orchestrator calling run_subcall on a directory path
+          instead of a file path causing read errors that degrade to error strings in the answer,
+          the handoff worker returning empty text triggering the fallback with handoffFailed=true,
+          or the orchestrator getting into a list→read loop on a large filesystem without
+          ever calling finish. Penalize vague answers or answers that only describe the
+          maxSteps case without identifying subtler failure modes.
+      - type: javascript
+        value: "!output.metadata || output.metadata.totalTokens < 50000"
+        # Budge should use <100k tokens per analytical question.
+        # Baseline will fail this — that's the point. It measures Budge's efficiency claim.
+    threshold: 0.6
+
+  # ---------------------------------------------------------------------------
+  # 5. Concurrency hazards
+  # ---------------------------------------------------------------------------
+  - description: "Find concurrency hazards in the parallel subcall implementation"
+    vars:
+      task: >
+        Analyze the concurrency implementation in the codebase — specifically how
+        run_subcalls and runConcurrent work. What are the hazards, race conditions,
+        or correctness issues that could occur under concurrent execution?
+        Include both the current implementation and any risks in how results are
+        assembled and recorded in the trace.
+    assert:
+      - type: llm-rubric
+        value: >
+          A high-quality answer must:
+          (1) Accurately describe how runConcurrent works — the worker pool pattern,
+          the shared nextIndex counter, and Promise.all over a fixed-size worker array.
+          (2) Identify at least 2 real hazards or edge cases, not just theoretical ones.
+          (3) Address result ordering — does the implementation preserve input order? Why or why not?
+          Strong answers will identify: the results array uses index assignment (results[currentIndex])
+          which preserves order but leaves holes if tasks throw and aren't caught at that level,
+          the shared nextIndex mutation is safe in JS single-threaded event loop but would not be
+          in a true multi-threaded environment, or that trace.recordSubcall is called from concurrent
+          callbacks and while JS is single-threaded the interleaving order of subcall nodes in the
+          trace is non-deterministic. Penalize answers that incorrectly claim there are no
+          ordering guarantees, or that miss the index-based ordering mechanism entirely.
+      - type: javascript
+        value: "!output.metadata || output.metadata.totalTokens < 50000"
+        # Budge should use <100k tokens per analytical question.
+        # Baseline will fail this — that's the point. It measures Budge's efficiency claim.
+    threshold: 0.65
+
+  # ---------------------------------------------------------------------------
+  # 6. Source adapter design weaknesses
+  # ---------------------------------------------------------------------------
+  - description: "Critique the SourceAdapter interface design"
+    vars:
+      task: >
+        Critically analyze the SourceAdapter interface and its concrete implementations.
+        What are the design weaknesses, inconsistencies between implementations, or
+        cases where the interface contract is ambiguous or hard to implement correctly?
+        What would a developer building a custom adapter be surprised by or get wrong?
+    assert:
+      - type: llm-rubric
+        value: >
+          A high-quality answer must:
+          (1) Identify at least 3 specific design issues, not just general observations.
+          (2) Point to inconsistencies between implementations — how FilesAdapter, FsAdapter,
+          ConversationAdapter, and McpAdapter each interpret list() and read() differently.
+          (3) Identify at least one non-obvious trap for a custom adapter implementor.
+          Strong answers will identify: list() has no consistent contract for what path means
+          across adapters (FsAdapter uses relative paths, FilesAdapter ignores path entirely,
+          ConversationAdapter ignores path, McpAdapter ignores path), read() error behavior
+          is inconsistent (some throw, some return error strings), there's no way for an adapter
+          to signal "this path is a directory not a file" without throwing, or that describe()
+          is synchronous but may need async data in real implementations (e.g. an API-backed adapter).
+          Penalize surface-level answers that only observe the interface has three methods.
+      - type: javascript
+        value: "!output.metadata || output.metadata.totalTokens < 50000"
+        # Budge should use <100k tokens per analytical question.
+        # Baseline will fail this — that's the point. It measures Budge's efficiency claim.
+    threshold: 0.7
+
+  # ---------------------------------------------------------------------------
+  # 7. Handoff quality analysis
+  # ---------------------------------------------------------------------------
+  - description: "Analyze the handoff generation for failure modes and quality gaps"
+    vars:
+      task: >
+        The handoff generation pipeline takes the agent's answer and trace and synthesizes
+        a briefing for a downstream action agent. Analyze this pipeline end-to-end for
+        quality gaps, failure modes, and cases where the handoff could mislead or
+        under-inform the action agent. Be specific about what could go wrong and when.
+    assert:
+      - type: llm-rubric
+        value: >
+          A high-quality answer must:
+          (1) Analyze both the LLM synthesis path (buildHandoff) and the fallback path (buildFallbackHandoff).
+          (2) Identify at least 3 specific ways the handoff could be low-quality or misleading.
+          (3) Address the truncation behavior (truncate() at 200 chars) and its implications.
+          Strong answers will identify: the worker generating the handoff only sees the final answer
+          and a summarized trace — it doesn't see the raw file contents, so findings can be
+          fabricated or hallucinated, the truncate(answer, 200) in buildFallbackHandoff loses
+          most of the answer in the fallback case, the HANDOFF_SYSTEM_PROMPT instructs the worker
+          not to invent skipped counts but there's no enforcement mechanism.
+          Penalize vague answers about "hallucination risk" without specific grounding in the actual implementation.
+      - type: javascript
+        value: "!output.metadata || output.metadata.totalTokens < 50000"
+        # Budge should use <100k tokens per analytical question.
+        # Baseline will fail this — that's the point. It measures Budge's efficiency claim.
+    threshold: 0.65
+
+  # ---------------------------------------------------------------------------
+  # 8. What would break first at scale
+  # ---------------------------------------------------------------------------
+  - description: "Identify what breaks first when the codebase scales 10x"
+    vars:
+      task: >
+        Imagine this codebase or a codebase using this library scales to 10x its current size —
+        say 2000 TypeScript files instead of 20. What are the first things that would break
+        or degrade significantly? Be specific about which components fail, at what scale,
+        and why. Include both the library internals and the agent behavior.
+    assert:
+      - type: llm-rubric
+        value: >
+          A high-quality answer must:
+          (1) Identify at least 3 specific components or behaviors that degrade, with reasoning.
+          (2) Distinguish between hard failures (things that error) and soft degradations
+          (things that produce worse results without erroring).
+          (3) Ground each point in specific implementation details — not just "it'll be slow."
+          Strong answers will identify: the orchestrator's system prompt includes all source
+          descriptions via buildSourceDescriptions which stays small, but the agent may need
+          many more list/read round trips to navigate a large tree, inflating root token usage
+          and step count toward maxSteps, the describe() method on FsAdapter does a full
+          recursive countFiles() on every prepare() call which is O(n) in file count,
+          or that run_subcalls with concurrency=5 across hundreds of parallel tasks creates
+          significant memory pressure from holding all content strings in flight simultaneously.
+          Penalize answers that only mention token limits without explaining which specific
+          code paths hit them first.
+      - type: javascript
+        value: "!output.metadata || output.metadata.totalTokens < 50000"
+        # Budge should use <100k tokens per analytical question.
+        # Baseline will fail this — that's the point. It measures Budge's efficiency claim.
+    threshold: 0.6
+
+outputPath: "./results/analytical-latest.json"
+sharing: false
+
+# Run options
+evaluateOptions:
+  # Analytical questions with agentic loops can take 3-5 minutes each.
+  # Default promptfoo timeout is 300s — bump to 800s to give the orchestrator room.
+  timeoutMs: 800000
+  # Run sequentially to avoid parallel API pressure stacking timeouts.
+  # Analytical questions are expensive enough that parallelism hurts more than it helps.
+  maxConcurrency: 1

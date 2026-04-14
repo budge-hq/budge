@@ -5,9 +5,10 @@ import type { LanguageModel } from "ai";
 import type { ZodType } from "zod";
 import type { SourceAdapter } from "./sources/interface.ts";
 import type { TraceBuilder } from "./trace.ts";
-import type { ToolCallEvent } from "./types.ts";
+import type { SubcallTraceNode, ToolCallEvent } from "./types.ts";
 import { makeSubcallNode } from "./trace.ts";
 import { runConcurrent, runSubcall } from "./subcall.ts";
+import { DEFAULT_LIMITS, Truncator } from "./truncation.ts";
 
 /**
  * Options for building the agent tool set.
@@ -20,6 +21,7 @@ export interface BuildToolsOptions<S extends Record<string, SourceAdapter>> {
   onToolCall?: (event: ToolCallEvent) => void;
   subcallSchemas?: Record<string, ZodType>;
   concurrency?: number;
+  truncator?: Truncator;
 }
 
 /**
@@ -35,7 +37,16 @@ export interface BuildToolsOptions<S extends Record<string, SourceAdapter>> {
  * @internal
  */
 export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildToolsOptions<S>) {
-  const { sources, worker, trace, onToolCall, subcallSchemas, concurrency = 5 } = opts;
+  const {
+    sources,
+    worker,
+    trace,
+    onToolCall,
+    subcallSchemas,
+    concurrency = 5,
+    truncator = new Truncator(),
+  } = opts;
+  const hasSubcalls = true;
 
   return {
     read_source: tool({
@@ -62,15 +73,27 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
           result = `[Error reading ${source}/${path}: ${message}]`;
         }
 
+        const truncated = await truncator.apply(
+          result,
+          {
+            maxLines: DEFAULT_LIMITS.READ_MAX_LINES,
+            maxBytes: DEFAULT_LIMITS.READ_MAX_BYTES,
+            direction: "head",
+          },
+          { toolName: "read_source", hasSubcalls },
+        );
+
         trace.recordRead(source, path);
         trace.recordToolCall({
           tool: "read_source",
           args: { source, path },
-          result,
+          result: truncated.content,
           durationMs: Date.now() - startMs,
+          truncated: truncated.truncated,
+          overflowPath: truncated.overflowPath,
         });
 
-        return result;
+        return truncated.content;
       },
     }),
 
@@ -94,23 +117,34 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
 
         onToolCall?.({ tool: "list_source", args: { source, path } });
 
-        let result: string;
+        let result: { content: string; truncated: boolean; overflowPath?: string };
         try {
           const items = await adapter.list(path);
-          result = items.length === 0 ? "(empty)" : items.join("\n");
+          result = await truncator.applyArray(
+            items,
+            DEFAULT_LIMITS.LIST_MAX_ENTRIES,
+            formatListItems,
+            { toolName: "list_source", hasSubcalls, itemType: "entries" },
+          );
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          result = `[Error listing ${source}/${path ?? ""}: ${message}]`;
+          result = await truncator.apply(
+            `[Error listing ${source}/${path ?? ""}: ${message}]`,
+            { direction: "head" },
+            { toolName: "list_source", hasSubcalls },
+          );
         }
 
         trace.recordToolCall({
           tool: "list_source",
           args: { source, path },
-          result,
+          result: result.content,
           durationMs: Date.now() - startMs,
+          truncated: result.truncated,
+          overflowPath: result.overflowPath,
         });
 
-        return result;
+        return result.content;
       },
     }),
 
@@ -139,6 +173,7 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
           .describe("Optional structured output schema name registered on budge.prepare()"),
       }),
       execute: async ({ source, path, task, schemaName }) => {
+        const startMs = Date.now();
         const adapter = resolveSource(sources, source);
         const schema = schemaName ? resolveSubcallSchema(subcallSchemas, schemaName) : undefined;
         const subcallArgs = schemaName
@@ -157,15 +192,24 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
           schemaName,
         });
 
-        trace.recordSubcall(subcallNode);
+        const tracedSubcallNode = await truncateSubcallNode(
+          truncator,
+          subcallNode,
+          "run_subcall",
+          hasSubcalls,
+        );
+
+        trace.recordSubcall(tracedSubcallNode);
         trace.recordToolCall({
           tool: "run_subcall",
           args: subcallArgs,
-          result: subcallNode.answer,
-          durationMs: subcallNode.durationMs,
+          result: tracedSubcallNode.answer,
+          durationMs: Date.now() - startMs,
+          truncated: tracedSubcallNode.truncated,
+          overflowPath: tracedSubcallNode.overflowPath,
         });
 
-        return subcallNode.answer;
+        return tracedSubcallNode.answer;
       },
     }),
 
@@ -222,7 +266,12 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
                 schemaName: call.schemaName,
               });
 
-              return { ...node, parallel: true };
+              return truncateSubcallNode(
+                truncator,
+                { ...node, parallel: true },
+                `run_subcalls[${index}]`,
+                hasSubcalls,
+              );
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
               return makeSubcallNode({
@@ -256,6 +305,7 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
           args: { calls },
           result: safeStableStringify(result) ?? "[]",
           durationMs: Date.now() - startMs,
+          truncated: false,
         });
 
         return result;
@@ -289,6 +339,37 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
       },
     }),
   } as const;
+}
+
+async function truncateSubcallNode(
+  truncator: Truncator,
+  node: SubcallTraceNode,
+  toolName: string,
+  hasSubcalls: boolean,
+): Promise<SubcallTraceNode> {
+  const truncated = await truncator.apply(
+    node.answer,
+    {
+      maxBytes: DEFAULT_LIMITS.SUBCALL_MAX_BYTES,
+      direction: "tail",
+    },
+    { toolName, hasSubcalls },
+  );
+
+  if (!truncated.truncated) {
+    return node;
+  }
+
+  return {
+    ...node,
+    answer: truncated.content,
+    truncated: true,
+    overflowPath: truncated.overflowPath,
+  };
+}
+
+function formatListItems(items: string[]): string {
+  return items.length === 0 ? "(empty)" : items.join("\n");
 }
 
 function resolveSubcallSchema(schemas: Record<string, ZodType> | undefined, name: string): ZodType {

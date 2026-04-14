@@ -1,0 +1,197 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+# evals/promptfooconfig.yaml
+#
+# Budge vs. baseline (full-context-dump) evaluation suite.
+# Targets: packages/core (budge codebase to start)
+#
+# Run:
+#   cd evals
+#   npx promptfoo eval
+#   npx promptfoo view
+
+description: "Budge vs. full-context-dump baseline — packages/core"
+
+# ---------------------------------------------------------------------------
+# Providers
+# ---------------------------------------------------------------------------
+providers:
+  - id: "file://providers/budge.ts"
+    label: "budge"
+    config:
+      root: "../../../packages/core"
+      include: [".ts"]
+      orchestratorModel: "claude-sonnet-4-6"
+      workerModel: "claude-haiku-4-5-20251001"
+      provider: "anthropic"
+
+  - id: "file://providers/baseline.ts"
+    label: "baseline (full-context-dump)"
+    config:
+      root: "../../../packages/core"
+      include: [".ts"]
+      model: "claude-sonnet-4-6"
+      provider: "anthropic"
+
+# ---------------------------------------------------------------------------
+# Prompt
+# The providers receive this as the `prompt` argument.
+# {{task}} is substituted from each test case's vars.
+# ---------------------------------------------------------------------------
+prompts:
+  - "{{task}}"
+
+# ---------------------------------------------------------------------------
+# Test cases
+#
+# Scoring strategy:
+#   - `contains` / `icontains`: deterministic ground truth you know is correct
+#   - `javascript`: custom logic (e.g. check token ratio)
+#   - `llm-rubric`: use sparingly, only where ground truth is fuzzy
+#
+# Each test has a `threshold` — fraction of assertions that must pass.
+# ---------------------------------------------------------------------------
+tests:
+  # --- Structural / navigational questions (high confidence ground truth) ---
+
+  - description: "Identify the five tools the agent has access to"
+    vars:
+      task: "What are the five tools available to the root agent, and what does each one do?"
+    assert:
+      - type: icontains
+        value: "read_source"
+      - type: icontains
+        value: "list_source"
+      - type: icontains
+        value: "run_subcall"
+      - type: icontains
+        value: "run_subcalls"
+      - type: icontains
+        value: "finish"
+    threshold: 1.0
+
+  - description: "Identify where token usage is accumulated"
+    vars:
+      task: "Where in the codebase is token usage tracked and accumulated? Name the file and the specific mechanism."
+    assert:
+      - type: icontains
+        value: "trace.ts"
+      - type: icontains
+        value: "TraceBuilder"
+      - type: icontains
+        value: "addRootUsage"
+    threshold: 0.8
+
+  - description: "Explain the two-phase handoff architecture"
+    vars:
+      task: "Explain the two-phase architecture — what happens in the agent phase vs the handoff phase, and which files own each phase?"
+    assert:
+      - type: icontains
+        value: "agent.ts"
+      - type: icontains
+        value: "handoff.ts"
+      - type: icontains
+        value: "runAgent"
+      - type: icontains
+        value: "buildHandoff"
+    threshold: 0.75
+
+  - description: "Identify the stopWhen condition in the agent loop"
+    vars:
+      task: "What conditions stop the root agent loop, and where exactly is this configured in the code?"
+    assert:
+      - type: icontains
+        value: "stopWhen"
+      - type: icontains
+        value: "hasToolCall"
+      - type: icontains
+        value: "stepCountIs"
+      - type: icontains
+        value: "agent.ts"
+    threshold: 0.9
+
+  - description: "Explain path traversal protection in FsAdapter"
+    vars:
+      task: "How does FsAdapter protect against path traversal attacks? Describe both checks it performs."
+    assert:
+      - type: icontains
+        value: "realpath"
+      - type: icontains
+        value: "traversal"
+      # Should mention both string check AND symlink/realpath check
+      - type: llm-rubric
+        value: "The answer describes two distinct traversal checks: (1) a string-based check on the resolved path, and (2) a realpath/symlink dereference check"
+    threshold: 0.8
+
+  - description: "Identify the concurrency mechanism in run_subcalls"
+    vars:
+      task: "How does run_subcalls limit concurrency? What function implements it and what is the default limit?"
+    assert:
+      - type: icontains
+        value: "runConcurrent"
+      - type: icontains
+        value: "subcall.ts"
+      - type: icontains
+        value: "5"
+    threshold: 0.9
+
+  # --- Synthesis / reasoning questions (fuzzier, use rubric) ---
+
+  - description: "Identify all SourceAdapter implementations"
+    vars:
+      task: "List every concrete implementation of SourceAdapter in the codebase. For each, describe what it wraps and any notable constraints."
+    assert:
+      - type: icontains
+        value: "FsAdapter"
+      - type: icontains
+        value: "FilesAdapter"
+      - type: icontains
+        value: "ConversationAdapter"
+      - type: icontains
+        value: "TextAdapter"
+      - type: icontains
+        value: "McpAdapter"
+    threshold: 1.0
+
+  - description: "Explain structured subcall output flow"
+    vars:
+      task: "Walk me through what happens when run_subcall is called with a schemaName. Trace the full execution path from the tool call to what gets stored in the trace."
+    assert:
+      - type: icontains
+        value: "Output.object"
+      - type: icontains
+        value: "structured"
+      - type: icontains
+        value: "schemaName"
+      - type: llm-rubric
+        value: "The answer traces the path from the tool call through runSubcall, through generateText with Output.object, and explains that both the structured output and serialized answer are stored in the SubcallTraceNode"
+    threshold: 0.75
+
+  - description: "Explain fallback handoff behavior"
+    vars:
+      task: "What happens if the handoff synthesis step fails? How does the system recover and what does the caller receive?"
+    assert:
+      - type: icontains
+        value: "buildFallbackHandoff"
+      - type: icontains
+        value: "handoffFailed"
+      - type: llm-rubric
+        value: "The answer explains that buildHandoff failure is caught, buildFallbackHandoff is called instead, and handoffFailed is set to true on the returned PreparedContext"
+    threshold: 0.8
+
+  - description: "Explain MCP readonly filtering defaults"
+    vars:
+      task: "What is the default filtering behavior of McpAdapter when no options are provided? Which tools get exposed and why?"
+    assert:
+      - type: icontains
+        value: "readonly"
+      - type: llm-rubric
+        value: "The answer correctly identifies that readonly defaults to true, and explains the READONLY_PREFIXES list (get_, list_, search_, read_, fetch_, query_, describe_) as the filter mechanism"
+    threshold: 0.8
+
+# ---------------------------------------------------------------------------
+# Output configuration
+# ---------------------------------------------------------------------------
+outputPath: "./results/latest.json"
+
+# How many test cases to run in parallel
+sharing: false

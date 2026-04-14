@@ -6,6 +6,7 @@ import * as agentModule from "../src/agent.ts";
 import { createBudge } from "../src/budge.ts";
 import * as handoffModule from "../src/handoff.ts";
 import { buildFallbackHandoff, buildHandoff } from "../src/handoff.ts";
+import { Truncator } from "../src/truncation.ts";
 import type { RuntimeTrace } from "../src/types.ts";
 
 vi.mock("ai", async () => {
@@ -321,5 +322,29 @@ describe("createBudge().prepare()", () => {
       }),
     );
     expect(context.handoffFailed).toBe(true);
+  });
+
+  it("runs one cleanup per prepare call without creating timers", async () => {
+    const cleanupSpy = vi.spyOn(Truncator.prototype, "cleanup").mockResolvedValue(undefined);
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    vi.spyOn(agentModule, "runAgent").mockResolvedValue({
+      answer: "Prepared auth analysis.",
+      finishReason: "finish",
+    });
+    vi.spyOn(handoffModule, "buildHandoff").mockResolvedValue("briefing");
+
+    const budge = createBudge({ orchestrator, worker });
+
+    await budge.prepare({
+      task: "Review auth flows",
+      sources: { codebase: makeAdapter() },
+    });
+    await budge.prepare({
+      task: "Review auth flows again",
+      sources: { codebase: makeAdapter() },
+    });
+
+    expect(cleanupSpy).toHaveBeenCalledTimes(2);
+    expect(setIntervalSpy).not.toHaveBeenCalled();
   });
 });

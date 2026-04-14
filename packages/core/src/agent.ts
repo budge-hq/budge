@@ -1,6 +1,7 @@
 import { generateText, hasToolCall, stepCountIs } from "ai";
 import type { LanguageModel } from "ai";
 import type { SourceAdapter } from "./sources/interface.ts";
+import type { Truncator } from "./truncation.ts";
 import type { PrepareOptions, RunFinishReason, TokenUsage } from "./types.ts";
 import { TraceBuilder } from "./trace.ts";
 import { buildTools } from "./tools.ts";
@@ -17,6 +18,7 @@ export interface RunAgentOptions<S extends Record<string, SourceAdapter>> extend
   worker: LanguageModel;
   concurrency: number;
   trace: TraceBuilder<S>;
+  truncator: Truncator;
 }
 
 /**
@@ -46,9 +48,18 @@ export async function runAgent<S extends Record<string, SourceAdapter>>(
     subcallSchemas,
     concurrency,
     trace,
+    truncator,
   } = opts;
 
-  const tools = buildTools({ sources, worker, trace, onToolCall, subcallSchemas, concurrency });
+  const tools = buildTools({
+    sources,
+    worker,
+    trace,
+    onToolCall,
+    subcallSchemas,
+    concurrency,
+    truncator,
+  });
 
   const sourceDescriptions = buildSourceDescriptions(sources);
 
@@ -82,10 +93,12 @@ export async function runAgent<S extends Record<string, SourceAdapter>>(
     }
   }
 
-  // No finish tool call — the step limit fired.
+  // No finish tool call — classify whether the loop hit maxSteps.
+  const hitStepLimit = result.steps.length >= maxSteps;
+
   return {
     answer: result.text || "",
-    finishReason: "max_steps",
+    finishReason: hitStepLimit ? "max_steps" : "no_finish",
   };
 }
 
@@ -127,7 +140,7 @@ function buildSystemPrompt(sourceDescriptions: string): string {
     "  on a specific file or directory.",
     "- Prefer `run_subcalls` over repeated sequential `run_subcall` calls when the sub-tasks are independent.",
     "  Sequential single sub-calls for independent work are an antipattern.",
-    "- Call `finish` only when you can give a complete, accurate answer.",
+    "- Once you have read the relevant files and can answer the task, call `finish` immediately. Do not continue exploring after you have enough information. A good answer based on what you've read is better than an incomplete loop.",
     "- Your answer should be well-structured and address the task directly.",
   ].join("\n");
 }

@@ -107,7 +107,7 @@ interface PreparedContext<S> {
   task: string;
   answer: string;
   handoff: string;
-  finishReason: "finish" | "max_steps";
+  finishReason: "finish" | "max_steps" | "no_finish";
   trace: RuntimeTrace<S>;
 }
 ```

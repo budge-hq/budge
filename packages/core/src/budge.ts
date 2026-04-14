@@ -3,6 +3,7 @@ import type { BudgeOptions, PrepareOptions, PreparedContext } from "./types.ts";
 import { buildHandoff, buildFallbackHandoff } from "./handoff.ts";
 import { TraceBuilder } from "./trace.ts";
 import { runAgent } from "./agent.ts";
+import { Truncator } from "./truncation.ts";
 
 /**
  * A Budge instance. Create one with `createBudge()` and reuse it
@@ -72,12 +73,14 @@ export interface Budge {
 export function createBudge(options: BudgeOptions): Budge {
   const { orchestrator, worker, concurrency = 5 } = options;
   const normalizedConcurrency = Math.max(1, Math.floor(concurrency));
+  const truncator = new Truncator();
 
   return {
     async prepare<S extends Record<string, SourceAdapter>>(
       prepareOptions: PrepareOptions<S>,
     ): Promise<PreparedContext<S>> {
       const { task, sources, onToolCall, maxSteps, subcallSchemas } = prepareOptions;
+      void truncator.cleanup().catch(() => {});
 
       const trace = new TraceBuilder<S>(task);
 
@@ -91,6 +94,7 @@ export function createBudge(options: BudgeOptions): Budge {
         subcallSchemas,
         concurrency: normalizedConcurrency,
         trace,
+        truncator,
       });
 
       const builtTrace = trace.build();
