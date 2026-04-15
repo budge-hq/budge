@@ -282,7 +282,7 @@ describe("buildTools() — resolveSourceForMethod errors", () => {
     ).rejects.toThrow(/unknown source.*nonexistent/i);
   });
 
-  it("throws helpful error when source doesn't support the called method", async () => {
+  it("returns an error string when source doesn't support the called method", async () => {
     const tools = buildTools({
       sources: {
         notes: makeSearchSource(),
@@ -293,12 +293,11 @@ describe("buildTools() — resolveSourceForMethod errors", () => {
       truncator: makeTruncator(),
     }) as Record<string, any>;
 
-    // notes has no read() — should fail with a helpful message mentioning docs
-    await expect(
-      tools.run_subcall.execute(
-        { source: "notes", path: "chunk:0", task: "summarize" },
-        {} as never,
-      ),
-    ).rejects.toThrow(/does not support read/i);
+    // notes has no read() — run_subcall should degrade to an error string
+    const result = await tools.run_subcall.execute(
+      { source: "notes", path: "chunk:0", task: "summarize" },
+      {} as never,
+    );
+    expect(result).toMatch(/does not support read/i);
   });
 });

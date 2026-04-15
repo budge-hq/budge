@@ -77,6 +77,12 @@ const DEFAULT_CHUNK_THRESHOLD = 4000; // tokens
 const DEFAULT_CHUNK_SIZE = 500; // tokens per chunk
 const DEFAULT_CHUNK_OVERLAP = 50; // overlap tokens
 
+/** Access-pattern note appended to describe() for non-chunked sources. */
+const ACCESS_NOTE_INLINE = `Read via read_source with path "text".`;
+/** Access-pattern note appended to describe() for chunked sources. */
+const ACCESS_NOTE_CHUNKED =
+  "List chunks via list_source, search via search_source, or read individual chunks via read_source.";
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -114,7 +120,7 @@ export function text(content: string, options: TextSourceOptions = {}): SourceAd
     // Simple blob — expose only read()
     return {
       describe: () =>
-        `Inline text (~${tokenCount} token${tokenCount === 1 ? "" : "s"}). Read via read_source with path "text".`,
+        `Inline text (~${tokenCount} token${tokenCount === 1 ? "" : "s"}). ${ACCESS_NOTE_INLINE}`,
 
       read: async (path: string) => {
         if (path !== "text") {
@@ -135,7 +141,7 @@ export function text(content: string, options: TextSourceOptions = {}): SourceAd
       return (
         `Chunked text (${chunks.length} chunk${chunks.length === 1 ? "" : "s"}, ` +
         `~${avgTokens} tokens each, ~${tokenCount} tokens total). ` +
-        `List chunks via list_source, search via search_source, or read individual chunks via read_source.`
+        ACCESS_NOTE_CHUNKED
       );
     },
 
@@ -197,19 +203,17 @@ export function json(value: unknown, options: TextSourceOptions = {}): SourceAda
 
   // Build the underlying text adapter — it handles all chunking and search.
   const inner = text(serialized, options);
-
-  // Override describe() with a JSON-aware summary, preserving the access-pattern
-  // note from the inner adapter (inline vs chunked).
-  const innerDesc = inner.describe();
-  // Strip the generic "Inline text (~N tokens)." or "Chunked text (...)" prefix
-  // and replace with a JSON-specific one.
-  const accessNote = innerDesc.replace(/^(Inline text|Chunked text)[^.]*\.\s*/, "");
+  // Determine which access note to append based on the same chunking decision
+  // text() made internally — avoids coupling to text()'s describe() format.
+  const threshold = options.chunkThreshold ?? DEFAULT_CHUNK_THRESHOLD;
+  const isChunked = options.chunk !== false && tokenCount > threshold;
+  const accessNote = isChunked ? ACCESS_NOTE_CHUNKED : ACCESS_NOTE_INLINE;
 
   return {
     ...inner,
     describe: () => {
       const base = `JSON object ${keysSummary} (~${tokenCount} token${tokenCount === 1 ? "" : "s"}).`;
-      return accessNote ? `${base} ${accessNote}` : base;
+      return `${base} ${accessNote}`;
     },
   };
 }

@@ -354,8 +354,15 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
       }),
       execute: async ({ source, path, task, schemaName }) => {
         const startMs = Date.now();
-        const adapter = resolveSourceForMethod(sources, source, "read");
-        const schema = schemaName ? resolveSubcallSchema(subcallSchemas, schemaName) : undefined;
+        let adapter: SourceAdapter;
+        let schema: ZodType | undefined;
+        try {
+          adapter = resolveSourceForMethod(sources, source, "read");
+          schema = schemaName ? resolveSubcallSchema(subcallSchemas, schemaName) : undefined;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return `[Error: ${message}]`;
+        }
         const subcallArgs = schemaName
           ? { source, path, task, schemaName }
           : { source, path, task };

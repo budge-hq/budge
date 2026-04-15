@@ -342,7 +342,7 @@ describe("buildTools().run_subcall", () => {
     expect(built.tree.toolCalls[0]?.overflowPath).toBeUndefined();
   });
 
-  it("throws a helpful error for unknown schema names", async () => {
+  it("returns an error string for unknown schema names (consistent with run_subcalls)", async () => {
     const tools = buildTools({
       sources: { codebase: makeAdapter() },
       worker,
@@ -353,17 +353,38 @@ describe("buildTools().run_subcall", () => {
       },
     });
 
-    await expect(
-      tools.run_subcall.execute!(
-        {
-          source: "codebase",
-          path: "src/auth.ts",
-          task: "audit fetch handling",
-          schemaName: "missing",
-        },
-        {} as never,
-      ),
-    ).rejects.toThrow('Unknown subcall schema: "missing". Available schemas: audit, summary');
+    const result = await tools.run_subcall.execute!(
+      {
+        source: "codebase",
+        path: "src/auth.ts",
+        task: "audit fetch handling",
+        schemaName: "missing",
+      },
+      {} as never,
+    );
+
+    expect(result).toMatch(/Unknown subcall schema.*missing/i);
+    // execute() resolved — the error is surfaced as a string result the
+    // orchestrator can see and recover from, not an unhandled rejection.
+  });
+
+  it("returns an error string for unknown source names in run_subcall", async () => {
+    mockGenerate.mockResolvedValue({
+      text: "ok",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+    const tools = buildTools({
+      sources: { codebase: makeAdapter() },
+      worker,
+      trace: new TraceBuilder("bad source"),
+    });
+
+    const result = await tools.run_subcall.execute!(
+      { source: "nonexistent", path: "src/auth.ts", task: "summarize" },
+      {} as never,
+    );
+
+    expect(result).toMatch(/unknown source.*nonexistent/i);
   });
 
   it("runs run_subcalls in parallel while preserving input order", async () => {
