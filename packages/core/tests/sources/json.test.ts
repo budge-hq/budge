@@ -57,6 +57,26 @@ describe("source.json() — describe()", () => {
     const desc = adapter.describe();
     expect(desc).toContain("JSON object");
   });
+
+  it("caps key list at 20 and appends '… and N more' for large objects", () => {
+    const large: Record<string, number> = {};
+    for (let i = 0; i < 50; i++) large[`key_${i}`] = i;
+    const adapter = json(large);
+    const desc = adapter.describe();
+    // Should mention some keys but not all 50
+    expect(desc).toContain("… and 30 more");
+    // Should not contain key_20 (the 21st key, beyond the cap)
+    expect(desc).not.toContain("key_20");
+  });
+
+  it("shows all keys when count is exactly at the cap", () => {
+    const exact: Record<string, number> = {};
+    for (let i = 0; i < 20; i++) exact[`k${i}`] = i;
+    const adapter = json(exact);
+    const desc = adapter.describe();
+    expect(desc).not.toContain("more");
+    expect(desc).toContain("k19");
+  });
 });
 
 // ---------------------------------------------------------------------------
