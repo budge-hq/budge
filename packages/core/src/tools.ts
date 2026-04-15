@@ -417,11 +417,6 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
       execute: async ({ calls }) => {
         const startMs = Date.now();
 
-        const adapters = calls.map(({ source }) => resolveSourceForMethod(sources, source, "read"));
-        const schemas = calls.map(({ schemaName }) =>
-          schemaName ? resolveSubcallSchema(subcallSchemas, schemaName) : undefined,
-        );
-
         onToolCall?.({ tool: "run_subcalls", args: { calls } });
 
         const subcallNodes = await runConcurrent(
@@ -429,13 +424,18 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
             const startMs = Date.now();
 
             try {
+              const adapter = resolveSourceForMethod(sources, call.source, "read");
+              const schema = call.schemaName
+                ? resolveSubcallSchema(subcallSchemas, call.schemaName)
+                : undefined;
+
               const node = await runSubcall({
                 worker,
-                adapter: adapters[index]!,
+                adapter,
                 sourceName: call.source,
                 path: call.path,
                 task: call.task,
-                schema: schemas[index],
+                schema,
                 schemaName: call.schemaName,
               });
 
