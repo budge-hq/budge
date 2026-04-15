@@ -46,7 +46,11 @@ export interface TextSourceOptions {
         strategy?: "fixed" | "sentences" | "paragraphs";
         /** Tokens per chunk. Default: 500. */
         size?: number;
-        /** Overlap tokens between consecutive chunks. Default: 50. */
+        /**
+         * Overlap tokens between consecutive chunks. Default: 50.
+         * Only applies to the `"fixed"` strategy — boundary-aware strategies
+         * (`"sentences"`, `"paragraphs"`) do not support overlap.
+         */
         overlap?: number;
       }
     | false;
@@ -301,7 +305,6 @@ function mergeSegments(segments: string[], maxTokens: number): string[] {
 
 interface Bm25Index {
   documents: string[];
-  tokenizedDocs: string[][];
   /** Maps document content → its index in `chunks`. First occurrence wins for duplicates. */
   docIndexMap: Map<string, number>;
 }
@@ -316,14 +319,13 @@ function tokenizeForBm25(text: string): string[] {
 
 function buildBm25Index(chunks: Chunk[]): Bm25Index {
   const documents = chunks.map((c) => c.content);
-  const tokenizedDocs = documents.map(tokenizeForBm25);
   // First occurrence wins for duplicate content (e.g. identical overlap chunks):
   // iterate in reverse so earlier indices overwrite later ones in the Map.
   const docIndexMap = new Map<string, number>();
   for (let i = documents.length - 1; i >= 0; i--) {
     docIndexMap.set(documents[i]!, i);
   }
-  return { documents, tokenizedDocs, docIndexMap };
+  return { documents, docIndexMap };
 }
 
 async function bm25Search(
