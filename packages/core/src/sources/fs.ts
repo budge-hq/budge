@@ -321,10 +321,11 @@ function parseRipgrepJson(stdout: string, k: number): SearchMatch[] {
     }
 
     if (parsed.type !== "match") continue;
+    const matchParsed = parsed as RgMatchJsonLine;
 
-    const filePath = parsed.data.path?.text;
-    const matchLine = parsed.data.lines.text;
-    const lineNum = parsed.data.line_number;
+    const filePath = matchParsed.data.path?.text;
+    const matchLine = matchParsed.data.lines.text;
+    const lineNum = matchParsed.data.line_number;
 
     if (!filePath || matchLine === undefined || lineNum === null) continue;
 
