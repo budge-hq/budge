@@ -360,7 +360,7 @@ async function bm25Search(
 
   const matches: SearchMatch[] = [];
   for (const r of results) {
-    if (r.score <= 0) continue;
+    if (r.score <= 0) break; // results are sorted descending — first zero means all remaining are zero
     if (matches.length >= query.k) break;
     const idx = index.docIndexMap.get(r.document) ?? -1;
     if (idx === -1) continue; // library returned an unrecognised document — skip rather than misroute
