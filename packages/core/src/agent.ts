@@ -1,4 +1,4 @@
-import { generateText, hasToolCall, stepCountIs } from "ai";
+import { ToolLoopAgent, hasToolCall, stepCountIs } from "ai";
 import type { LanguageModel } from "ai";
 import type { SourceAdapter } from "./sources/interface.ts";
 import type { Truncator } from "./truncation.ts";
@@ -64,10 +64,9 @@ export async function runAgent<S extends Record<string, SourceAdapter>>(
 
   const sourceDescriptions = buildSourceDescriptions(sources);
 
-  const result = await generateText({
+  const agent = new ToolLoopAgent({
     model: orchestrator,
-    system: buildSystemPrompt(sourceDescriptions),
-    messages: [{ role: "user", content: task }],
+    instructions: buildSystemPrompt(sourceDescriptions),
     tools,
     stopWhen: [hasToolCall("finish"), stepCountIs(maxSteps)],
     onStepFinish(step) {
@@ -81,6 +80,8 @@ export async function runAgent<S extends Record<string, SourceAdapter>>(
       trace.addRootUsage(usage);
     },
   });
+
+  const result = await agent.generate({ prompt: task });
 
   // Check whether the agent called finish — walk steps in reverse
   for (let i = result.steps.length - 1; i >= 0; i--) {

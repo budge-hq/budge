@@ -10,7 +10,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { CallApiContextParams, ProviderOptions, ProviderResponse } from "promptfoo";
-import type { createBudge as CreateBudge, source as Source } from "@budge/core";
+import type { createBudge as CreateBudge, source as Source, ToolCallEvent } from "@budge/core";
 
 interface BudgeProviderConfig {
   root?: string;
@@ -93,7 +93,7 @@ export default class BudgeProvider {
           codebase: source.fs(sourceRoot, fsOptions),
         },
         maxSteps: config.maxSteps ?? 60,
-        onToolCall: (event) => {
+        onToolCall: (event: ToolCallEvent) => {
           const label =
             event.tool === "read_source" || event.tool === "run_subcall"
               ? `${event.tool} → ${event.args.source}/${event.args.path}`

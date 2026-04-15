@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { LanguageModel } from "ai";
-import { generateText } from "ai";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import { runAgent } from "../src/agent.ts";
 import * as agentModule from "../src/agent.ts";
@@ -15,15 +14,24 @@ import { buildTools } from "../src/tools.ts";
 import * as toolsModule from "../src/tools.ts";
 import { DEFAULT_LIMITS, Truncator } from "../src/truncation.ts";
 
+const { mockGenerate, agentInstances } = vi.hoisted(() => ({
+  mockGenerate: vi.fn(),
+  agentInstances: [] as Array<{ settings: Record<string, unknown> }>,
+}));
+
 vi.mock("ai", async () => {
   const actual = await vi.importActual<typeof import("ai")>("ai");
   return {
     ...actual,
-    generateText: vi.fn(),
+    ToolLoopAgent: class MockToolLoopAgent {
+      constructor(public settings: Record<string, unknown>) {
+        agentInstances.push(this);
+      }
+      generate = mockGenerate;
+    },
   };
 });
 
-const mockGenerateText = vi.mocked(generateText);
 const worker = { specificationVersion: "v3" as const } as LanguageModel;
 const orchestrator = { specificationVersion: "v3" as const } as LanguageModel;
 const tempDirs: string[] = [];
@@ -52,6 +60,7 @@ function makeAdapter() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  agentInstances.length = 0;
 });
 
 afterEach(() => {
@@ -62,10 +71,10 @@ afterEach(() => {
 
 describe("runSubcall()", () => {
   it("keeps the untyped path unchanged", async () => {
-    mockGenerateText.mockResolvedValue({
+    mockGenerate.mockResolvedValue({
       text: "summary",
       usage: { inputTokens: 3, outputTokens: 4 },
-    } as Awaited<ReturnType<typeof generateText>>);
+    });
 
     const node = await runSubcall({
       worker,
@@ -78,9 +87,9 @@ describe("runSubcall()", () => {
     expect(node.answer).toBe("summary");
     expect(node.structured).toBeUndefined();
     expect(node.schemaName).toBeUndefined();
-    expect(mockGenerateText).toHaveBeenCalledWith(
-      expect.not.objectContaining({ output: expect.anything() }),
-    );
+    // Verify the agent was NOT constructed with an output option
+    const lastAgent = agentInstances[agentInstances.length - 1]!;
+    expect(lastAgent.settings).not.toHaveProperty("output");
   });
 
   it("stores structured output when a schema is provided", async () => {
@@ -92,10 +101,10 @@ describe("runSubcall()", () => {
       },
     ] as const;
 
-    mockGenerateText.mockResolvedValue({
+    mockGenerate.mockResolvedValue({
       output: structured,
       usage: { inputTokens: 5, outputTokens: 6 },
-    } as Awaited<ReturnType<typeof generateText>>);
+    });
 
     const node = await runSubcall({
       worker,
@@ -116,14 +125,14 @@ describe("runSubcall()", () => {
     expect(JSON.parse(node.answer)).toEqual(structured);
     expect(node.structured).toEqual(structured);
     expect(node.schemaName).toBe("fetch-audit");
-    expect(mockGenerateText).toHaveBeenCalledWith(
-      expect.objectContaining({ output: expect.any(Object) }),
-    );
+    // Verify the agent was constructed with an output option
+    const lastAgent = agentInstances[agentInstances.length - 1]!;
+    expect(lastAgent.settings).toHaveProperty("output");
   });
 
   it("rethrows structured output validation failures", async () => {
     const error = new Error("No object generated: response did not match schema.");
-    mockGenerateText.mockRejectedValue(error);
+    mockGenerate.mockRejectedValue(error);
 
     await expect(
       runSubcall({
@@ -154,10 +163,10 @@ describe("buildTools().run_subcall", () => {
     const events: Array<unknown> = [];
     const trace = new TraceBuilder("audit fetch handling");
 
-    mockGenerateText.mockResolvedValue({
+    mockGenerate.mockResolvedValue({
       output: structured,
       usage: { inputTokens: 2, outputTokens: 3 },
-    } as Awaited<ReturnType<typeof generateText>>);
+    });
 
     const tools = buildTools({
       sources: { codebase: makeAdapter() },
@@ -220,10 +229,10 @@ describe("buildTools().run_subcall", () => {
     const overflowDir = makeTempDir();
     const longAnswer = `${"prefix-"}${"x".repeat(DEFAULT_LIMITS.SUBCALL_MAX_BYTES + 1_024)}conclusion`;
 
-    mockGenerateText.mockResolvedValue({
+    mockGenerate.mockResolvedValue({
       text: longAnswer,
       usage: { inputTokens: 2, outputTokens: 3 },
-    } as Awaited<ReturnType<typeof generateText>>);
+    });
 
     const tools = buildTools({
       sources: { codebase: makeAdapter() },
@@ -271,10 +280,10 @@ describe("buildTools().run_subcall", () => {
       context: "x".repeat(DEFAULT_LIMITS.SUBCALL_MAX_BYTES + 2_048),
     };
 
-    mockGenerateText.mockResolvedValue({
+    mockGenerate.mockResolvedValue({
       output: structured,
       usage: { inputTokens: 2, outputTokens: 3 },
-    } as Awaited<ReturnType<typeof generateText>>);
+    });
 
     const tools = buildTools({
       sources: { codebase: makeAdapter() },
@@ -360,14 +369,15 @@ describe("buildTools().run_subcall", () => {
       }),
     };
 
-    mockGenerateText.mockImplementation(async (args) => {
-      const content = args.messages?.[0]?.content;
-      const text = typeof content === "string" ? content : "";
-      const path = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
+    mockGenerate.mockImplementation(async (args: { prompt?: unknown }) => {
+      const messages = args.prompt;
+      const firstMessage = Array.isArray(messages) ? messages[0] : undefined;
+      const text = typeof firstMessage?.content === "string" ? firstMessage.content : "";
+      const filePath = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
       return {
-        text: `analysis for ${path}`,
+        text: `analysis for ${filePath}`,
         usage: { inputTokens: 1, outputTokens: 1 },
-      } as Awaited<ReturnType<typeof generateText>>;
+      };
     });
 
     const tools = buildTools({
@@ -468,24 +478,25 @@ describe("buildTools().run_subcall", () => {
     ).rejects.toThrow('Unknown subcall schema: "missing". Available schemas: audit');
 
     expect(adapter.read).not.toHaveBeenCalled();
-    expect(mockGenerateText).not.toHaveBeenCalled();
+    expect(mockGenerate).not.toHaveBeenCalled();
     expect(events).toEqual([]);
   });
 
   it("degrades execution failures into per-result answers", async () => {
     const trace = new TraceBuilder("batch analysis");
 
-    mockGenerateText.mockImplementation(async (args) => {
-      const content = args.messages?.[0]?.content;
-      const text = typeof content === "string" ? content : "";
-      const path = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
-      if (path === "src/b.ts") {
+    mockGenerate.mockImplementation(async (args: { prompt?: unknown }) => {
+      const messages = args.prompt;
+      const firstMessage = Array.isArray(messages) ? messages[0] : undefined;
+      const text = typeof firstMessage?.content === "string" ? firstMessage.content : "";
+      const filePath = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
+      if (filePath === "src/b.ts") {
         throw new Error("model exploded");
       }
       return {
-        text: `analysis for ${path}`,
+        text: `analysis for ${filePath}`,
         usage: { inputTokens: 1, outputTokens: 1 },
-      } as Awaited<ReturnType<typeof generateText>>;
+      };
     });
 
     const tools = buildTools({
@@ -534,14 +545,15 @@ describe("buildTools().run_subcall", () => {
     const overflowDir = makeTempDir();
     const longAnswer = `${"prefix-"}${"x".repeat(DEFAULT_LIMITS.SUBCALL_MAX_BYTES + 2_048)}conclusion-b`;
 
-    mockGenerateText.mockImplementation(async (args) => {
-      const content = args.messages?.[0]?.content;
-      const text = typeof content === "string" ? content : "";
-      const path = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
+    mockGenerate.mockImplementation(async (args: { prompt?: unknown }) => {
+      const messages = args.prompt;
+      const firstMessage = Array.isArray(messages) ? messages[0] : undefined;
+      const text = typeof firstMessage?.content === "string" ? firstMessage.content : "";
+      const filePath = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
       return {
-        text: path === "src/b.ts" ? longAnswer : `analysis for ${path}`,
+        text: filePath === "src/b.ts" ? longAnswer : `analysis for ${filePath}`,
         usage: { inputTokens: 1, outputTokens: 1 },
-      } as Awaited<ReturnType<typeof generateText>>;
+      };
     });
 
     const tools = buildTools({
@@ -594,21 +606,22 @@ describe("buildTools().run_subcall", () => {
       context: "x".repeat(DEFAULT_LIMITS.SUBCALL_MAX_BYTES + 2_048),
     };
 
-    mockGenerateText.mockImplementation(async (args) => {
-      const content = args.messages?.[0]?.content;
-      const text = typeof content === "string" ? content : "";
-      const path = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
+    mockGenerate.mockImplementation(async (args: { prompt?: unknown }) => {
+      const messages = args.prompt;
+      const firstMessage = Array.isArray(messages) ? messages[0] : undefined;
+      const text = typeof firstMessage?.content === "string" ? firstMessage.content : "";
+      const filePath = /path: ([^)]+)\)/.exec(text)?.[1] ?? "unknown";
 
       return {
         output:
-          path === "src/b.ts"
+          filePath === "src/b.ts"
             ? structured
             : {
                 verdict: "present",
-                context: `analysis for ${path}`,
+                context: `analysis for ${filePath}`,
               },
         usage: { inputTokens: 1, outputTokens: 1 },
-      } as Awaited<ReturnType<typeof generateText>>;
+      };
     });
 
     const tools = buildTools({
@@ -669,11 +682,11 @@ describe("schema propagation", () => {
       audit: z.object({ verdict: z.enum(["missing", "present"]) }),
     };
 
-    mockGenerateText.mockResolvedValue({
+    mockGenerate.mockResolvedValue({
       steps: [],
       text: "",
       usage: { inputTokens: 0, outputTokens: 0 },
-    } as any);
+    });
 
     await runAgent({
       orchestrator,

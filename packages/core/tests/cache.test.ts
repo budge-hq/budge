@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { createBudge } from "../src/budge.ts";
 import { extractCachedTokens, withPromptCaching } from "../src/cache.ts";
 import type { LanguageModel } from "ai";
-import { generateText } from "ai";
 
 // ---------------------------------------------------------------------------
 // Helpers to invoke the middleware transform directly
@@ -350,18 +349,27 @@ describe("extractCachedTokens", () => {
 // Integration: createBudge wires withPromptCaching
 // ---------------------------------------------------------------------------
 
+const { mockGenerate, agentInstances } = vi.hoisted(() => ({
+  mockGenerate: vi.fn(),
+  agentInstances: [] as Array<{ settings: Record<string, unknown> }>,
+}));
+
 vi.mock("ai", async () => {
   const actual = await vi.importActual<typeof import("ai")>("ai");
   return {
     ...actual,
-    generateText: vi.fn(),
+    ToolLoopAgent: class MockToolLoopAgent {
+      constructor(public settings: Record<string, unknown>) {
+        agentInstances.push(this);
+      }
+      generate = mockGenerate;
+    },
   };
 });
 
-const mockGenerateText = vi.mocked(generateText);
-
 beforeEach(() => {
   vi.clearAllMocks();
+  agentInstances.length = 0;
 });
 
 describe("createBudge prompt caching integration", () => {
@@ -373,22 +381,16 @@ describe("createBudge prompt caching integration", () => {
     };
   }
 
-  function asGenerateTextResult(value: unknown): Awaited<ReturnType<typeof generateText>> {
-    return value as Awaited<ReturnType<typeof generateText>>;
-  }
-
-  it("passes a wrapped model to generateText, not the raw model", async () => {
+  it("passes a wrapped model to ToolLoopAgent, not the raw model", async () => {
     const fakeOrchestrator = { specificationVersion: "v3" as const } as LanguageModel;
     const fakeWorker = { specificationVersion: "v3" as const } as LanguageModel;
 
-    mockGenerateText.mockResolvedValue(
-      asGenerateTextResult({
-        text: "done",
-        steps: [{ toolResults: [{ toolName: "finish", output: "final answer" }] }],
-        usage: { inputTokens: 10, outputTokens: 5, inputTokenDetails: { cacheReadTokens: 0 } },
-        providerMetadata: {},
-      }),
-    );
+    mockGenerate.mockResolvedValue({
+      text: "done",
+      steps: [{ toolResults: [{ toolName: "finish", output: "final answer" }] }],
+      usage: { inputTokens: 10, outputTokens: 5, inputTokenDetails: { cacheReadTokens: 0 } },
+      providerMetadata: {},
+    });
 
     const budge = createBudge({ orchestrator: fakeOrchestrator, worker: fakeWorker });
     await budge.prepare({
@@ -396,22 +398,21 @@ describe("createBudge prompt caching integration", () => {
       sources: { s: makeAdapter() },
     });
 
-    // generateText should have been called at least once
-    expect(mockGenerateText).toHaveBeenCalled();
+    // ToolLoopAgent should have been constructed at least once
+    expect(agentInstances.length).toBeGreaterThan(0);
 
-    // The model passed to generateText should NOT be the raw fake model.
+    // The model passed to ToolLoopAgent should NOT be the raw fake model.
     // It should be a wrapped LanguageModelV3 with specificationVersion "v3".
-    const firstCall = mockGenerateText.mock.calls[0]![0];
-    const modelArg = firstCall.model as unknown as { specificationVersion?: string };
+    const modelArg = agentInstances[0]!.settings.model as { specificationVersion?: string };
     expect(modelArg).not.toBe(fakeOrchestrator);
     expect(modelArg.specificationVersion).toBe("v3");
   });
 
-  it("reflects cachedInputTokens in trace.totalCachedTokens when generateText reports cache hits", async () => {
+  it("reflects cachedInputTokens in trace.totalCachedTokens when onStepFinish reports cache hits", async () => {
     const fakeOrchestrator = { specificationVersion: "v3" as const } as LanguageModel;
     const fakeWorker = { specificationVersion: "v3" as const } as LanguageModel;
 
-    mockGenerateText.mockImplementation(async (args: Record<string, unknown>) => {
+    mockGenerate.mockImplementation(async () => {
       const step = {
         toolResults: [{ toolName: "finish", output: "final answer" }],
         usage: {
@@ -421,11 +422,15 @@ describe("createBudge prompt caching integration", () => {
         },
         providerMetadata: {},
       };
-      // Invoke onStepFinish so the trace accumulates cached tokens
-      if (typeof args.onStepFinish === "function") {
-        await args.onStepFinish(step);
+      // Invoke onStepFinish from the constructor settings so the trace accumulates cached tokens
+      const agent = agentInstances[agentInstances.length - 1]!;
+      const onStepFinish = agent.settings.onStepFinish as
+        | ((step: unknown) => void | Promise<void>)
+        | undefined;
+      if (onStepFinish) {
+        await onStepFinish(step);
       }
-      return asGenerateTextResult({
+      return {
         text: "done",
         steps: [step],
         usage: {
@@ -434,7 +439,7 @@ describe("createBudge prompt caching integration", () => {
           inputTokenDetails: { cacheReadTokens: 80 },
         },
         providerMetadata: {},
-      });
+      };
     });
 
     const budge = createBudge({ orchestrator: fakeOrchestrator, worker: fakeWorker });
@@ -450,28 +455,26 @@ describe("createBudge prompt caching integration", () => {
     const fakeOrchestrator = { specificationVersion: "v3" as const } as LanguageModel;
     const fakeWorker = { specificationVersion: "v3" as const } as LanguageModel;
 
-    mockGenerateText.mockResolvedValue(
-      asGenerateTextResult({
-        text: "done",
-        steps: [
-          {
-            toolResults: [{ toolName: "finish", output: "final answer" }],
-            usage: {
-              inputTokens: 50,
-              outputTokens: 10,
-              inputTokenDetails: { cacheReadTokens: 0 },
-            },
-            providerMetadata: {},
+    mockGenerate.mockResolvedValue({
+      text: "done",
+      steps: [
+        {
+          toolResults: [{ toolName: "finish", output: "final answer" }],
+          usage: {
+            inputTokens: 50,
+            outputTokens: 10,
+            inputTokenDetails: { cacheReadTokens: 0 },
           },
-        ],
-        usage: {
-          inputTokens: 50,
-          outputTokens: 10,
-          inputTokenDetails: { cacheReadTokens: 0 },
+          providerMetadata: {},
         },
-        providerMetadata: {},
-      }),
-    );
+      ],
+      usage: {
+        inputTokens: 50,
+        outputTokens: 10,
+        inputTokenDetails: { cacheReadTokens: 0 },
+      },
+      providerMetadata: {},
+    });
 
     const budge = createBudge({ orchestrator: fakeOrchestrator, worker: fakeWorker });
     const context = await budge.prepare({

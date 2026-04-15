@@ -1,4 +1,4 @@
-import { generateText, Output } from "ai";
+import { ToolLoopAgent, Output, stepCountIs } from "ai";
 import type { LanguageModel } from "ai";
 import type { ZodType } from "zod";
 import safeStableStringify from "safe-stable-stringify";
@@ -93,33 +93,36 @@ export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode
   const content = contentParts.join("\n\n");
 
   // Step 2: Focused model call
-  const basePrompt = {
-    model: worker,
-    system: [
-      "You are a focused analysis assistant.",
-      "You will be given content from a source and a specific task to perform.",
-      "Answer the task directly and concisely based only on the provided content.",
-      "Do not speculate about content that was not provided.",
-    ].join(" "),
-    messages: [
-      {
-        role: "user" as const,
-        content: [
-          `Source: ${sourceName} (path: ${path || "root"})`,
-          ``,
-          `Task: ${task}`,
-          ``,
-          `Content:`,
-          content,
-        ].join("\n"),
-      },
-    ],
+  const instructions = [
+    "You are a focused analysis assistant.",
+    "You will be given content from a source and a specific task to perform.",
+    "Answer the task directly and concisely based only on the provided content.",
+    "Do not speculate about content that was not provided.",
+  ].join(" ");
+
+  const userMessage = {
+    role: "user" as const,
+    content: [
+      `Source: ${sourceName} (path: ${path || "root"})`,
+      ``,
+      `Task: ${task}`,
+      ``,
+      `Content:`,
+      content,
+    ].join("\n"),
   };
 
   if (schema) {
-    const result = await generateText({
-      ...basePrompt,
+    const agent = new ToolLoopAgent({
+      model: worker,
+      instructions,
+      tools: {},
+      stopWhen: stepCountIs(1),
       output: Output.object({ schema, name: schemaName }),
+    });
+
+    const result = await agent.generate({
+      prompt: [userMessage],
     });
 
     const usage: TokenUsage = {
@@ -146,7 +149,16 @@ export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode
     });
   }
 
-  const result = await generateText(basePrompt);
+  const agent = new ToolLoopAgent({
+    model: worker,
+    instructions,
+    tools: {},
+    stopWhen: stepCountIs(1),
+  });
+
+  const result = await agent.generate({
+    prompt: [userMessage],
+  });
 
   const usage: TokenUsage = {
     inputTokens: result.usage.inputTokens ?? 0,
