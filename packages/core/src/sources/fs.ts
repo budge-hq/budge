@@ -276,16 +276,28 @@ export class FsAdapter implements SourceAdapter {
 // ripgrep JSON output parsing
 // ---------------------------------------------------------------------------
 
-interface RgMatchData {
-  path: { text: string };
-  lines: { text: string };
-  line_number: number;
+interface RgText {
+  text?: string;
+  bytes?: string;
 }
 
-interface RgJsonLine {
-  type: string;
+interface RgMatchData {
+  path: RgText | null;
+  lines: RgText;
+  line_number: number | null;
+}
+
+interface RgMatchJsonLine {
+  type: "match";
   data: RgMatchData;
 }
+
+interface RgOtherJsonLine {
+  type: string;
+  data?: unknown;
+}
+
+type RgJsonLine = RgMatchJsonLine | RgOtherJsonLine;
 
 /**
  * Parse ripgrep's `--json` NDJSON output into SearchMatch[].
@@ -310,17 +322,20 @@ function parseRipgrepJson(stdout: string, k: number): SearchMatch[] {
 
     if (parsed.type !== "match") continue;
 
-    const filePath = parsed.data.path.text;
-    if (!filePath) continue; // non-UTF-8 path — skip rather than emit id: undefined
-    const matchLine = (parsed.data.lines.text ?? "").trimEnd();
+    const filePath = parsed.data.path?.text;
+    const matchLine = parsed.data.lines.text;
     const lineNum = parsed.data.line_number;
+
+    if (!filePath || matchLine === undefined || lineNum === null) continue;
+
+    const trimmedMatchLine = matchLine.trimEnd();
 
     const existing = byFile.get(filePath);
     if (existing) {
-      existing.lines.push(matchLine);
+      existing.lines.push(trimmedMatchLine);
       existing.lineNumbers.push(lineNum);
     } else {
-      byFile.set(filePath, { lines: [matchLine], lineNumbers: [lineNum] });
+      byFile.set(filePath, { lines: [trimmedMatchLine], lineNumbers: [lineNum] });
     }
   }
 
