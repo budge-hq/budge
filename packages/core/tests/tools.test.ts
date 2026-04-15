@@ -2,6 +2,8 @@ import { tool } from "ai";
 import { describe, expect, it } from "vite-plus/test";
 import { z } from "zod";
 import type { LanguageModel } from "ai";
+import type { ContributedToolEvents, ToolCallEvent } from "../src/types.ts";
+import type { SourceAdapter } from "../src/sources/interface.ts";
 import { buildTools } from "../src/tools.ts";
 import { TraceBuilder } from "../src/trace.ts";
 import { Truncator } from "../src/truncation.ts";
@@ -217,6 +219,148 @@ describe("buildTools() — source-contributed tools", () => {
     expect(tools["db.get_patient"]).toBeDefined();
     expect(tools["db.search_patients"]).toBeDefined();
     expect(tools["full.custom_tool"]).toBeDefined();
+  });
+
+  it("fires onToolCall for contributed tool invocations", async () => {
+    const events: Array<{ tool: string; args: unknown }> = [];
+    const trace = new TraceBuilder("observability test");
+    const tools = buildTools({
+      sources: { db: makeToolsSource() },
+      worker: makeWorker(),
+      trace,
+      truncator: makeTruncator(),
+      onToolCall: (event) => events.push(event),
+    }) as Record<string, any>;
+
+    await tools["db.get_patient"].execute({ id: 42 }, {} as never);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.tool).toBe("db.get_patient");
+    expect(events[0]!.args).toEqual({ id: 42 });
+  });
+
+  it("records contributed tool calls in the trace", async () => {
+    const trace = new TraceBuilder("trace test");
+    const tools = buildTools({
+      sources: { db: makeToolsSource() },
+      worker: makeWorker(),
+      trace,
+      truncator: makeTruncator(),
+    }) as Record<string, any>;
+
+    await tools["db.get_patient"].execute({ id: 99 }, {} as never);
+
+    const built = trace.build();
+    const record = built.tree.toolCalls.find((c) => c.tool === "db.get_patient");
+    expect(record).toBeDefined();
+    expect(record!.args).toEqual({ id: 99 });
+    expect(typeof record!.durationMs).toBe("number");
+  });
+
+  it("returns the original tool result unchanged", async () => {
+    const tools = buildTools({
+      sources: { db: makeToolsSource() },
+      worker: makeWorker(),
+      trace: makeTrace(),
+      truncator: makeTruncator(),
+    }) as Record<string, any>;
+
+    const result = await tools["db.get_patient"].execute({ id: 1 }, {} as never);
+    expect(result).toEqual({ id: 1, name: "Alice" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ToolCallEvent<S> — type-level narrowing tests
+// These are compile-time assertions: if they compile, the types are correct.
+// ---------------------------------------------------------------------------
+
+describe("ToolCallEvent<S> — type inference", () => {
+  it("ContributedToolEvents derives typed variants from tools() sources", () => {
+    // Type-level test: ContributedToolEvents<Sources> should produce a
+    // discriminated union with typed args for each contributed tool.
+    const db = {
+      describe: () => "db",
+      tools: () => ({
+        get_patient: tool({
+          description: "get patient",
+          inputSchema: z.object({ id: z.number() }),
+          execute: async ({ id }: { id: number }) => ({ id, name: "Alice" }),
+        }),
+      }),
+    } satisfies SourceAdapter;
+
+    type Sources = { db: typeof db };
+    type Events = ContributedToolEvents<Sources>;
+
+    // This is a compile-time assertion — if TypeScript accepts the cast,
+    // ContributedToolEvents correctly derived the typed variant.
+    const event = { tool: "db.get_patient" as const, args: { id: 42 } } satisfies Events;
+    expect(event.args.id).toBe(42);
+  });
+
+  it("ToolCallEvent<S> includes both built-in and contributed variants", () => {
+    const db = {
+      describe: () => "db",
+      tools: () => ({
+        get_patient: tool({
+          description: "get patient",
+          inputSchema: z.object({ id: z.number() }),
+          execute: async ({ id }: { id: number }) => ({ id }),
+        }),
+      }),
+    } satisfies SourceAdapter;
+
+    type Sources = { db: typeof db };
+
+    // Both built-in and contributed events satisfy ToolCallEvent<Sources>
+    const builtIn = {
+      tool: "read_source" as const,
+      args: { source: "db", path: "foo" },
+    } satisfies ToolCallEvent<Sources>;
+
+    const contributed = {
+      tool: "db.get_patient" as const,
+      args: { id: 1 },
+    } satisfies ToolCallEvent<Sources>;
+
+    expect(builtIn.tool).toBe("read_source");
+    expect(contributed.tool).toBe("db.get_patient");
+  });
+
+  it("onToolCall receives typed args for contributed tools at runtime", async () => {
+    // Runtime test: the typed args actually arrive at the callback
+    const receivedArgs: Array<{ id: number }> = [];
+
+    const db = {
+      describe: () => "db",
+      tools: () => ({
+        get_patient: tool({
+          description: "get patient",
+          inputSchema: z.object({ id: z.number() }),
+          execute: async ({ id }: { id: number }) => ({ id, name: "Alice" }),
+        }),
+      }),
+    } satisfies SourceAdapter;
+
+    type Sources = { db: typeof db };
+
+    const allTools = buildTools({
+      sources: { db },
+      worker: makeWorker(),
+      trace: makeTrace(),
+      truncator: makeTruncator(),
+      onToolCall: (event: ToolCallEvent<Sources>) => {
+        if (event.tool === "db.get_patient") {
+          // TypeScript narrows event.args.id to number here
+          receivedArgs.push({ id: event.args.id });
+        }
+      },
+    }) as Record<string, any>;
+
+    await allTools["db.get_patient"].execute({ id: 7 }, {} as never);
+
+    expect(receivedArgs).toEqual([{ id: 7 }]);
   });
 });
 

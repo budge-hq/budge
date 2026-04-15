@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import safeStableStringify from "safe-stable-stringify";
 import { z } from "zod";
-import type { LanguageModel, Tool } from "ai";
+import type { InferToolInput, InferToolOutput, LanguageModel, Tool } from "ai";
 import type { ZodType } from "zod";
 import type { SearchQuery, SourceAdapter } from "./sources/interface.ts";
 import type { TraceBuilder } from "./trace.ts";
@@ -21,7 +21,7 @@ export interface BuildToolsOptions<S extends Record<string, SourceAdapter>> {
   sources: S;
   worker: LanguageModel;
   trace: TraceBuilder<S>;
-  onToolCall?: (event: ToolCallEvent) => void;
+  onToolCall?: (event: ToolCallEvent<S>) => void;
   subcallSchemas?: Record<string, ZodType>;
   concurrency?: number;
   truncator?: Truncator;
@@ -318,7 +318,29 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
     if (source.tools) {
       const contributed = source.tools();
       for (const [toolName, t] of Object.entries(contributed)) {
-        sourceTools[`${name}.${toolName}`] = t as AnyTool;
+        const qualifiedName = `${name}.${toolName}`;
+        const original = t as AnyTool;
+        sourceTools[qualifiedName] = tool({
+          ...original,
+          execute: async (
+            args: InferToolInput<typeof original>,
+            ctx: Parameters<NonNullable<AnyTool["execute"]>>[1],
+          ) => {
+            const startMs = Date.now();
+            // Cast: qualifiedName is a string literal at runtime but the type system
+            // can't statically verify it matches a specific ContributedToolEvents variant.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            onToolCall?.({ tool: qualifiedName, args: args as Record<string, unknown> } as any);
+            const result: InferToolOutput<typeof original> = await original.execute?.(args, ctx);
+            trace.recordToolCall({
+              tool: qualifiedName,
+              args: args as Record<string, unknown>,
+              result: typeof result === "string" ? result : (safeStableStringify(result) ?? ""),
+              durationMs: Date.now() - startMs,
+            });
+            return result;
+          },
+        }) as AnyTool;
       }
     }
   }

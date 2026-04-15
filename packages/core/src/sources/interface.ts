@@ -49,13 +49,15 @@ export interface SearchMatch {
  *
  * @example Plain object with tools (e.g. a database):
  * ```ts
- * const db: SourceAdapter = {
+ * // Use `satisfies SourceAdapter` (not `: SourceAdapter`) to preserve specific
+ * // tool input types for fully-typed onToolCall events.
+ * const db = {
  *   describe: () => "Patient database. Use the provided tools to query it.",
  *   tools: () => ({
  *     search_patients: tool({ ... }),
  *     get_patient: tool({ ... }),
  *   }),
- * }
+ * } satisfies SourceAdapter;
  * ```
  */
 export interface SourceAdapter {

@@ -57,6 +57,7 @@ export type {
   RootTraceNode,
   SubcallTraceNode,
   ToolCallEvent,
+  ContributedToolEvents,
   ToolCallRecord,
   TokenUsage,
 } from "./types.ts";
