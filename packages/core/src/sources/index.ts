@@ -14,6 +14,7 @@ import { text, json, type TextSourceOptions } from "./text.ts";
  *
  * source.fs("./src")
  * source.text("inline notes")
+ * source.json({ foo: "bar" })
  *
  * // Plain objects work for everything else:
  * const db: SourceAdapter = {

@@ -16,10 +16,10 @@ export interface FsAdapterOptions {
   include?: string[];
 
   /**
-   * Directory names to exclude. When provided, this list *replaces*
-   * the default exclusions entirely.
+   * File or directory names to exclude. When provided, this list
+   * *replaces* the default exclusions entirely.
    *
-   * @default ["node_modules", ".git", "dist", ".next", ".turbo", "coverage", ".cache"]
+   * @default DEFAULT_EXCLUDE (for example: node_modules, .git, dist, coverage, .cache, lockfiles, OS artifacts)
    */
   exclude?: string[];
 
