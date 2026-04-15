@@ -283,11 +283,11 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
         let result: { content: string; truncated: boolean; overflowPath?: string };
         try {
           const matches = await adapter.search!(searchQuery);
-          const raw = safeStableStringify(matches) ?? "[]";
-          result = await truncator.apply(
-            raw,
-            { maxBytes: DEFAULT_LIMITS.READ_MAX_BYTES, direction: "head" },
-            { toolName: "search_source", hasSubcalls },
+          result = await truncator.applyArray(
+            matches,
+            searchQuery.k,
+            (items) => safeStableStringify(items) ?? "[]",
+            { toolName: "search_source", hasSubcalls, itemType: "matches" },
           );
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
