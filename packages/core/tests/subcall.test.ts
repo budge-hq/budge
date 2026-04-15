@@ -70,6 +70,23 @@ afterEach(() => {
 });
 
 describe("runSubcall()", () => {
+  it("throws a helpful error when adapter does not support read()", async () => {
+    const searchOnlyAdapter = {
+      describe: () => "search-only source",
+      search: async () => [],
+    };
+
+    await expect(
+      runSubcall({
+        worker,
+        adapter: searchOnlyAdapter,
+        sourceName: "precedent",
+        path: "chunk:0",
+        task: "summarize",
+      }),
+    ).rejects.toThrow(/does not support read/i);
+  });
+
   it("keeps the untyped path unchanged", async () => {
     mockGenerate.mockResolvedValue({
       text: "summary",
@@ -325,7 +342,7 @@ describe("buildTools().run_subcall", () => {
     expect(built.tree.toolCalls[0]?.overflowPath).toBeUndefined();
   });
 
-  it("throws a helpful error for unknown schema names", async () => {
+  it("returns an error string for unknown schema names (consistent with run_subcalls)", async () => {
     const tools = buildTools({
       sources: { codebase: makeAdapter() },
       worker,
@@ -336,17 +353,38 @@ describe("buildTools().run_subcall", () => {
       },
     });
 
-    await expect(
-      tools.run_subcall.execute!(
-        {
-          source: "codebase",
-          path: "src/auth.ts",
-          task: "audit fetch handling",
-          schemaName: "missing",
-        },
-        {} as never,
-      ),
-    ).rejects.toThrow('Unknown subcall schema: "missing". Available schemas: audit, summary');
+    const result = await tools.run_subcall.execute!(
+      {
+        source: "codebase",
+        path: "src/auth.ts",
+        task: "audit fetch handling",
+        schemaName: "missing",
+      },
+      {} as never,
+    );
+
+    expect(result).toMatch(/Unknown subcall schema.*missing/i);
+    // execute() resolved — the error is surfaced as a string result the
+    // orchestrator can see and recover from, not an unhandled rejection.
+  });
+
+  it("returns an error string for unknown source names in run_subcall", async () => {
+    mockGenerate.mockResolvedValue({
+      text: "ok",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+    const tools = buildTools({
+      sources: { codebase: makeAdapter() },
+      worker,
+      trace: new TraceBuilder("bad source"),
+    });
+
+    const result = await tools.run_subcall.execute!(
+      { source: "nonexistent", path: "src/auth.ts", task: "summarize" },
+      {} as never,
+    );
+
+    expect(result).toMatch(/unknown source.*nonexistent/i);
   });
 
   it("runs run_subcalls in parallel while preserving input order", async () => {
@@ -448,7 +486,7 @@ describe("buildTools().run_subcall", () => {
     });
   });
 
-  it("throws before starting work when a batch schema name is invalid", async () => {
+  it("degrades an invalid schema name into a per-result error node", async () => {
     const adapter = makeAdapter();
     const events: Array<unknown> = [];
     const tools = buildTools({
@@ -461,25 +499,60 @@ describe("buildTools().run_subcall", () => {
       },
     });
 
-    await expect(
-      tools.run_subcalls.execute!(
-        {
-          calls: [
-            {
-              source: "codebase",
-              path: "src/auth.ts",
-              task: "audit fetch handling",
-              schemaName: "missing",
-            },
-          ],
-        },
-        {} as never,
-      ),
-    ).rejects.toThrow('Unknown subcall schema: "missing". Available schemas: audit');
+    const result = await tools.run_subcalls.execute!(
+      {
+        calls: [
+          {
+            source: "codebase",
+            path: "src/auth.ts",
+            task: "audit fetch handling",
+            schemaName: "missing",
+          },
+        ],
+      },
+      {} as never,
+    );
 
-    expect(adapter.read).not.toHaveBeenCalled();
-    expect(mockGenerate).not.toHaveBeenCalled();
-    expect(events).toEqual([]);
+    // execute() resolves — the error is contained in the result node
+    expect(Array.isArray(result)).toBe(true);
+    expect((result as Array<{ answer: string }>)[0]!.answer).toMatch(
+      /Unknown subcall schema.*missing/i,
+    );
+    // onToolCall still fires (the batch started)
+    expect(events).toHaveLength(1);
+    expect((events[0] as { tool: string }).tool).toBe("run_subcalls");
+  });
+
+  it("isolates per-call errors: valid calls still complete when one call references an unknown source", async () => {
+    mockGenerate.mockResolvedValue({
+      text: "summary",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+
+    const tools = buildTools({
+      sources: { codebase: makeAdapter() },
+      worker,
+      trace: new TraceBuilder("batch with bad source"),
+      concurrency: 2,
+    });
+
+    const result = (await tools.run_subcalls.execute!(
+      {
+        calls: [
+          { source: "codebase", path: "src/a.ts", task: "summarize a" },
+          { source: "nonexistent", path: "src/b.ts", task: "summarize b" },
+          { source: "codebase", path: "src/c.ts", task: "summarize c" },
+        ],
+      },
+      {} as never,
+    )) as Array<{ source: string; answer: string }>;
+
+    expect(result).toHaveLength(3);
+    // Good calls complete normally
+    expect(result[0]!.answer).toBe("summary");
+    expect(result[2]!.answer).toBe("summary");
+    // Bad call degrades to an error node, doesn't throw the whole batch
+    expect(result[1]!.answer).toMatch(/unknown source.*nonexistent/i);
   });
 
   it("degrades execution failures into per-result answers", async () => {

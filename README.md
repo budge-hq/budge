@@ -41,7 +41,7 @@ const context = await budge.prepare({
   task: "find all fetch calls missing error handling",
   sources: {
     codebase: source.fs("./src"),
-    history: source.conversation(messages),
+    notes: source.text("Known issues: auth middleware skips OPTIONS requests."),
   },
 });
 
@@ -58,7 +58,7 @@ const context = await budge.prepare({
   task: userMessage,
   sources: {
     codebase: source.fs("./src"),
-    history: source.conversation(messages),
+    notes: source.text(systemContext),
   },
 });
 
@@ -78,17 +78,45 @@ The orchestrator receives your task and descriptions of what's available — not
 
 ## Sources
 
-- `source.fs(rootPath)` — local filesystem
-- `source.files(paths[])` — explicit file list
-- `source.conversation(msgs[])` — message history
-- `source.text(str)` — inline text blob
-- `source.mcp(client, options?)` — any MCP server: databases, APIs, GitHub, Notion, and more
+Two built-in factories cover filesystem and text:
 
-The source adapter interface is public. Build your own.
+- `source.fs(rootPath, options?)` — local filesystem with list, read, and ripgrep search (WASM, no install)
+- `source.text(content, options?)` — inline string; auto-chunks above ~4000 tokens, enabling BM25 search
+- `source.json(value, options?)` — any JSON-serializable value; auto-describes top-level keys, handles circular refs, then behaves like `source.text`
+
+Everything else is a plain object. Only `describe()` is required — implement whichever of `list`, `read`, `search`, and `tools` match your data:
+
+```ts
+// Search source (vector store, hybrid search, etc.)
+const precedent: SourceAdapter = {
+  describe: () => "Historical encounter notes, searchable by semantic similarity.",
+  search: async (query) => myVectorSearch(query),
+};
+
+// Database with tools
+const db: SourceAdapter = {
+  describe: () => "Patient database. Use the provided tools to query it.",
+  tools: () => ({
+    search_patients: tool({ ... }),
+    get_patient: tool({ ... }),
+  }),
+};
+
+// MCP server (via AI SDK's createMCPClient)
+const mcpClient = await createMCPClient({ transport: { type: "sse", url: "..." } });
+const external: SourceAdapter = {
+  describe: () => "External service via MCP.",
+  tools: async () => mcpClient.tools(),
+};
+```
+
+The orchestrator only sees tools derived from what each source implements — `search_source` appears only when a source has `search`, source-contributed tools are namespaced as `sourceName.toolName`.
+
+The source adapter interface is public. Any object satisfying it works.
 
 ## Trace
 
-`context.trace` gives you the full decomposition tree — which sources were read, tokens per call, worker calls spawned, wall time. `context.handoff` gives the action agent exactly what it needs to act without re-reading anything.
+`context.trace` gives you the full decomposition tree — which sources were searched or read, tokens per call, worker calls spawned, wall time. `context.handoff` gives the action agent exactly what it needs to act without re-reading anything.
 
 ## Status
 

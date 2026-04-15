@@ -1,93 +1,71 @@
-export type { SourceAdapter } from "./interface.ts";
+export type { SourceAdapter, SearchQuery, SearchMatch } from "./interface.ts";
 export { FsAdapter, type FsAdapterOptions } from "./fs.ts";
-export { FilesAdapter } from "./files.ts";
-export { ConversationAdapter, type ConversationMessage } from "./conversation.ts";
-export { TextAdapter } from "./text.ts";
-export {
-  McpAdapter,
-  type McpLikeClient,
-  type McpSourceOptions,
-  type ToolDefinition,
-} from "./mcp.ts";
+export { text, json, type TextSourceOptions, type Chunk } from "./text.ts";
 
 import { FsAdapter, type FsAdapterOptions } from "./fs.ts";
-import { FilesAdapter } from "./files.ts";
-import { ConversationAdapter, type ConversationMessage } from "./conversation.ts";
-import { TextAdapter } from "./text.ts";
-import { McpAdapter, type McpLikeClient, type McpSourceOptions } from "./mcp.ts";
+import { text, json, type TextSourceOptions } from "./text.ts";
 
 /**
- * Built-in source adapters.
+ * Built-in source factories.
  *
  * @example
  * ```ts
  * import { source } from "@budge/core"
  *
  * source.fs("./src")
- * source.files(["./docs/auth.md"])
- * source.conversation(messages)
  * source.text("inline notes")
- * source.mcp(client, { tools: ["get_patient"] })
+ * source.json({ foo: "bar" })
+ *
+ * // Plain objects work for everything else:
+ * const db: SourceAdapter = {
+ *   describe: () => "Patient database.",
+ *   tools: () => ({ search_patients: tool({ ... }) }),
+ * }
  * ```
  */
 export const source = {
   /**
    * Expose a local filesystem directory as a navigable source.
    *
-   * The agent can list directories and read individual files.
-   * Follows only what the agent explicitly requests — no upfront
-   * bulk reading.
+   * The agent can list directories, read individual files, and search
+   * file contents using ripgrep (WASM — no binary install required).
    *
    * @param rootPath - Path to the directory root.
-   * @param options  - Optional configuration (include, exclude).
+   * @param options  - Optional configuration (include, exclude, excludePatterns).
    */
   fs: (rootPath: string, options?: FsAdapterOptions): FsAdapter => new FsAdapter(rootPath, options),
 
   /**
-   * Expose an explicit list of files as a source.
+   * Expose a string blob as a source.
    *
-   * Useful for targeted document sets: changelogs, specs, READMEs.
+   * Automatically determines whether to chunk based on content length.
+   * Below ~4000 tokens: returns `{ read }` — one call reads the whole blob.
+   * Above threshold: chunks and returns `{ list, read, search }` with BM25 search.
    *
-   * @param paths - Absolute or relative paths to the files.
+   * @param content - The text content to expose.
+   * @param options - Optional chunking and ranking configuration.
    */
-  files: (paths: string[]): FilesAdapter => new FilesAdapter(paths),
+  text: (content: string, options?: TextSourceOptions) => text(content, options),
 
   /**
-   * Expose a conversation history as a navigable source.
+   * Expose a JSON-serializable value as a source.
    *
-   * Messages are addressable by index or slice (`"5"`, `"5:10"`, `":10"`, `"20:"`).
+   * Equivalent to `source.text(JSON.stringify(value, null, 2))` but with a
+   * richer auto-generated `describe()` that lists the top-level keys. Handles
+   * circular references safely.
    *
-   * @param messages - Array of conversation messages.
+   * Chunking and search follow the same auto-threshold logic as `source.text`.
+   *
+   * @param value   - Any JSON-serializable value.
+   * @param options - Optional chunking and ranking configuration.
+   *
+   * @example
+   * ```ts
+   * sources: {
+   *   patient: source.json(patientRecord),
+   * }
+   * // describe() → "JSON object with keys: id, name, dob, medications (~492 tokens)."
+   * ```
    */
-  conversation: (messages: ConversationMessage[]): ConversationAdapter =>
-    new ConversationAdapter(messages),
-
-  /**
-   * Expose a single inline string as a navigable source.
-   *
-   * Useful for passing notes, summaries, prompts, or arbitrary text blobs
-   * into the runtime without creating a file.
-   *
-   * @param text - The inline text to expose.
-   */
-  text: (text: string): TextAdapter => new TextAdapter(text),
-
-  /**
-   * Expose an MCP client's tool catalog as a read-only source.
-   *
-   * The agent can list exposed tools and read per-tool metadata, but it
-   * cannot invoke MCP tools through the source API. Options use one of two
-   * modes: exact allowlist mode via `tools`, or filter mode via
-   * `readonly`/`allow`/`deny`.
-   *
-   * @param client  - MCP client exposing `listTools()` or `tools()`.
-   * @param options - Optional exposure filters. Defaults to `readonly: true`.
-   */
-  mcp: <
-    const Allow extends readonly string[] | undefined = undefined,
-    const Deny extends readonly string[] | undefined = undefined,
-  >(
-    client: McpLikeClient,
-    options?: McpSourceOptions<Allow, Deny>,
-  ): McpAdapter => new McpAdapter(client, options),
+  json: (value: unknown, options?: TextSourceOptions) => json(value, options),
 } as const;

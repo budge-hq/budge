@@ -25,8 +25,7 @@ const context = await budge.prepare({
   task: "What does the auth module do, and what are the main risks?",
   sources: {
     codebase: source.fs("./src"),
-    docs: source.files(["./docs/auth.md"]),
-    history: source.conversation(messages),
+    notes: source.text("Deployment notes: auth uses JWT, 24h expiry."),
   },
 });
 
@@ -46,7 +45,6 @@ const prepared = await budge.prepare({
   task: "Review the auth module and propose a fix plan.",
   sources: {
     codebase: source.fs("./src"),
-    docs: source.files(["./docs/auth.md"]),
   },
 });
 
@@ -114,24 +112,112 @@ interface PreparedContext<S> {
 
 - `answer`: Budge's human-readable research answer
 - `handoff`: briefing document for the next agent
-- `trace`: full record of reads, listings, sub-calls, and timing
+- `trace`: full record of searches, reads, listings, sub-calls, and timing
 
-## Source Adapters
+## Sources
 
-- `source.fs(rootPath, options?)`
-- `source.files(paths)`
-- `source.conversation(messages)`
-- `source.text(value)`
-- `source.mcp(client, options?)`
+### Built-in factories
 
-Implement `SourceAdapter` to bring your own source type.
+**`source.fs(rootPath, options?)`** — local filesystem directory. Supports list, read, and ripgrep-powered search (WASM, no install required).
+
+```ts
+source.fs("./src");
+source.fs("./src", { include: [".ts", ".tsx"], excludePatterns: ["generated"] });
+```
+
+**`source.text(content, options?)`** — inline string. Auto-chunks above ~4000 tokens, enabling list, read, and BM25 search. Below the threshold, exposes read only.
+
+```ts
+source.text(visitTranscript);
+source.text(encounterNote, { chunk: { strategy: "paragraphs" } });
+```
+
+**`source.json(value, options?)`** — JSON-serializable value. Serializes with `safe-stable-stringify` (handles circular references), then behaves identically to `source.text`. The auto-generated `describe()` lists the top-level keys.
+
+```ts
+source.json(patientRecord);
+// describe() → "JSON object with keys: id, first_name, last_name, dob, medications, allergies (~492 tokens)."
+```
+
+### Plain objects for everything else
+
+Any object satisfying `SourceAdapter` works. Only `describe()` is required — implement whichever of `list`, `read`, `search`, and `tools` match your data source.
+
+**Search source** (e.g. a vector store):
+
+```ts
+const precedent: SourceAdapter = {
+  describe: () => `Historical encounter notes. Searchable by semantic similarity.
+    Filters: patient_id, note_type, date_range, specialty.`,
+  search: async (query) => myVectorSearch(query),
+  read: async (id) => fetchById(id), // optional — enables run_subcall by ID
+};
+```
+
+**Database with tools**:
+
+```ts
+const db: SourceAdapter = {
+  describe: () => "Patient database. Use the provided tools to search and look up records.",
+  tools: () => ({
+    search_patients: tool({
+      description: "Search patients by name or DOB.",
+      inputSchema: z.object({ name: z.string().optional(), birth_year: z.number().optional() }),
+      execute: async (params) => searchPatients(pool, params),
+    }),
+    get_patient: tool({
+      description: "Get full demographics for a patient by ID.",
+      inputSchema: z.object({ id: z.number() }),
+      execute: async ({ id }) => getPatient(pool, id),
+    }),
+  }),
+};
+```
+
+**MCP server** (via AI SDK's `createMCPClient`):
+
+```ts
+import { createMCPClient } from "@ai-sdk/mcp";
+
+const mcpClient = await createMCPClient({
+  transport: { type: "sse", url: "https://mcp.example.com/sse" },
+});
+
+const externalService: SourceAdapter = {
+  describe: () => "External service via MCP.",
+  tools: async () => mcpClient.tools(),
+};
+```
+
+**Static key-value data**:
+
+```ts
+const patient: SourceAdapter = {
+  describe: () => "Current patient demographics and clinical summary.",
+  read: async () => JSON.stringify(patientData, null, 2),
+};
+```
+
+### `SourceAdapter` interface
+
+```ts
+interface SourceAdapter {
+  describe(): string; // required
+  list?(path?: string): Promise<string[]>; // optional
+  read?(path: string): Promise<string>; // optional
+  search?(query: SearchQuery): Promise<SearchMatch[]>; // optional
+  tools?(): Record<string, Tool>; // optional
+}
+```
+
+Each method is optional. The orchestrator receives tools derived from whichever methods you implement — `list_source` and `read_source` only appear when at least one source supports them, `search_source` only when at least one source supports search, and source-contributed tools are namespaced as `sourceName.toolName`.
 
 ## Trace
 
 `prepared.trace` records:
 
 - which paths were read from each source
-- every root tool call and its result
+- every root tool call and its result (reads, lists, searches, sub-calls)
 - all focused worker sub-calls
 - token usage and duration
 

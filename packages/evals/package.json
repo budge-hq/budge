@@ -15,8 +15,8 @@
     "@ai-sdk/anthropic": "^3.0.69",
     "@ai-sdk/openai": "^3.0.52",
     "@openrouter/ai-sdk-provider": "^2.5.1",
-    "ai": "^6.0.159",
-    "promptfoo": "^0.121.4"
+    "ai": "^6.0.161",
+    "promptfoo": "^0.121.5"
   },
   "devDependencies": {
     "@budge/core": "workspace:*",

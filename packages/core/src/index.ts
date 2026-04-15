@@ -16,9 +16,10 @@
  *   task: "summarize the auth module and identify security concerns",
  *   sources: {
  *     codebase: source.fs("./src"),
- *     docs: source.files(["./docs/auth.md"]),
- *     history: source.conversation(messages),
- *     notes: source.text("Deployment notes"),
+ *     notes: source.text("Deployment notes: ..."),
+ *     // Plain objects work for anything else:
+ *     // db: { describe: () => "...", tools: () => postgresTools(prisma) },
+ *     // precedent: { describe: () => "...", search: async (q) => vectorSearch(q) },
  *   },
  * })
  *
@@ -33,24 +34,15 @@ export { createBudge } from "./budge.ts";
 export type { Budge } from "./budge.ts";
 export { withPromptCaching } from "./cache.ts";
 
-// Source adapters
+// Source factories + types
 export { source } from "./sources/index.ts";
-export type { SourceAdapter } from "./sources/index.ts";
-export {
-  FsAdapter,
-  FilesAdapter,
-  ConversationAdapter,
-  TextAdapter,
-  McpAdapter,
-} from "./sources/index.ts";
+export type { SourceAdapter, SearchQuery, SearchMatch } from "./sources/index.ts";
+export { FsAdapter } from "./sources/index.ts";
+export { text as textSource, json as jsonSource } from "./sources/index.ts";
+export type { FsAdapterOptions, TextSourceOptions, Chunk } from "./sources/index.ts";
+
+// Truncation utilities
 export { DEFAULT_LIMITS, Truncator } from "./truncation.ts";
-export type {
-  FsAdapterOptions,
-  ConversationMessage,
-  McpLikeClient,
-  McpSourceOptions,
-  ToolDefinition,
-} from "./sources/index.ts";
 export type { TruncateContext, TruncateOptions, TruncateResult } from "./truncation.ts";
 
 // Types
@@ -65,6 +57,7 @@ export type {
   RootTraceNode,
   SubcallTraceNode,
   ToolCallEvent,
+  ContributedToolEvents,
   ToolCallRecord,
   TokenUsage,
 } from "./types.ts";

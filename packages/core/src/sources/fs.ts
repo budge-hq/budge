@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { SourceAdapter } from "./interface.ts";
+import { ripgrep } from "ripgrep";
+import type { SearchMatch, SearchQuery, SourceAdapter } from "./interface.ts";
 
 /**
  * Options for the filesystem source adapter.
@@ -15,18 +16,66 @@ export interface FsAdapterOptions {
   include?: string[];
 
   /**
-   * Directory names to always exclude from listings.
+   * File or directory names to exclude. When provided, this list
+   * *replaces* the default exclusions entirely.
    *
-   * @default ["node_modules", ".git", "dist", ".next", ".turbo"]
+   * @default DEFAULT_EXCLUDE (for example: node_modules, .git, dist, coverage, .cache, lockfiles, OS artifacts)
    */
   exclude?: string[];
+
+  /**
+   * Additional file or directory names to exclude, merged with the defaults
+   * (or with `exclude` if provided). Unlike `exclude`, this never
+   * replaces defaults — it only adds to them.
+   *
+   * @example ["build", ".venv"]
+   */
+  excludePatterns?: string[];
 }
 
-const DEFAULT_EXCLUDE = ["node_modules", ".git", "dist", ".next", ".turbo", "coverage", ".cache"];
+const DEFAULT_EXCLUDE = [
+  // Dependency directories
+  "node_modules",
+  "bower_components",
+  "vendor",
+  // Build outputs
+  "dist",
+  "build",
+  "out",
+  "coverage",
+  "target",
+  ".next",
+  ".nuxt",
+  ".turbo",
+  // Python
+  "venv",
+  ".venv",
+  "__pycache__",
+  ".tox",
+  // Version control & tooling
+  ".git",
+  ".cache",
+  ".budge",
+  // Lock files (filenames, not directories)
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "poetry.lock",
+  "Cargo.lock",
+  "Gemfile.lock",
+  "composer.lock",
+  "uv.lock",
+  // OS artifacts
+  ".DS_Store",
+  "Thumbs.db",
+];
+
 const FS_READ_HARD_LIMIT = 10 * 1024 * 1024; // 10 MiB
 
 /**
  * A source adapter that exposes a local filesystem directory.
+ *
+ * Supports navigable list/read access and ripgrep-powered search.
  *
  * @example
  * ```ts
@@ -51,12 +100,14 @@ export class FsAdapter implements SourceAdapter {
       this.realRoot = this.root;
     }
     this.include = options.include;
-    this.exclude = options.exclude ?? DEFAULT_EXCLUDE;
+    const base = options.exclude ?? DEFAULT_EXCLUDE;
+    this.exclude = options.excludePatterns ? [...base, ...options.excludePatterns] : base;
   }
 
   describe(): string {
-    let fileCount = 0;
     let topLevel: string[] = [];
+    let fileCount = 0;
+    let fileCountCapped = false;
 
     try {
       topLevel = fs
@@ -65,14 +116,19 @@ export class FsAdapter implements SourceAdapter {
         .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
         .sort();
 
-      fileCount = this.countFiles(this.root);
+      ({ count: fileCount, capped: fileCountCapped } = this.countFiles(this.root));
     } catch {
       return `Local filesystem at ${this.root} (unable to read directory)`;
     }
 
+    const countStr = fileCountCapped ? `~${fileCount}+` : `${fileCount}`;
     const topStr = topLevel.slice(0, 10).join(", ");
     const more = topLevel.length > 10 ? ` … and ${topLevel.length - 10} more` : "";
-    return `Local filesystem at ${this.root} — ${fileCount} file${fileCount === 1 ? "" : "s"}. Top-level: ${topStr}${more}`;
+    return (
+      `Local filesystem at ${this.root} — ${countStr} file${fileCount === 1 ? "" : "s"}. ` +
+      `Top-level: ${topStr}${more}. ` +
+      `Searchable via search_source (regex or literal). Use filters: { fixed: true } for literal string search.`
+    );
   }
 
   async list(dirPath?: string): Promise<string[]> {
@@ -116,6 +172,51 @@ export class FsAdapter implements SourceAdapter {
     return fs.promises.readFile(absolute, "utf8");
   }
 
+  async search(query: SearchQuery): Promise<SearchMatch[]> {
+    // --max-count limits matches *per file*. A low value (5) keeps the
+    // buffered stdout proportional to k files × 5 lines, avoiding hundreds of
+    // MB for broad queries on large repos. Five context lines per file is
+    // enough for the orchestrator to judge relevance.
+    const args: string[] = ["--json", "--max-count", "5"];
+
+    if (query.filters?.fixed === true) {
+      args.push("--fixed-strings");
+    }
+
+    if (this.include && this.include.length > 0) {
+      for (const ext of this.include) {
+        args.push("--glob", `*${ext}`);
+      }
+    }
+
+    for (const name of new Set(this.exclude)) {
+      args.push("--glob", `!${name}`);
+      args.push("--glob", `!**/${name}`);
+      args.push("--glob", `!${name}/**`);
+      args.push("--glob", `!**/${name}/**`);
+    }
+
+    // ripgrep WASM works relative to its preopens. We pass "." as the search
+    // path (which maps to this.root via the preopen) so all returned paths
+    // are relative and consistent.
+    args.push("--", query.text, ".");
+
+    let stdout = "";
+    try {
+      const result = await ripgrep(args, {
+        buffer: true,
+        preopens: { ".": this.root },
+      });
+      // Exit code 0 = matches, 1 = no matches, 2 = error
+      if (result.code === 2) return [];
+      stdout = result.stdout;
+    } catch {
+      return [];
+    }
+
+    return parseRipgrepJson(stdout, query.k);
+  }
+
   /**
    * Resolves a relative path against the root, guarding against traversal.
    *
@@ -141,15 +242,24 @@ export class FsAdapter implements SourceAdapter {
     return absolute;
   }
 
-  private countFiles(dir: string, depth = 0): number {
-    if (depth > 10) return 0;
+  /**
+   * Count files up to `MAX_COUNT_DEPTH` levels deep to avoid blocking the
+   * event loop on large trees. Returns `capped: true` when the depth limit
+   * was reached so `describe()` can signal an approximate count.
+   */
+  private countFiles(dir: string, depth = 0): { count: number; capped: boolean } {
+    const MAX_COUNT_DEPTH = 3;
+    if (depth > MAX_COUNT_DEPTH) return { count: 0, capped: true };
     let count = 0;
+    let capped = false;
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (this.exclude.includes(entry.name)) continue;
         if (entry.isDirectory()) {
-          count += this.countFiles(path.join(dir, entry.name), depth + 1);
+          const child = this.countFiles(path.join(dir, entry.name), depth + 1);
+          count += child.count;
+          if (child.capped) capped = true;
         } else if (entry.isFile()) {
           if (this.include && !this.include.some((ext) => entry.name.endsWith(ext))) continue;
           count++;
@@ -158,8 +268,94 @@ export class FsAdapter implements SourceAdapter {
     } catch {
       // ignore unreadable directories
     }
-    return count;
+    return { count, capped };
   }
+}
+
+// ---------------------------------------------------------------------------
+// ripgrep JSON output parsing
+// ---------------------------------------------------------------------------
+
+interface RgText {
+  text?: string;
+  bytes?: string;
+}
+
+interface RgMatchData {
+  path: RgText | null;
+  lines: RgText;
+  line_number: number | null;
+}
+
+interface RgMatchJsonLine {
+  type: "match";
+  data: RgMatchData;
+}
+
+interface RgOtherJsonLine {
+  type: string;
+  data?: unknown;
+}
+
+type RgJsonLine = RgMatchJsonLine | RgOtherJsonLine;
+
+/**
+ * Parse ripgrep's `--json` NDJSON output into SearchMatch[].
+ *
+ * Groups all matching lines by file, returns up to `k` files,
+ * each represented as a single SearchMatch with all hit lines joined.
+ */
+function parseRipgrepJson(stdout: string, k: number): SearchMatch[] {
+  // Group hits by file path
+  const byFile = new Map<string, { lines: string[]; lineNumbers: number[] }>();
+
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let parsed: RgJsonLine;
+    try {
+      parsed = JSON.parse(trimmed) as RgJsonLine;
+    } catch {
+      continue;
+    }
+
+    if (parsed.type !== "match") continue;
+    const matchParsed = parsed as RgMatchJsonLine;
+
+    const filePath = matchParsed.data.path?.text;
+    const matchLine = matchParsed.data.lines.text;
+    const lineNum = matchParsed.data.line_number;
+
+    if (!filePath || matchLine === undefined || lineNum === null) continue;
+
+    const trimmedMatchLine = matchLine.trimEnd();
+
+    const existing = byFile.get(filePath);
+    if (existing) {
+      existing.lines.push(trimmedMatchLine);
+      existing.lineNumbers.push(lineNum);
+    } else {
+      byFile.set(filePath, { lines: [trimmedMatchLine], lineNumbers: [lineNum] });
+    }
+  }
+
+  const results: SearchMatch[] = [];
+  for (const [filePath, { lines, lineNumbers }] of byFile) {
+    if (results.length >= k) break;
+    results.push({
+      id: filePath,
+      content: lines.join("\n"),
+      score: 1.0,
+      metadata: {
+        file: filePath,
+        hitCount: lines.length,
+        lineNumbers,
+      },
+    });
+  }
+
+  return results;
 }
 
 function formatBytes(bytes: number): string {

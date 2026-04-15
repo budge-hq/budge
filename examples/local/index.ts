@@ -47,6 +47,8 @@ function formatToolCall(event: ToolCallEvent): string {
       return `read  ${event.args.source}/${event.args.path}`;
     case "list_source":
       return `list  ${event.args.source}${event.args.path ? `/${event.args.path}` : ""}`;
+    case "search_source":
+      return `search ${event.args.source} — "${event.args.query.text}" (k=${event.args.query.k})`;
     case "run_subcall":
       return `sub   ${event.args.source}/${event.args.path} — "${event.args.task}"`;
     case "run_subcalls":

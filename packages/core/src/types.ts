@@ -1,6 +1,6 @@
-import type { LanguageModel } from "ai";
+import type { InferToolInput, LanguageModel, Tool } from "ai";
 import type { ZodType } from "zod";
-import type { SourceAdapter } from "./sources/interface.ts";
+import type { SearchQuery, SourceAdapter } from "./sources/interface.ts";
 
 // ---------------------------------------------------------------------------
 // Budge configuration
@@ -93,7 +93,7 @@ export interface PrepareOptions<
    * }
    * ```
    */
-  onToolCall?: (event: ToolCallEvent) => void;
+  onToolCall?: (event: ToolCallEvent<S>) => void;
 
   /**
    * Named schemas that `run_subcall` and `run_subcalls` can reference via
@@ -124,23 +124,70 @@ export interface PrepareOptions<
 // ---------------------------------------------------------------------------
 
 /**
+ * Derives a discriminated union of `{ tool: "sourceName.toolName"; args: <typed input> }`
+ * for every tool contributed by every source in `S` that implements `tools()`.
+ *
+ * Sources annotated directly as `SourceAdapter` erase their specific tool types —
+ * use `satisfies SourceAdapter` instead to preserve inference:
+ *
+ * ```ts
+ * // ✓ Preserves tool input types for ContributedToolEvents
+ * const db = { describe: () => "...", tools: () => ({ ... }) } satisfies SourceAdapter;
+ *
+ * // ✗ Erases tool types — contributed events fall back to Record<string, unknown>
+ * const db: SourceAdapter = { describe: () => "...", tools: () => ({ ... }) };
+ * ```
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ContributedToolEvents<S extends Record<string, SourceAdapter>> = {
+  [SourceName in keyof S & string]: S[SourceName] extends {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tools(): infer T extends Record<string, Tool<any, any>>;
+  }
+    ? {
+        [ToolName in keyof T & string]: {
+          tool: `${SourceName}.${ToolName}`;
+          args: InferToolInput<T[ToolName]>;
+        };
+      }[keyof T & string]
+    : never;
+}[keyof S & string];
+
+/**
  * A tool invocation event emitted to the `onToolCall` callback.
  *
- * Narrowing on `event.tool` gives you fully typed `event.args`:
+ * Generic over the sources map `S` so that source-contributed tools (e.g.
+ * `db.get_patient`) are fully typed. Narrowing on `event.tool` gives typed
+ * `event.args` for every registered tool:
  *
  * ```ts
  * switch (event.tool) {
- *   case "read_source":  event.args.path   // string
- *   case "list_source":  event.args.path   // string | undefined
- *   case "run_subcall":  event.args.task   // string
- *   case "run_subcalls": event.args.calls   // Array<{ ... }>
- *   case "finish":       event.args.answer // string
+ *   case "read_source":    event.args.path          // string
+ *   case "list_source":    event.args.path          // string | undefined
+ *   case "search_source":  event.args.query         // SearchQuery
+ *   case "run_subcall":    event.args.task          // string
+ *   case "run_subcalls":   event.args.calls         // Array<{ ... }>
+ *   case "finish":         event.args.answer        // string
+ *   case "db.get_patient": event.args.id            // number  ← fully typed
  * }
  * ```
+ *
+ * For full narrowing on contributed tools, define sources with `satisfies`
+ * rather than annotating directly as `SourceAdapter`:
+ *
+ * ```ts
+ * // ✓ Preserves tool input types
+ * const db = { describe: () => "...", tools: () => ({ ... }) } satisfies SourceAdapter;
+ *
+ * // Sources annotated as `: SourceAdapter` erase tool types and contribute
+ * // `never` to ContributedToolEvents — the callback still fires but args
+ * // cannot be narrowed to a specific tool's input type.
+ * ```
  */
-export type ToolCallEvent =
+export type ToolCallEvent<S extends Record<string, SourceAdapter> = Record<string, SourceAdapter>> =
   | { tool: "read_source"; args: { source: string; path: string } }
   | { tool: "list_source"; args: { source: string; path?: string } }
+  | { tool: "search_source"; args: { source: string; query: SearchQuery } }
   | {
       tool: "run_subcall";
       args: { source: string; path: string; task: string; schemaName?: string };
@@ -151,7 +198,8 @@ export type ToolCallEvent =
         calls: Array<{ source: string; path: string; task: string; schemaName?: string }>;
       };
     }
-  | { tool: "finish"; args: { answer: string } };
+  | { tool: "finish"; args: { answer: string } }
+  | ContributedToolEvents<S>;
 
 // ---------------------------------------------------------------------------
 // Token usage

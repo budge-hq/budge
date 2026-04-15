@@ -40,6 +40,42 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
+// excludePatterns option
+// ---------------------------------------------------------------------------
+
+describe("FsAdapter — excludePatterns option", () => {
+  it("merges excludePatterns with defaults (both are excluded)", async () => {
+    // Create a custom dir to exclude
+    fs.mkdirSync(path.join(tmpDir, "build"));
+    fs.writeFileSync(path.join(tmpDir, "build", "output.js"), "module.exports = {}");
+
+    const adapter = new FsAdapter(tmpDir, { excludePatterns: ["build"] });
+    const entries = await adapter.list();
+
+    // node_modules still excluded (default), build also excluded (additive)
+    expect(entries.every((e) => !e.startsWith("node_modules"))).toBe(true);
+    expect(entries.every((e) => !e.startsWith("build"))).toBe(true);
+    // Other files are still visible
+    expect(entries).toContain("index.ts");
+  });
+
+  it("excludePatterns does not replace the defaults", async () => {
+    const adapter = new FsAdapter(tmpDir, { excludePatterns: ["build"] });
+    const entries = await adapter.list();
+    // node_modules is still excluded even though we only added "build"
+    expect(entries.every((e) => !e.startsWith("node_modules"))).toBe(true);
+  });
+
+  it("exclude (without excludePatterns) replaces defaults entirely", async () => {
+    // exclude replaces defaults — node_modules is NOT excluded, lib is excluded
+    const adapter = new FsAdapter(tmpDir, { exclude: ["lib"] });
+    const entries = await adapter.list();
+    expect(entries).toContain("node_modules/");
+    expect(entries.every((e) => !e.startsWith("lib"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // describe()
 // ---------------------------------------------------------------------------
 
@@ -196,5 +232,61 @@ describe("FsAdapter.read()", () => {
     const content = await adapter.read("limit.txt");
 
     expect(content).toHaveLength(10 * 1024 * 1024);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// search() — ripgrep WASM
+// ---------------------------------------------------------------------------
+
+describe("FsAdapter.search()", () => {
+  it("returns matches for a known string", async () => {
+    const adapter = new FsAdapter(tmpDir);
+    const results = await adapter.search({ text: "export", k: 10 });
+    expect(results.length).toBeGreaterThan(0);
+    // Results should be in files that contain "export"
+    for (const r of results) {
+      expect(r.id).toBeTruthy();
+      expect(r.content).toContain("export");
+      expect(r.score).toBe(1.0);
+    }
+  });
+
+  it("returns empty array when no matches", async () => {
+    const adapter = new FsAdapter(tmpDir);
+    const results = await adapter.search({ text: "xyzzy_no_match_zxqwerty", k: 10 });
+    expect(results).toEqual([]);
+  });
+
+  it("respects the k limit", async () => {
+    // index.ts, utils.ts, lib/helper.ts, lib/math.ts all contain "export"
+    const adapter = new FsAdapter(tmpDir);
+    const results = await adapter.search({ text: "export", k: 2 });
+    expect(results.length).toBeLessThanOrEqual(2);
+  });
+
+  it("with filters.fixed=true does literal string matching", async () => {
+    const adapter = new FsAdapter(tmpDir);
+    // Regex special characters are treated as literals
+    const results = await adapter.search({ text: "const hello", k: 5, filters: { fixed: true } });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]!.content).toContain("const hello");
+  });
+
+  it("returns match metadata with hitCount and lineNumbers", async () => {
+    const adapter = new FsAdapter(tmpDir);
+    const results = await adapter.search({ text: "export", k: 5 });
+    if (results.length > 0) {
+      expect(results[0]!.metadata).toBeDefined();
+      expect(typeof (results[0]!.metadata as any).hitCount).toBe("number");
+      expect(Array.isArray((results[0]!.metadata as any).lineNumbers)).toBe(true);
+    }
+  });
+
+  it("describe() mentions search capability", () => {
+    const adapter = new FsAdapter(tmpDir);
+    const desc = adapter.describe();
+    expect(desc).toContain("search_source");
+    expect(desc).toContain("fixed");
   });
 });

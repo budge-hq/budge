@@ -206,7 +206,7 @@ describe("Truncator", () => {
       truncator: new Truncator({ overflowDir: makeTempDir() }),
     });
 
-    const result = await tools.read_source.execute!(
+    const result = await (tools as any).read_source.execute!(
       { source: "codebase", path: "dist/minified.js" },
       {} as never,
     );
@@ -234,7 +234,7 @@ describe("Truncator", () => {
       truncator: new Truncator({ overflowDir: makeTempDir() }),
     });
 
-    const result = await tools.read_source.execute!(
+    const result = await (tools as any).read_source.execute!(
       { source: "codebase", path: "missing.ts" },
       {} as never,
     );
@@ -266,7 +266,7 @@ describe("Truncator", () => {
       truncator: new Truncator({ overflowDir: makeTempDir() }),
     });
 
-    const result = await tools.list_source.execute!(
+    const result = await (tools as any).list_source.execute!(
       { source: "codebase", path: "src" },
       {} as never,
     );

@@ -1,14 +1,17 @@
 import { tool } from "ai";
 import safeStableStringify from "safe-stable-stringify";
 import { z } from "zod";
-import type { LanguageModel } from "ai";
+import type { InferToolInput, InferToolOutput, LanguageModel, Tool } from "ai";
 import type { ZodType } from "zod";
-import type { SourceAdapter } from "./sources/interface.ts";
+import type { SearchQuery, SourceAdapter } from "./sources/interface.ts";
 import type { TraceBuilder } from "./trace.ts";
 import type { SubcallTraceNode, ToolCallEvent } from "./types.ts";
 import { makeSubcallNode } from "./trace.ts";
 import { runConcurrent, runSubcall } from "./subcall.ts";
 import { DEFAULT_LIMITS, Truncator } from "./truncation.ts";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyTool = Tool<any, any>;
 
 /**
  * Options for building the agent tool set.
@@ -18,21 +21,38 @@ export interface BuildToolsOptions<S extends Record<string, SourceAdapter>> {
   sources: S;
   worker: LanguageModel;
   trace: TraceBuilder<S>;
-  onToolCall?: (event: ToolCallEvent) => void;
+  onToolCall?: (event: ToolCallEvent<S>) => void;
   subcallSchemas?: Record<string, ZodType>;
   concurrency?: number;
   truncator?: Truncator;
 }
 
+// ---------------------------------------------------------------------------
+// Zod schema for SearchQuery (shared between buildTools and agent.ts)
+// ---------------------------------------------------------------------------
+
+const searchQuerySchema = z.object({
+  text: z.string().min(1).describe("Natural language description of what to find."),
+  k: z.number().int().min(1).max(50).default(5).describe("How many results to return."),
+  filters: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "Source-specific metadata filters. Check the source description for available filter keys.",
+    ),
+});
+
+// ---------------------------------------------------------------------------
+// Tool builder
+// ---------------------------------------------------------------------------
+
 /**
- * Builds the five agent tools and wires them to the live sources + trace.
+ * Builds the orchestrator's tool set from all sources.
  *
- * The tools are:
- * - `read_source`  — read a specific path from a named source
- * - `list_source`  — list items at an optional path in a named source
- * - `run_subcall`  — spawn a focused worker call on a content slice
- * - `run_subcalls` — spawn focused worker calls on multiple independent slices
- * - `finish`       — return the final answer and stop the loop
+ * Standard content tools (`list_source`, `read_source`, `search_source`) are
+ * registered only when at least one source supports the corresponding method.
+ * Source-contributed tools are namespaced by source name (e.g. `db.runQuery`).
+ * `run_subcall`, `run_subcalls`, and `finish` are always registered.
  *
  * @internal
  */
@@ -46,29 +66,172 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
     concurrency = 5,
     truncator = new Truncator(),
   } = opts;
-  const hasSubcalls = !!subcallSchemas || true; // all agents currently support subcalls
+  const hasSubcalls = true; // all agents currently support subcalls
 
-  return {
-    read_source: tool({
-      description: [
-        "Read the content at a specific path within a named source.",
-        "Use list_source first to discover what paths are available.",
-        "Returns the raw content as a string.",
-        "Issue parallel calls in one response when reads are independent.",
-      ].join(" "),
+  const sourceEntries = Object.entries(sources) as Array<[string, SourceAdapter]>;
+
+  const hasAnyList = sourceEntries.some(([, s]) => s.list != null);
+  const hasAnyRead = sourceEntries.some(([, s]) => s.read != null);
+  const hasAnySearch = sourceEntries.some(([, s]) => s.search != null);
+
+  // ---------------------------------------------------------------------------
+  // Dynamic descriptions — embed per-source capability notes
+  // ---------------------------------------------------------------------------
+
+  function buildListDescription(): string {
+    const supports = sourceEntries.filter(([, s]) => s.list != null).map(([n]) => n);
+    const unsupported = sourceEntries
+      .filter(([, s]) => s.list == null)
+      .map(([n, s]) => {
+        if (s.search) return `${n} (search-only — use search_source)`;
+        if (s.tools) return `${n} (tools-only — use ${n}.* tools)`;
+        return n;
+      });
+
+    const lines = [
+      "List items available at an optional path within a named source.",
+      "Omit path to list the root of the source.",
+      "Returns a list of navigable paths or identifiers.",
+      "Use these paths with read_source, run_subcall, or run_subcalls.",
+      "Issue parallel calls in one response when calls are independent.",
+      "",
+      `Sources that support list: ${supports.join(", ")}`,
+    ];
+    if (unsupported.length > 0) {
+      lines.push(`Sources that do NOT support list: ${unsupported.join(", ")}`);
+    }
+    return lines.join("\n");
+  }
+
+  function buildReadDescription(): string {
+    const supports = sourceEntries.filter(([, s]) => s.read != null).map(([n]) => n);
+    const unsupported = sourceEntries
+      .filter(([, s]) => s.read == null)
+      .map(([n, s]) => {
+        if (s.search) return `${n} (search-only — use search_source)`;
+        if (s.tools) return `${n} (tools-only — use ${n}.* tools)`;
+        return n;
+      });
+
+    const lines = [
+      "Read the content at a specific path within a named source.",
+      "Use list_source first to discover what paths are available.",
+      "Returns the raw content as a string.",
+      "Issue parallel calls in one response when reads are independent.",
+      "",
+      `Sources that support read: ${supports.join(", ")}`,
+    ];
+    if (unsupported.length > 0) {
+      lines.push(`Sources that do NOT support read: ${unsupported.join(", ")}`);
+    }
+    return lines.join("\n");
+  }
+
+  function buildSearchDescription(): string {
+    const supports = sourceEntries
+      .filter(([, s]) => s.search != null)
+      .map(([n, s]) => `${n}: ${s.describe()}`);
+    const unsupported = sourceEntries
+      .filter(([, s]) => s.search == null)
+      .map(([n, s]) => {
+        if (s.read) return `${n} (use read_source or list_source)`;
+        if (s.tools) return `${n} (use ${n}.* tools)`;
+        return n;
+      });
+
+    const lines = [
+      "Search a source by semantic or relevance query.",
+      "Returns ranked matches with content, score, and metadata.",
+      "",
+    ];
+
+    lines.push("Sources that support search:");
+    for (const s of supports) lines.push(`  - ${s}`);
+
+    if (unsupported.length > 0) {
+      lines.push("");
+      lines.push("Sources that do NOT support search:");
+      for (const s of unsupported) lines.push(`  - ${s}`);
+    }
+
+    lines.push(
+      "",
+      "Issue MULTIPLE searches rather than one broad query when the task has multiple aspects.",
+      "Narrower queries produce better results.",
+    );
+
+    return lines.join("\n");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Standard content tools (conditionally registered)
+  // ---------------------------------------------------------------------------
+
+  const contentTools: Record<string, AnyTool> = {};
+
+  if (hasAnyList) {
+    contentTools.list_source = tool({
+      description: buildListDescription(),
       inputSchema: z.object({
-        source: z.string().describe("The source name (one of the keys in your sources map)"),
+        source: z.string().describe("The source name"),
+        path: z
+          .string()
+          .optional()
+          .describe("Optional sub-path to list. Omit for the root listing."),
+      }),
+      execute: async ({ source, path }) => {
+        const startMs = Date.now();
+        const adapter = resolveSourceForMethod(sources, source, "list");
+
+        onToolCall?.({ tool: "list_source", args: { source, path } });
+
+        let result: { content: string; truncated: boolean; overflowPath?: string };
+        try {
+          const items = await adapter.list!(path);
+          result = await truncator.applyArray(
+            items,
+            DEFAULT_LIMITS.LIST_MAX_ENTRIES,
+            formatListItems,
+            { toolName: "list_source", hasSubcalls, itemType: "entries" },
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          result = {
+            content: `[Error listing ${source}/${path ?? ""}: ${message}]`,
+            truncated: false,
+          };
+        }
+
+        trace.recordToolCall({
+          tool: "list_source",
+          args: { source, path },
+          result: result.content,
+          durationMs: Date.now() - startMs,
+          truncated: result.truncated,
+          overflowPath: result.overflowPath,
+        });
+
+        return result.content;
+      },
+    });
+  }
+
+  if (hasAnyRead) {
+    contentTools.read_source = tool({
+      description: buildReadDescription(),
+      inputSchema: z.object({
+        source: z.string().describe("The source name"),
         path: z.string().describe("The path within the source to read"),
       }),
       execute: async ({ source, path }) => {
         const startMs = Date.now();
-        const adapter = resolveSource(sources, source);
+        const adapter = resolveSourceForMethod(sources, source, "read");
 
         onToolCall?.({ tool: "read_source", args: { source, path } });
 
         let result: { content: string; truncated: boolean; overflowPath?: string };
         try {
-          const content = await adapter.read(path);
+          const content = await adapter.read!(path);
           result = await truncator.apply(
             content,
             {
@@ -96,49 +259,44 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
 
         return result.content;
       },
-    }),
+    });
+  }
 
-    list_source: tool({
-      description: [
-        "List items available at an optional path within a named source.",
-        "Omit path to list the root of the source.",
-        "Returns a list of navigable paths or identifiers.",
-        "Use these paths with read_source, run_subcall, or run_subcalls.",
-        "Issue parallel calls in one response when calls are independent.",
-      ].join(" "),
+  if (hasAnySearch) {
+    contentTools.search_source = tool({
+      description: buildSearchDescription(),
       inputSchema: z.object({
         source: z.string().describe("The source name"),
-        path: z
-          .string()
-          .optional()
-          .describe("Optional sub-path to list. Omit for the root listing."),
+        query: searchQuerySchema,
       }),
-      execute: async ({ source, path }) => {
+      execute: async ({ source, query }) => {
         const startMs = Date.now();
-        const adapter = resolveSource(sources, source);
+        const adapter = resolveSourceForMethod(sources, source, "search");
+        const searchQuery: SearchQuery = {
+          text: query.text,
+          k: query.k,
+          filters: query.filters,
+        };
 
-        onToolCall?.({ tool: "list_source", args: { source, path } });
+        onToolCall?.({ tool: "search_source", args: { source, query: searchQuery } });
 
         let result: { content: string; truncated: boolean; overflowPath?: string };
         try {
-          const items = await adapter.list(path);
+          const matches = await adapter.search!(searchQuery);
           result = await truncator.applyArray(
-            items,
-            DEFAULT_LIMITS.LIST_MAX_ENTRIES,
-            formatListItems,
-            { toolName: "list_source", hasSubcalls, itemType: "entries" },
+            matches,
+            searchQuery.k,
+            (items) => safeStableStringify(items) ?? "[]",
+            { toolName: "search_source", hasSubcalls, itemType: "matches" },
           );
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          result = {
-            content: `[Error listing ${source}/${path ?? ""}: ${message}]`,
-            truncated: false,
-          };
+          result = { content: `[Error searching ${source}: ${message}]`, truncated: false };
         }
 
         trace.recordToolCall({
-          tool: "list_source",
-          args: { source, path },
+          tool: "search_source",
+          args: { source, query: searchQuery },
           result: result.content,
           durationMs: Date.now() - startMs,
           truncated: result.truncated,
@@ -147,8 +305,51 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
 
         return result.content;
       },
-    }),
+    });
+  }
 
+  // ---------------------------------------------------------------------------
+  // Source-contributed tools (namespaced by source name)
+  // ---------------------------------------------------------------------------
+
+  const sourceTools: Record<string, AnyTool> = {};
+
+  for (const [name, source] of sourceEntries) {
+    if (source.tools) {
+      const contributed = source.tools();
+      for (const [toolName, t] of Object.entries(contributed)) {
+        const qualifiedName = `${name}.${toolName}`;
+        const original = t as AnyTool;
+        sourceTools[qualifiedName] = tool({
+          ...original,
+          execute: async (
+            args: InferToolInput<typeof original>,
+            ctx: Parameters<NonNullable<AnyTool["execute"]>>[1],
+          ) => {
+            const startMs = Date.now();
+            // Cast: qualifiedName is a string literal at runtime but the type system
+            // can't statically verify it matches a specific ContributedToolEvents variant.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            onToolCall?.({ tool: qualifiedName, args: args as Record<string, unknown> } as any);
+            const result: InferToolOutput<typeof original> = await original.execute?.(args, ctx);
+            trace.recordToolCall({
+              tool: qualifiedName,
+              args: args as Record<string, unknown>,
+              result: typeof result === "string" ? result : (safeStableStringify(result) ?? ""),
+              durationMs: Date.now() - startMs,
+            });
+            return result;
+          },
+        }) as AnyTool;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Built-in tools (always present)
+  // ---------------------------------------------------------------------------
+
+  const builtinTools = {
     run_subcall: tool({
       description: [
         "Spawn a focused analysis on a specific slice of a source.",
@@ -175,8 +376,15 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
       }),
       execute: async ({ source, path, task, schemaName }) => {
         const startMs = Date.now();
-        const adapter = resolveSource(sources, source);
-        const schema = schemaName ? resolveSubcallSchema(subcallSchemas, schemaName) : undefined;
+        let adapter: SourceAdapter;
+        let schema: ZodType | undefined;
+        try {
+          adapter = resolveSourceForMethod(sources, source, "read");
+          schema = schemaName ? resolveSubcallSchema(subcallSchemas, schemaName) : undefined;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return `[Error: ${message}]`;
+        }
         const subcallArgs = schemaName
           ? { source, path, task, schemaName }
           : { source, path, task };
@@ -245,11 +453,6 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
       execute: async ({ calls }) => {
         const startMs = Date.now();
 
-        const adapters = calls.map(({ source }) => resolveSource(sources, source));
-        const schemas = calls.map(({ schemaName }) =>
-          schemaName ? resolveSubcallSchema(subcallSchemas, schemaName) : undefined,
-        );
-
         onToolCall?.({ tool: "run_subcalls", args: { calls } });
 
         const subcallNodes = await runConcurrent(
@@ -257,13 +460,18 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
             const startMs = Date.now();
 
             try {
+              const adapter = resolveSourceForMethod(sources, call.source, "read");
+              const schema = call.schemaName
+                ? resolveSubcallSchema(subcallSchemas, call.schemaName)
+                : undefined;
+
               const node = await runSubcall({
                 worker,
-                adapter: adapters[index]!,
+                adapter,
                 sourceName: call.source,
                 path: call.path,
                 task: call.task,
-                schema: schemas[index],
+                schema,
                 schemaName: call.schemaName,
               });
 
@@ -340,7 +548,17 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
       },
     }),
   } as const;
+
+  return {
+    ...contentTools,
+    ...sourceTools,
+    ...builtinTools,
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 async function truncateSubcallNode(
   truncator: Truncator,
@@ -396,18 +614,32 @@ function resolveSubcallSchema(schemas: Record<string, ZodType> | undefined, name
   return schema;
 }
 
-// ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
-
-function resolveSource<S extends Record<string, SourceAdapter>>(
+/**
+ * Resolves a source and validates it has the required method.
+ * Throws a helpful error if the source doesn't support the operation,
+ * including which sources do support it.
+ */
+function resolveSourceForMethod<S extends Record<string, SourceAdapter>>(
   sources: S,
   name: string,
+  method: "list" | "read" | "search",
 ): SourceAdapter {
   const adapter = sources[name as keyof S];
   if (!adapter) {
     const available = Object.keys(sources).join(", ");
     throw new Error(`Unknown source: "${name}". Available sources: ${available}`);
   }
+
+  if (adapter[method] == null) {
+    const supporting = Object.entries(sources)
+      .filter(([, s]) => s[method] != null)
+      .map(([n]) => n);
+    const suggestion =
+      supporting.length > 0
+        ? ` Sources that support ${method}: ${supporting.join(", ")}.`
+        : ` No sources support ${method}.`;
+    throw new Error(`Source "${name}" does not support ${method}().${suggestion}`);
+  }
+
   return adapter;
 }

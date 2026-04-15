@@ -77,9 +77,17 @@ export async function runSubcall(opts: SubcallOptions): Promise<SubcallTraceNode
   const startMs = Date.now();
 
   // Step 1: Resolve content at path.
-  // Sub-calls operate on one readable path. If the path cannot be read,
-  // surface that error to the worker instead of silently analyzing
-  // unrelated content from a broad list() fallback.
+  // Sub-calls operate on one readable path. If the source doesn't support
+  // read(), fail fast with a clear message rather than silently doing nothing.
+  if (!adapter.read) {
+    const sourceSuggestion = sourceName
+      ? ` Use search_source to find content in "${sourceName}" instead.`
+      : "";
+    throw new Error(
+      `Source "${sourceName}" does not support read(). run_subcall requires a source with read().${sourceSuggestion}`,
+    );
+  }
+
   const contentParts: string[] = [];
 
   try {
