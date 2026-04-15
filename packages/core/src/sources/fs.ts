@@ -312,7 +312,7 @@ function parseRipgrepJson(stdout: string, k: number): SearchMatch[] {
 
     const filePath = parsed.data.path.text;
     if (!filePath) continue; // non-UTF-8 path — skip rather than emit id: undefined
-    const matchLine = parsed.data.lines.text.trimEnd();
+    const matchLine = (parsed.data.lines.text ?? "").trimEnd();
     const lineNum = parsed.data.line_number;
 
     const existing = byFile.get(filePath);
