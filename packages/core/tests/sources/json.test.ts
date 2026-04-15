@@ -34,28 +34,33 @@ describe("source.json() — describe()", () => {
     expect(desc).toMatch(/~\d+ token/);
   });
 
-  it("includes 'JSON object' label", () => {
+  it("labels plain objects as 'JSON object' with keys", () => {
     const adapter = json(patient);
     const desc = adapter.describe();
     expect(desc).toContain("JSON object");
+    expect(desc).toContain("with keys:");
   });
 
-  it("handles arrays (no top-level keys)", () => {
+  it("labels arrays as 'JSON array'", () => {
     const adapter = json([1, 2, 3]);
     const desc = adapter.describe();
-    expect(desc).toContain("no top-level keys");
+    expect(desc).toContain("JSON array");
+    expect(desc).not.toContain("JSON object");
+    expect(desc).not.toContain("no top-level keys");
   });
 
-  it("handles null", () => {
+  it("labels null as 'JSON primitive'", () => {
     const adapter = json(null);
     const desc = adapter.describe();
-    expect(desc).toContain("JSON object");
+    expect(desc).toContain("JSON primitive");
+    expect(desc).not.toContain("JSON object");
   });
 
-  it("handles primitives", () => {
+  it("labels numbers as 'JSON primitive'", () => {
     const adapter = json(42);
     const desc = adapter.describe();
-    expect(desc).toContain("JSON object");
+    expect(desc).toContain("JSON primitive");
+    expect(desc).not.toContain("JSON object");
   });
 
   it("caps key list at 20 and appends '… and N more' for large objects", () => {

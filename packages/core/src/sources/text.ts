@@ -192,14 +192,17 @@ export function json(value: unknown, options: TextSourceOptions = {}): SourceAda
   const serialized = safeStableStringify(value, undefined, 2) ?? "null";
   const tokenCount = estimateTokenCount(serialized);
 
+  const label = valueLabel(value);
+  const isPlainObject = label === "JSON object";
+
   const MAX_KEYS_IN_DESCRIBE = 20;
-  const topLevelKeys = topKeys(value);
+  const topLevelKeys = isPlainObject ? topKeys(value) : [];
   const keysSummary =
     topLevelKeys.length === 0
-      ? "(no top-level keys)"
+      ? ""
       : topLevelKeys.length <= MAX_KEYS_IN_DESCRIBE
-        ? `with keys: ${topLevelKeys.join(", ")}`
-        : `with keys: ${topLevelKeys.slice(0, MAX_KEYS_IN_DESCRIBE).join(", ")} … and ${topLevelKeys.length - MAX_KEYS_IN_DESCRIBE} more`;
+        ? `with keys: ${topLevelKeys.join(", ")} `
+        : `with keys: ${topLevelKeys.slice(0, MAX_KEYS_IN_DESCRIBE).join(", ")} … and ${topLevelKeys.length - MAX_KEYS_IN_DESCRIBE} more `;
 
   // Build the underlying text adapter — it handles all chunking and search.
   const inner = text(serialized, options);
@@ -212,10 +215,17 @@ export function json(value: unknown, options: TextSourceOptions = {}): SourceAda
   return {
     ...inner,
     describe: () => {
-      const base = `JSON object ${keysSummary} (~${tokenCount} token${tokenCount === 1 ? "" : "s"}).`;
+      const base = `${label} ${keysSummary}(~${tokenCount} token${tokenCount === 1 ? "" : "s"}).`;
       return `${base} ${accessNote}`;
     },
   };
+}
+
+/** Returns a human-readable type label for the top-level JSON value. */
+function valueLabel(value: unknown): string {
+  if (Array.isArray(value)) return "JSON array";
+  if (value === null || typeof value !== "object") return "JSON primitive";
+  return "JSON object";
 }
 
 /**
