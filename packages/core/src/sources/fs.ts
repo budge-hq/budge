@@ -105,8 +105,9 @@ export class FsAdapter implements SourceAdapter {
   }
 
   describe(): string {
-    let fileCount = 0;
     let topLevel: string[] = [];
+    let fileCount = 0;
+    let fileCountCapped = false;
 
     try {
       topLevel = fs
@@ -115,15 +116,16 @@ export class FsAdapter implements SourceAdapter {
         .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
         .sort();
 
-      fileCount = this.countFiles(this.root);
+      ({ count: fileCount, capped: fileCountCapped } = this.countFiles(this.root));
     } catch {
       return `Local filesystem at ${this.root} (unable to read directory)`;
     }
 
+    const countStr = fileCountCapped ? `~${fileCount}+` : `${fileCount}`;
     const topStr = topLevel.slice(0, 10).join(", ");
     const more = topLevel.length > 10 ? ` … and ${topLevel.length - 10} more` : "";
     return (
-      `Local filesystem at ${this.root} — ${fileCount} file${fileCount === 1 ? "" : "s"}. ` +
+      `Local filesystem at ${this.root} — ${countStr} file${fileCount === 1 ? "" : "s"}. ` +
       `Top-level: ${topStr}${more}. ` +
       `Searchable via search_source (regex or literal). Use filters: { fixed: true } for literal string search.`
     );
@@ -236,15 +238,24 @@ export class FsAdapter implements SourceAdapter {
     return absolute;
   }
 
-  private countFiles(dir: string, depth = 0): number {
-    if (depth > 10) return 0;
+  /**
+   * Count files up to `MAX_COUNT_DEPTH` levels deep to avoid blocking the
+   * event loop on large trees. Returns `capped: true` when the depth limit
+   * was reached so `describe()` can signal an approximate count.
+   */
+  private countFiles(dir: string, depth = 0): { count: number; capped: boolean } {
+    const MAX_COUNT_DEPTH = 3;
+    if (depth > MAX_COUNT_DEPTH) return { count: 0, capped: true };
     let count = 0;
+    let capped = false;
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (this.exclude.includes(entry.name)) continue;
         if (entry.isDirectory()) {
-          count += this.countFiles(path.join(dir, entry.name), depth + 1);
+          const child = this.countFiles(path.join(dir, entry.name), depth + 1);
+          count += child.count;
+          if (child.capped) capped = true;
         } else if (entry.isFile()) {
           if (this.include && !this.include.some((ext) => entry.name.endsWith(ext))) continue;
           count++;
@@ -253,7 +264,7 @@ export class FsAdapter implements SourceAdapter {
     } catch {
       // ignore unreadable directories
     }
-    return count;
+    return { count, capped };
   }
 }
 
