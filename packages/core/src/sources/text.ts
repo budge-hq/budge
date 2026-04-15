@@ -273,17 +273,21 @@ function chunkBySentences(content: string, maxTokens: number): string[] {
 
 /**
  * Split on blank lines, then merge small paragraphs up to `maxTokens`.
+ * Paragraph boundaries are preserved as `\n\n` in the merged output.
  */
 function chunkByParagraphs(content: string, maxTokens: number): string[] {
   const paragraphs = content.split(/\n\s*\n+/);
-  return mergeSegments(paragraphs, maxTokens);
+  return mergeSegments(paragraphs, maxTokens, "\n\n");
 }
 
 /**
  * Greedily merge segments until the next one would exceed `maxTokens`,
  * then flush and start a new chunk.
+ *
+ * @param sep - Separator used when joining segments within the same chunk.
+ *              Defaults to `" "`. Pass `"\n\n"` for paragraph-aware chunking.
  */
-function mergeSegments(segments: string[], maxTokens: number): string[] {
+function mergeSegments(segments: string[], maxTokens: number, sep = " "): string[] {
   const chunks: string[] = [];
   let current = "";
   let currentTokens = 0;
@@ -296,7 +300,7 @@ function mergeSegments(segments: string[], maxTokens: number): string[] {
       current = segment;
       currentTokens = segTokens;
     } else {
-      current = current.length > 0 ? `${current} ${segment}` : segment;
+      current = current.length > 0 ? `${current}${sep}${segment}` : segment;
       currentTokens += segTokens;
     }
   }

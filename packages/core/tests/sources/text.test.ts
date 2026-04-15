@@ -245,6 +245,25 @@ describe("text() — paragraph chunking strategy", () => {
     const first = await adapter.read!(ids[0]!);
     expect(first).toContain("Paragraph");
   });
+
+  it("preserves paragraph boundaries (\\n\\n) when merging small paragraphs", async () => {
+    // Three short paragraphs that each fit well under the size limit — they
+    // will be merged into a single chunk, and the boundary must be \n\n, not " ".
+    const content = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
+    const adapter = text(content, {
+      chunkThreshold: 1, // force chunking
+      chunk: { strategy: "paragraphs", size: 200 },
+    });
+    const ids = await adapter.list!();
+    // All three paragraphs fit in one chunk
+    expect(ids.length).toBe(1);
+    const chunk = await adapter.read!(ids[0]!);
+    // Paragraph structure preserved — not collapsed to a single space
+    expect(chunk).toContain("\n\n");
+    expect(chunk).toContain("First paragraph.");
+    expect(chunk).toContain("Second paragraph.");
+    expect(chunk).toContain("Third paragraph.");
+  });
 });
 
 // ---------------------------------------------------------------------------
