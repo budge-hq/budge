@@ -280,23 +280,30 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
 
         onToolCall?.({ tool: "search_source", args: { source, query: searchQuery } });
 
-        let resultContent: string;
+        let result: { content: string; truncated: boolean; overflowPath?: string };
         try {
           const matches = await adapter.search!(searchQuery);
-          resultContent = safeStableStringify(matches) ?? "[]";
+          const raw = safeStableStringify(matches) ?? "[]";
+          result = await truncator.apply(
+            raw,
+            { maxBytes: DEFAULT_LIMITS.READ_MAX_BYTES, direction: "head" },
+            { toolName: "search_source", hasSubcalls },
+          );
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          resultContent = `[Error searching ${source}: ${message}]`;
+          result = { content: `[Error searching ${source}: ${message}]`, truncated: false };
         }
 
         trace.recordToolCall({
           tool: "search_source",
           args: { source, query: searchQuery },
-          result: resultContent,
+          result: result.content,
           durationMs: Date.now() - startMs,
+          truncated: result.truncated,
+          overflowPath: result.overflowPath,
         });
 
-        return resultContent;
+        return result.content;
       },
     });
   }
