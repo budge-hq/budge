@@ -6,7 +6,7 @@ import type { ZodType } from "zod";
 import type { SearchQuery, SourceAdapter } from "./sources/interface.ts";
 import type { SubcallTraceNode, ToolCallEvent } from "./types.ts";
 import { makeSubcallNode, traceAddRead, traceAddToolCall, traceAddSubcall } from "./trace.ts";
-import { runConcurrent, runSubcall } from "./subcall.ts";
+import { runSubcall } from "./subcall.ts";
 import { DEFAULT_LIMITS, Truncator } from "./truncation.ts";
 import type { Trace } from "./trace.ts";
 import { Effect, Ref } from "effect";
@@ -467,47 +467,56 @@ export function buildTools<S extends Record<string, SourceAdapter>>(opts: BuildT
 
         onToolCall?.({ tool: "run_subcalls", args: { calls } });
 
-        const subcallNodes = await runConcurrent(
-          calls.map((call, index) => async () => {
-            const startMs = Date.now();
-
-            try {
-              const adapter = resolveSourceForMethod(sources, call.source, "read");
-              const schema = call.schemaName
-                ? resolveSubcallSchema(subcallSchemas, call.schemaName)
-                : undefined;
-
-              const node = await runSubcall({
-                worker,
-                adapter,
-                sourceName: call.source,
-                path: call.path,
-                task: call.task,
-                schema,
-                schemaName: call.schemaName,
-              });
-
-              return truncateSubcallNode(
-                truncator,
-                { ...node, parallel: true },
-                `run_subcalls[${index}]`,
-                hasSubcalls,
-              );
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              return makeSubcallNode({
-                source: call.source,
-                path: call.path,
-                task: call.task,
-                answer: `[Error: ${message}]`,
-                schemaName: call.schemaName,
-                usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0 },
-                startMs,
-                parallel: true,
-              });
-            }
-          }),
-          concurrency,
+        const subcallNodes = await Effect.runPromise(
+          Effect.forEach(
+            calls.map((call, index) => ({ call, index })),
+            ({ call, index }) =>
+              Effect.tryPromise({
+                try: async () => {
+                  const adapter = resolveSourceForMethod(sources, call.source, "read");
+                  const schema = call.schemaName
+                    ? resolveSubcallSchema(subcallSchemas, call.schemaName)
+                    : undefined;
+                  const node = await runSubcall({
+                    worker,
+                    adapter,
+                    sourceName: call.source,
+                    path: call.path,
+                    task: call.task,
+                    schema,
+                    schemaName: call.schemaName,
+                  });
+                  return truncateSubcallNode(
+                    truncator,
+                    { ...node, parallel: true },
+                    `run_subcalls[${index}]`,
+                    hasSubcalls,
+                  );
+                },
+                catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+              }).pipe(
+                Effect.catchAll((err) =>
+                  Effect.succeed(
+                    makeSubcallNode({
+                      source: call.source,
+                      path: call.path,
+                      task: call.task,
+                      answer: `[Error: ${err.message}]`,
+                      schemaName: call.schemaName,
+                      usage: {
+                        inputTokens: 0,
+                        outputTokens: 0,
+                        totalTokens: 0,
+                        cachedInputTokens: 0,
+                      },
+                      startMs: Date.now(),
+                      parallel: true,
+                    }),
+                  ),
+                ),
+              ),
+            { concurrency },
+          ),
         );
 
         // record all subcalls atomically in one update

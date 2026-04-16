@@ -194,7 +194,7 @@ export function renderQuestionWithChoices(
 
 export function renderBudgeTask(payload: Pick<LongBenchPayload, "question" | "choices">): string {
   return [
-    "Search the document to find evidence for or against each option. Call finish with the correct letter (A, B, C, or D) and the evidence you found.",
+    "Search the document to find evidence for or against each option. When you call finish, your answer must be exactly one letter: A, B, C, or D. No explanation.",
     "",
     renderQuestionWithChoices(payload),
   ].join("\n");
@@ -217,30 +217,32 @@ export function getFullDumpSystemPrompt(): string {
 }
 
 export function extractLetter(text: string): LongBenchAnswer | undefined {
-  const trimmed = text.trim().toUpperCase();
+  // strip markdown bold before any matching
+  const trimmed = text.trim().replace(/\*\*/g, "").toUpperCase();
 
   if (/^[ABCD]$/.test(trimmed)) {
     return trimmed as LongBenchAnswer;
   }
 
+  // "Answer is A", "Option: B", "Choice is C"
   const labeled = trimmed.match(/(?:ANSWER|OPTION|CHOICE)\s*(?:IS|:)?\s*\(?([ABCD])\)?/);
-  if (labeled) {
-    return labeled[1] as LongBenchAnswer;
-  }
+  if (labeled) return labeled[1] as LongBenchAnswer;
 
+  // "Correct letter: A", "Correct answer: B", "The correct letter is C"
+  const correctLabel = trimmed.match(/CORRECT\s+(?:LETTER|ANSWER)\s*(?:IS|:)?\s*\(?([ABCD])\)?/);
+  if (correctLabel) return correctLabel[1] as LongBenchAnswer;
+
+  // letter at start of line: "A) ...", "(B)", "C."
   const leading = trimmed.match(/^\(?([ABCD])\)?(?:[\s.)-]|$)/);
-  if (leading) {
-    return leading[1] as LongBenchAnswer;
-  }
+  if (leading) return leading[1] as LongBenchAnswer;
 
+  // single unambiguous standalone letter across whole text
   const standalone = Array.from(
     trimmed.matchAll(/\b([ABCD])\b/g),
     (match) => match[1] as LongBenchAnswer,
   );
   const unique = Array.from(new Set(standalone));
-  if (unique.length === 1) {
-    return unique[0];
-  }
+  if (unique.length === 1) return unique[0];
 
   return undefined;
 }

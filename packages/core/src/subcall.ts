@@ -32,29 +32,6 @@ export interface SubcallOptions {
   overflowPath?: string;
 }
 
-export async function runConcurrent<T>(
-  tasks: Array<() => Promise<T>>,
-  limit: number,
-): Promise<T[]> {
-  if (tasks.length === 0) return [];
-
-  const normalizedLimit = Math.max(1, Math.floor(limit));
-  const results: T[] = [];
-  let nextIndex = 0;
-
-  await Promise.all(
-    Array.from({ length: Math.min(normalizedLimit, tasks.length) }, async () => {
-      while (true) {
-        const currentIndex = nextIndex++;
-        if (currentIndex >= tasks.length) return;
-        results[currentIndex] = await tasks[currentIndex]!();
-      }
-    }),
-  );
-
-  return results;
-}
-
 /**
  * Spawns a focused model call scoped to a specific slice of a source.
  *

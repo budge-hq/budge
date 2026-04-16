@@ -169,29 +169,30 @@ tests:
     vars:
       task: >
         Analyze the concurrency implementation in the codebase — specifically how
-        run_subcalls and runConcurrent work. What are the hazards, race conditions,
-        or correctness issues that could occur under concurrent execution?
-        Include both the current implementation and any risks in how results are
-        assembled and recorded in the trace.
+        run_subcalls works and how Effect.forEach manages parallel execution.
+        What are the hazards, race conditions, or correctness issues that could
+        occur under concurrent execution? Include both how tasks are dispatched
+        and how results are assembled and recorded in the trace.
     assert:
       - type: llm-rubric
         value: >
           A high-quality answer must:
-          (1) Accurately describe how runConcurrent works — the worker pool pattern,
-          the shared nextIndex counter, and Promise.all over a fixed-size worker array.
+          (1) Accurately describe how Effect.forEach with { concurrency: n } works —
+          fiber-based bounded concurrency, not a hand-rolled worker pool.
           (2) Identify at least 2 real hazards or edge cases, not just theoretical ones.
-          (3) Address result ordering — does the implementation preserve input order? Why or why not?
-          Strong answers will identify: the results array uses index assignment (results[currentIndex])
-          which preserves order but leaves holes if tasks throw and aren't caught at that level,
-          the shared nextIndex mutation is safe in JS single-threaded event loop but would not be
-          in a true multi-threaded environment, or that trace.recordSubcall is called from concurrent
-          callbacks and while JS is single-threaded the interleaving order of subcall nodes in the
-          trace is non-deterministic. Penalize answers that incorrectly claim there are no
-          ordering guarantees, or that miss the index-based ordering mechanism entirely.
+          (3) Address result ordering — Effect.forEach preserves input order in its
+          output array regardless of completion order.
+          Strong answers will identify: the trace update at the end of run_subcalls
+          is a single atomic Ref.update over all nodes so subcall recording order
+          matches input order; the updateTrace helper uses Effect.runPromise inside
+          an AI SDK execute callback which is fire-and-forget inside the agent loop
+          and could theoretically interleave with other tool calls; or that
+          Effect.forEach fibers are cooperative not preemptive so JS single-threaded
+          guarantees still apply but fiber scheduling introduces its own interleaving.
+          Penalize answers that describe the old hand-rolled runConcurrent worker
+          pool pattern with shared nextIndex counter — that code no longer exists.
       - type: javascript
         value: "!output.metadata || output.metadata.totalTokens < 50000"
-        # Budge should use <100k tokens per analytical question.
-        # Baseline will fail this — that's the point. It measures Budge's efficiency claim.
     threshold: 0.65
 
   # ---------------------------------------------------------------------------

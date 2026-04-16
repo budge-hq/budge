@@ -16,6 +16,9 @@ import {
   summarizeWarnings,
   toPromptfooResponse,
 } from "./shared.ts";
+import { writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { mkdirSync } from "node:fs";
 
 interface LongBenchBudgeProviderConfig {
   orchestratorModel?: string;
@@ -24,6 +27,9 @@ interface LongBenchBudgeProviderConfig {
   provider?: string;
   maxSteps?: number;
 }
+
+const traceDir = path.join(homedir(), ".budge", "traces", "longbench");
+mkdirSync(traceDir, { recursive: true });
 
 export default class LongBenchBudgeProvider {
   private readonly config: LongBenchBudgeProviderConfig;
@@ -73,6 +79,23 @@ export default class LongBenchBudgeProvider {
       maxSteps: this.config.maxSteps ?? 20,
       onToolCall,
     });
+
+    await writeFile(
+      path.join(traceDir, `${payload._id}-budge.json`),
+      JSON.stringify(
+        {
+          finishReason: prepared.finishReason,
+          answer: prepared.answer,
+          handoff: prepared.handoff,
+          trace: prepared.trace,
+          question: payload.question,
+          choices: payload.choices,
+        },
+        null,
+        2,
+      ),
+    );
+
     const prepMs = Date.now() - prepStart;
     const directAnswer = normalizeProviderOutput(prepared.answer);
 

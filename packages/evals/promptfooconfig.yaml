@@ -99,9 +99,9 @@ tests:
       task: "How does run_subcalls limit concurrency? What function implements it and what is the default limit?"
     assert:
       - type: icontains
-        value: "runConcurrent"
+        value: "Effect.forEach"
       - type: icontains
-        value: "subcall.ts"
+        value: "tools.ts"
       - type: icontains
         value: "5"
     threshold: 0.9
